@@ -45,7 +45,7 @@ func (rm *room) compose(f *kit.Frame, r kit.Room, v kit.Player) {
 		rm.composeResults(f, v)
 	default: // countdown, racing
 		rm.composePassage(f, v)
-		rm.composeOpponents(f, r, v)
+		rm.composeRacers(f, r, v)
 		if rm.phase == phCountdown {
 			rm.composeCountdown(f)
 		}
@@ -117,7 +117,18 @@ func (rm *room) composePassage(f *kit.Frame, v kit.Player) {
 	}
 }
 
-func (rm *room) composeOpponents(f *kit.Frame, r kit.Room, v kit.Player) {
+// composeRacers draws the racer strip (spec rows 19–23, 0-based 18–22): the
+// viewer's own accent-styled row first — name, progress, live WPM and accuracy
+// — then up to four opponents in join order. The viewer always sees their own
+// pace; the native game showed only opponents.
+func (rm *room) composeRacers(f *kit.Frame, r kit.Room, v kit.Player) {
+	const stripTop = 18
+	row := stripTop
+	if ps := rm.st[v.AccountID]; ps != nil {
+		rm.racerRow(f, row, "You ("+v.DisplayName()+")", ps, stAccent, stAccent)
+		row++
+	}
+
 	var opps []kit.Player
 	for _, p := range r.Members() {
 		if p.AccountID != v.AccountID {
@@ -134,27 +145,27 @@ func (rm *room) composeOpponents(f *kit.Frame, r kit.Room, v kit.Player) {
 		}
 		return opps[i].AccountID < opps[j].AccountID
 	})
-	// Opponent strip occupies spec rows 19–23 (0-based 18–22): up to 5 rows.
-	const stripTop = 18
-	for i, p := range opps {
-		if i >= 5 {
+	for _, p := range opps {
+		if row > 22 {
 			break
 		}
 		ps := rm.st[p.AccountID]
 		if ps == nil {
 			continue
 		}
-		row := stripTop + i
-		name := p.DisplayName()
-		if len(name) > 18 {
-			name = name[:18]
-		}
-		f.Text(row, 1, fmt.Sprintf("%-18s", name), stPlain)
-		bar := progressBar(ps.cursor, len(rm.passage), 20)
-		f.Text(row, 20, bar, stDone)
-		acc := accuracyStr(ps)
-		f.Text(row, 43, fmt.Sprintf("WPM:%3d  ACC:%s", ps.wpmSnapOrLive(rm), acc), stDim)
+		rm.racerRow(f, row, p.DisplayName(), ps, stPlain, stDim)
+		row++
 	}
+}
+
+// racerRow draws one strip line: padded name, progress bar, WPM and accuracy.
+func (rm *room) racerRow(f *kit.Frame, row int, name string, ps *pstate, nameSt, statSt kit.Style) {
+	if len(name) > 18 {
+		name = name[:18]
+	}
+	f.Text(row, 1, fmt.Sprintf("%-18s", name), nameSt)
+	f.Text(row, 20, progressBar(ps.cursor, len(rm.passage), 20), stDone)
+	f.Text(row, 43, fmt.Sprintf("WPM:%3d  ACC:%s", ps.wpmSnapOrLive(rm), accuracyStr(ps)), statSt)
 }
 
 func (rm *room) composeCountdown(f *kit.Frame) {
