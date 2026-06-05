@@ -7,7 +7,22 @@ Every game in the catalog ships a `game.toml` at the root of its directory:
 CI validates it on every PR
 ([`.github/scripts/validate_game_toml.py`](.github/scripts/validate_game_toml.py)).
 A live example is
-[`games/example/tic-tac-toe/game.toml`](games/example/tic-tac-toe/game.toml).
+[`games/bcook/tic-tac-toe/`](games/bcook/tic-tac-toe/) — a complete,
+buildable game.
+
+## Every game is a standalone Go module
+
+Alongside `game.toml`, each game directory MUST carry its own `go.mod` — every
+game is a **standalone Go module** that the platform builds in isolation:
+
+    games/<shellcade-username>/<name>/go.mod
+
+The module path is not importable by others, so any unique path works (e.g.
+`shellcade.games/<shellcade-username>/<name>`); what matters is that the
+directory compiles on its own and pins the SDK it builds against (`require
+github.com/shellcade/kit vX.Y.Z`). Documentation-only entries — a `game.toml`
+with no buildable source — are **not allowed**; the validator fails a game
+directory that has no `go.mod`.
 
 ## The slug is the path
 
@@ -56,8 +71,8 @@ min = 2
 max = 2
 ```
 
-This lives at `games/example/tic-tac-toe/game.toml`, so the platform-composed
-slug is `example/tic-tac-toe`.
+This lives at `games/bcook/tic-tac-toe/game.toml`, so the platform-composed
+slug is `bcook/tic-tac-toe`.
 
 ## Validate locally
 
