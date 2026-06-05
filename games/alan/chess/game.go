@@ -1,0 +1,35 @@
+package main
+
+import kit "github.com/shellcade/kit"
+
+// Game is the chess registry entry: static metadata plus the per-room factory.
+type Game struct{}
+
+// Meta returns the static game metadata. The bare slug "chess" is namespaced to
+// "alan/chess" by the platform from the catalog path; this Meta carries the bare
+// name only.
+//
+// Strictly two-player: unlike the native game (which also offered a 1-player
+// untimed hot-seat), the catalog entry declares MinPlayers 2 so the matchmaker
+// always pairs a real opponent and the blitz clock always applies.
+func (Game) Meta() kit.GameMeta {
+	return kit.GameMeta{
+		Slug:             "chess",
+		Name:             "Chess",
+		ShortDescription: "A two-player chess duel — pair up, beat the clock, mate the king.",
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		Tags:             []string{"chess", "strategy", "board"},
+
+		// Chess-appropriate lobby mode labels — the generic defaults don't fit a
+		// turn-based duel.
+		QuickModeLabel:    "Quick match",
+		SoloModeLabel:     "Solo: play both sides",
+		PrivateInviteLine: "Your opponent takes the other colour when they enter the code.",
+	}
+}
+
+// NewRoom returns the per-room behavior.
+func (Game) NewRoom(cfg kit.RoomConfig, svc kit.Services) kit.Handler {
+	return newRoom(cfg, svc)
+}
