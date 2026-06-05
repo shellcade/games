@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // Card dealing/reveal animation. Animations are purely cosmetic: every card's

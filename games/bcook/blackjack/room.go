@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // phases of one round. These are INTERNAL state-machine markers held in guest

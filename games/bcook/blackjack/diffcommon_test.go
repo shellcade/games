@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	kit "github.com/shellcade/kit"
-	"github.com/shellcade/kit/kittest"
+	kit "github.com/shellcade/kit/v2"
+	"github.com/shellcade/kit/v2/kittest"
 )
 
 // seqOutDir is where captured sequences are written: the kit diffbench

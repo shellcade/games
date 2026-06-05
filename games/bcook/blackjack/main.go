@@ -19,6 +19,6 @@
 //   -o game.wasm -target wasip1 -buildmode=c-shared .
 package main
 
-import kit "github.com/shellcade/kit"
+import kit "github.com/shellcade/kit/v2"
 
 func main() { kit.Main(Game{}) }
