@@ -3,7 +3,7 @@
 package main
 
 import (
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 
 	"shellracer.shellcade.example/shellracer"
 )
