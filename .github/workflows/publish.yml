@@ -103,7 +103,7 @@ jobs:
             # Next version integer N from existing <owner>-<game>-vN tags.
             prefix="${owner}-${game}-v"
             last=$(git tag -l "${prefix}*" | sed -E "s/^${prefix}//" \
-                   | grep -E '^[0-9]+$' | sort -n | tail -1)
+                   | grep -E '^[0-9]+$' | sort -n | tail -1 || true)
             if [ -z "$last" ]; then
               # No prior release: this is v1.
               next=1
