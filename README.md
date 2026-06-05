@@ -18,18 +18,25 @@ a game is a pull request.**
 
 3. When `shellcade-kit check mygame.wasm` passes, open a PR adding:
 
-       games/<your-shellcade-username>/<game-slug>/
-       ├── game.toml          # name, slug, players, description
+       games/<your-shellcade-username>/<game-name>/
+       ├── game.toml          # name, display_name, players, description, license
        ├── main.go …          # your game's source (source is required)
        └── go.mod
+
+   **Your slug is the path.** The catalog identity is
+   `<your-shellcade-username>/<game-name>`, composed from the directory the
+   game lives in. `game.toml` carries the **bare name only** (`[a-z0-9-]`, no
+   slash) and it must match the directory name; the platform adds your
+   namespace. Names are unique per author. See [SCHEMA.md](SCHEMA.md) for the
+   full `game.toml` schema (validated by CI).
 
    Add yourself to `authors.toml` (`<shellcade-username> = "<github-login>"`)
    in the same PR if this is your first game — a maintainer verifies the link
    in-arcade before merging. (This file is interim; an API will replace it.)
 
 4. CI verifies: the path's shellcade username maps to **your** GitHub login,
-   the game builds (TinyGo), and `shellcade-kit check` passes — the same gate
-   the arcade runs.
+   `game.toml` matches the [schema](SCHEMA.md), the game builds (TinyGo), and
+   `shellcade-kit check` passes — the same gate the arcade runs.
 5. A maintainer reviews and merges. Merge = accepted into the catalog;
    an arcade operator then flips it live, attributed to your handle.
 

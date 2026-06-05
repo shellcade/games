@@ -1,0 +1,26 @@
+# Reference game.toml for the catalog schema (see /SCHEMA.md).
+# This directory is a documentation example, not a playable submission:
+# it carries only game.toml so the schema validator has something to lint.
+# Real submissions add source (main.go, go.mod) alongside this file.
+
+# Bare name: [a-z0-9-]{1,32}, no slash. MUST equal the directory name.
+# The platform composes the namespaced slug "example/tic-tac-toe" from the
+# catalog path games/<shellcade-username>/<name>; game.toml never carries it.
+name = "tic-tac-toe"
+
+# Human-facing title shown in the lobby.
+display_name = "Tic-Tac-Toe"
+
+# <= 200 characters.
+description = "Classic noughts and crosses on an 80x24 board. First to three in a row wins; perfect play draws."
+
+# SPDX id from the allowlist: MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, Unlicense.
+license = "MIT"
+
+# Optional discovery tags ([a-z0-9-]{1,32} each).
+tags = ["board", "two-player", "classic"]
+
+# Player count, within the platform caps 1..8.
+[players]
+min = 2
+max = 2
