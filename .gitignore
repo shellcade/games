@@ -1,1 +1,6 @@
+# build outputs — the catalog never commits artifacts
 *.wasm
+
+# native `go build` binaries take the game directory name; authors: run
+# `go build ./...` (no output binary) or clean up before committing.
+games/*/*/tic-tac-toe
