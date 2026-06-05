@@ -6,7 +6,9 @@ Usage: validate_game_dir.py games/<username>/<name>
 
 Enforces:
   - bare-name directory: ^[a-z0-9-]{1,32}$
-  - go.mod present (every game is a standalone module)
+  - a standalone-module marker present: go.mod (Go guest) or Cargo.toml (Rust
+    guest). The artifact's meta is the source of truth either way; this is just
+    a "the sources build as their own module" sanity check.
   - LICENSE present, first line matching the allowlist:
       MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, Unlicense
   - no committed build artifacts (*.wasm)
@@ -37,8 +39,12 @@ def main() -> None:
 
     if not re.fullmatch(r"[a-z0-9-]{1,32}", name):
         err(f"{d}: game directory name {name!r} must match [a-z0-9-]{{1,32}}")
-    if not os.path.isfile(os.path.join(d, "go.mod")):
-        err(f"{d}/go.mod missing — every game is a standalone Go module")
+    # A game is a standalone module in its source language: go.mod for a Go
+    # guest, Cargo.toml for a Rust guest. The built artifact (and its meta) is
+    # the real contract; this just asserts the sources stand on their own.
+    module_markers = ("go.mod", "Cargo.toml")
+    if not any(os.path.isfile(os.path.join(d, m)) for m in module_markers):
+        err(f"{d}: no module marker — need go.mod (Go) or Cargo.toml (Rust)")
 
     lic = os.path.join(d, "LICENSE")
     if not os.path.isfile(lic):
