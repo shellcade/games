@@ -28,26 +28,12 @@ jobs:
             echo "::error::PR touches files outside games/: $outside"; exit 1
           fi
 
-      # Resolve each namespace's owner through authors.toml and require the PR
-      # author's GitHub login to match. FUTURE: replace this file lookup with a
-      # call to the shellcade author-resolution endpoint (planned) that returns
-      # the GitHub login linked to a shellcade username; the match logic below
-      # stays the same.
-      - name: path owner (shellcade username) maps to the PR author's GitHub login
-        if: steps.changed.outputs.dirs != ''
-        run: |
-          author="${{ github.event.pull_request.user.login }}"
-          while read -r d; do
-            [ -z "$d" ] && continue
-            owner=$(echo "$d" | cut -d/ -f2)   # shellcade username
-            mapped=$(grep -E "^${owner}[[:space:]]*=" authors.toml | sed -E 's/.*"(.*)".*/\1/' | head -1)
-            if [ -z "$mapped" ]; then
-              echo "::error::games/$owner has no authors.toml entry — add '$owner = \"$author\"' (your shellcade->GitHub link; verified in-arcade by a maintainer)"; exit 1
-            fi
-            if [ "${mapped,,}" != "${author,,}" ]; then
-              echo "::error::games/$owner is linked to GitHub '$mapped' but the PR author is '$author'"; exit 1
-            fi
-          done <<< "${{ steps.changed.outputs.dirs }}"
+      # Authorship is no longer checked here. Namespace ownership is authorized
+      # by the separate authorize.yml job, which asks the shellcade API whether
+      # the PR author's GitHub login is linked to the path's shellcade username
+      # (with maintainer review as the gate until that endpoint's secret is set).
+      # This workflow only validates the directory contract and that the game
+      # builds and passes conformance.
 
       - name: validate game directory (module, LICENSE, no artifacts)
         if: steps.changed.outputs.dirs != ''

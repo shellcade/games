@@ -1,0 +1,160 @@
+name: authorize
+# Authorize a game-submission PR against the author's in-arcade GitHub link.
+#
+# Runs on pull_request_target so it has the repo's secret + write token even for
+# fork PRs — and DELIBERATELY never checks out the PR's code (it reads only PR
+# metadata + the changed-files API). Do not add a checkout of the PR head here.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+# Need to write a single status comment on the PR; nothing else.
+permissions:
+  contents: read
+  pull-requests: write
+
+# One run per PR; a new push cancels the in-flight check.
+concurrency:
+  group: authorize-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      REPO: ${{ github.repository }}
+      ENDPOINT: "https://shellcade.com/admin/game:checkCanPublish"
+      ADMIN_SECRET: ${{ secrets.SHELLCADE_ADMIN_SECRET }}
+    steps:
+      # Staged rollout: until the API secret is configured in this repo, the
+      # authorization endpoint can't be called. Exit neutral-success and let
+      # maintainer review be the gate (no authors.toml fallback exists anymore).
+      - name: secret configured?
+        id: gate
+        run: |
+          if [ -z "${ADMIN_SECRET}" ]; then
+            echo "::notice::authorization check skipped (secret not configured); maintainer review is the gate"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: changed game namespaces
+        id: changed
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # Changed files via the API (no PR checkout). Paginate to be safe.
+          files=$(gh api --paginate \
+            "repos/${REPO}/pulls/${PR_NUMBER}/files" \
+            -q '.[].filename')
+          # Reduce to distinct games/<owner>/<game> namespaces.
+          dirs=$(printf '%s\n' "$files" \
+                 | awk -F/ 'NF>=3 && $1=="games" {print $1"/"$2"/"$3}' \
+                 | sort -u)
+          { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
+      - name: authorize each namespace
+        id: authz
+        if: steps.gate.outputs.skip != 'true' && steps.changed.outputs.dirs != ''
+        run: |
+          set -euo pipefail
+          denied=0
+          # Accumulate denial messages (the endpoint's verbatim text) for one
+          # consolidated PR comment.
+          : > deny_messages.txt
+          while read -r d; do
+            [ -z "$d" ] && continue
+            echo "=== authorizing $d ==="
+            body=$(jq -nc --arg path "$d" --arg user "$PR_AUTHOR" \
+                     '{path:$path, githubUser:$user}')
+
+            # Capture body + HTTP status separately so transport/HTTP errors are
+            # distinguishable from a clean allowed:false decision.
+            resp=$(curl -sS -m 20 -w '\n%{http_code}' \
+                     -X POST "$ENDPOINT" \
+                     -H "Authorization: Bearer ${ADMIN_SECRET}" \
+                     -H "Content-Type: application/json" \
+                     -d "$body") || {
+                       echo "::error::could not reach the shellcade authorization endpoint for $d"; exit 2;
+                     }
+            code=$(printf '%s' "$resp" | tail -n1)
+            payload=$(printf '%s' "$resp" | head -n -1)
+
+            if [ "$code" != "200" ]; then
+              echo "::error::authorization endpoint returned HTTP $code for $d: $payload"
+              exit 2
+            fi
+
+            allowed=$(printf '%s' "$payload" | jq -r '.allowed')
+            if [ "$allowed" = "true" ]; then
+              echo "allowed: $d"
+              continue
+            fi
+
+            reason=$(printf '%s' "$payload" | jq -r '.reason // "denied"')
+            message=$(printf '%s' "$payload" | jq -r '.message // "Authorization denied."')
+            echo "DENIED ($reason): $d"
+            {
+              printf '### %s — %s\n\n' "$d" "$reason"
+              printf '%s\n\n' "$message"
+            } >> deny_messages.txt
+            denied=1
+          done <<< "${{ steps.changed.outputs.dirs }}"
+          echo "denied=$denied" >> "$GITHUB_OUTPUT"
+
+      # Post (or update) ONE bot comment with the denial details. Keyed by a
+      # hidden marker so re-runs edit the same comment instead of spamming.
+      - name: upsert authorization comment
+        if: steps.gate.outputs.skip != 'true' && steps.authz.outputs.denied == '1'
+        env:
+          MARKER: "<!-- shellcade-authorize -->"
+        run: |
+          set -euo pipefail
+          {
+            echo "$MARKER"
+            echo "## shellcade could not authorize this PR"
+            echo
+            cat deny_messages.txt
+          } > comment.md
+
+          # --paginate emits one match per page, so take the first id (the bot
+          # only ever creates one marked comment). Empty => create a new one.
+          existing=$(gh api --paginate \
+            "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -q ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1 || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" \
+              -f body="$(cat comment.md)" >/dev/null
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -f body="$(cat comment.md)" >/dev/null
+          fi
+
+      # On a clean pass, resolve any prior denial comment so the PR stops showing
+      # a stale failure (edit in place — never delete history of the check).
+      - name: clear prior denial comment on pass
+        if: steps.gate.outputs.skip != 'true' && steps.authz.outputs.denied == '0'
+        env:
+          MARKER: "<!-- shellcade-authorize -->"
+        run: |
+          set -euo pipefail
+          existing=$(gh api --paginate \
+            "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -q ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1 || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            body="${MARKER}"$'\n'"shellcade authorized this PR. ✅"
+            gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" \
+              -f body="$body" >/dev/null
+          fi
+
+      - name: fail if any namespace was denied
+        if: steps.gate.outputs.skip != 'true' && steps.authz.outputs.denied == '1'
+        run: |
+          echo "::error::PR authorization failed — see the bot comment for the per-namespace reasons."
+          exit 1

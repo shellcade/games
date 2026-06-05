@@ -32,14 +32,16 @@ a game is a pull request.**
    platform adds your namespace. Names are unique per author. See
    [SCHEMA.md](SCHEMA.md) for the directory contract (validated by CI).
 
-   Add yourself to `authors.toml` (`<shellcade-username> = "<github-login>"`)
-   in the same PR if this is your first game — a maintainer verifies the link
-   in-arcade before merging. (This file is interim; an API will replace it.)
+   PRs are authorized against your in-arcade GitHub link via the shellcade API:
+   CI asks shellcade.com whether your PR's GitHub author is linked to the
+   shellcade username in the path, and only your own `games/<your-handle>/`
+   namespace is yours to publish (admins may publish anywhere). If you haven't
+   linked yet, the check posts the linking steps on your PR. While the API is
+   being rolled out, the check is skipped and maintainer review is the gate.
 
-4. CI verifies: the path's shellcade username maps to **your** GitHub login,
-   the directory meets the [contract](SCHEMA.md), the game builds (TinyGo),
-   `shellcade-kit check` passes — the same gate the arcade runs — and the
-   artifact's own metadata agrees with the path.
+4. CI also verifies: the directory meets the [contract](SCHEMA.md), the game
+   builds (TinyGo), `shellcade-kit check` passes — the same gate the arcade
+   runs — and the artifact's own metadata agrees with the path.
 5. A maintainer reviews and merges. Merge = accepted into the catalog;
    an arcade operator then flips it live, attributed to your handle.
 

@@ -83,16 +83,16 @@ jobs:
 
             owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
             game=$(echo "$d" | cut -d/ -f3)     # bare game name (== artifact meta slug)
+            echo "owner=$owner game=$game"
 
-            # Resolve the namespace owner through authors.toml and fail clearly
-            # if absent. FUTURE: swap this lookup for the shellcade
-            # author-resolution endpoint (planned) — the mapping it returns is
-            # the same shellcade-username -> GitHub login pair we read here.
-            mapped=$(grep -E "^${owner}[[:space:]]*=" authors.toml | sed -E 's/.*"(.*)".*/\1/' | head -1)
-            if [ -z "$mapped" ]; then
-              echo "::error::games/$owner has no authors.toml entry — cannot attribute or publish $d"; exit 1
-            fi
-            echo "owner=$owner game=$game github=$mapped"
+            # Best-effort GitHub attribution for the release notes: resolve the
+            # merged PR's author for this commit. Authorization happened at PR
+            # time (authorize.yml against the shellcade link); this is cosmetic
+            # only, so a missing/failed lookup just omits the @mention — it must
+            # NEVER fail the publish.
+            mapped=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+                       -q '.[0].user.login' 2>/dev/null || true)
+            if [ "$mapped" = "null" ]; then mapped=""; fi
 
             # Release-profile build.
             ( cd "$d" && go mod tidy && tinygo build -opt=2 -no-debug -gc=leaking \
@@ -126,8 +126,14 @@ jobs:
             asset="${owner}-${game}-v${next}.wasm"
             cp "$d/game.wasm" "$asset"
 
+            # Attribution line: include the @mention only when we resolved one.
+            if [ -n "$mapped" ]; then
+              headline="Catalog release of \`${owner}/${game}\` (v${next}), attributed to @${mapped}."
+            else
+              headline="Catalog release of \`${owner}/${game}\` (v${next})."
+            fi
             notes=$(printf '%s\n\n%s\n%s\n' \
-              "Catalog release of \`${owner}/${game}\` (v${next}), attributed to @${mapped}." \
+              "$headline" \
               "path: ${d}" \
               "digest: sha256:${digest}")
 
