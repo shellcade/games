@@ -13,8 +13,10 @@
 //! In v2 the frame-delta container IS the frame payload of `send`/`identical`.
 //! The normative **9-byte container header** is `u8 flags` (bit0 = keyframe),
 //! `u32 epoch` (host-owned; modeled as 0 here — the byte count is
-//! epoch-independent), `u16 runCount`, `u16 reserved = 0`. It is followed by
-//! `runCount` runs of `{u16 startIndex, u16 runLen, runLen*24 packed cells}`.
+//! epoch-independent), `u16 runCount`, then the two geometry bytes
+//! `u8 rows = 24` and `u8 cols = 80` (which replace the former reserved `u16`;
+//! the host validates them `== (24, 80)`). It is followed by `runCount` runs of
+//! `{u16 startIndex, u16 runLen, runLen*24 packed cells}`.
 //!
 //! The **keyframe form** (flags bit0 set, exactly one run covering all 1920
 //! cells) is the bootstrap / full-frame / worst-case member of the container
@@ -39,8 +41,13 @@ pub const FRAME_BYTES: usize = FRAME_CELLS * CELL_BYTES; // 46080
 // ---- container constants (ABI v2) ------------------------------------------
 
 /// Normative frame-delta container header: u8 flags, u32 epoch, u16 runCount,
-/// u16 reserved = 0.
+/// u8 rows, u8 cols.
 pub const DELTA_HEADER_BYTES: usize = 9;
+
+/// Grid geometry carried in the last two header bytes (replacing the former
+/// reserved `u16`); the host validates `== (ROWS, COLS)`.
+pub const GEOMETRY_ROWS: u8 = ROWS as u8;
+pub const GEOMETRY_COLS: u8 = COLS as u8;
 
 /// Per-run prefix inside a run-list payload: u16 startIndex + u16 runLen.
 pub const RUN_HEADER_BYTES: usize = 4;
@@ -60,13 +67,16 @@ pub const MAX_ENCODED: usize = FRAME_BYTES + FRAME_CELLS * 2 + 8;
 
 /// Write the normative 9-byte container header into `dst[0..9]`. `epoch` is
 /// modeled as 0 (host is the sole epoch authority; the field is always present
-/// and fixed-width, so the byte COUNT is epoch-independent).
+/// and fixed-width, so the byte COUNT is epoch-independent). The final two bytes
+/// carry the grid geometry `(rows, cols) = (24, 80)`, which replaced the former
+/// reserved `u16` (byte count unchanged); the host validates them.
 #[inline]
 fn put_delta_header(dst: &mut [u8], keyframe: bool, run_count: usize) {
     dst[0] = if keyframe { FLAG_KEYFRAME } else { 0 };
     dst[1..5].copy_from_slice(&0u32.to_le_bytes()); // u32 epoch (host-owned)
     dst[5..7].copy_from_slice(&(run_count as u16).to_le_bytes()); // u16 runCount
-    dst[7..9].copy_from_slice(&0u16.to_le_bytes()); // u16 reserved = 0
+    dst[7] = GEOMETRY_ROWS; // u8 rows = 24
+    dst[8] = GEOMETRY_COLS; // u8 cols = 80
 }
 
 // ---- cell equality ---------------------------------------------------------
@@ -158,13 +168,14 @@ mod tests {
         f[i * CELL_BYTES..i * CELL_BYTES + 4].copy_from_slice(&r.to_le_bytes());
     }
 
-    // read header fields
-    fn hdr(dst: &[u8]) -> (u8, u32, u16, u16) {
+    // read header fields; the 4th/5th returns are the geometry bytes (rows, cols)
+    fn hdr(dst: &[u8]) -> (u8, u32, u16, u8, u8) {
         let flags = dst[0];
         let epoch = u32::from_le_bytes([dst[1], dst[2], dst[3], dst[4]]);
         let runs = u16::from_le_bytes([dst[5], dst[6]]);
-        let reserved = u16::from_le_bytes([dst[7], dst[8]]);
-        (flags, epoch, runs, reserved)
+        let rows = dst[7];
+        let cols = dst[8];
+        (flags, epoch, runs, rows, cols)
     }
 
     #[test]
@@ -173,7 +184,7 @@ mod tests {
         let mut dst = vec![0u8; MAX_ENCODED];
         let n = encode_run_list(&f, &f, &mut dst);
         assert_eq!(n, DELTA_HEADER_BYTES);
-        assert_eq!(hdr(&dst), (0, 0, 0, 0));
+        assert_eq!(hdr(&dst), (0, 0, 0, GEOMETRY_ROWS, GEOMETRY_COLS));
     }
 
     #[test]
@@ -184,7 +195,7 @@ mod tests {
         let mut dst = vec![0u8; MAX_ENCODED];
         let n = encode_run_list(&prev, &next, &mut dst);
         assert_eq!(n, DELTA_HEADER_BYTES + RUN_HEADER_BYTES + CELL_BYTES);
-        let (flags, _, runs, _) = hdr(&dst);
+        let (flags, _, runs, _, _) = hdr(&dst);
         assert_eq!(flags, 0);
         assert_eq!(runs, 1);
         let start = u16::from_le_bytes([dst[9], dst[10]]);
@@ -205,7 +216,7 @@ mod tests {
         put_rune(&mut next, 10, b'C' as u32); // run 2: cell 10
         let mut dst = vec![0u8; MAX_ENCODED];
         let n = encode_run_list(&prev, &next, &mut dst);
-        let (_, _, runs, _) = hdr(&dst);
+        let (_, _, runs, _, _) = hdr(&dst);
         assert_eq!(runs, 2);
         assert_eq!(n, DELTA_HEADER_BYTES + 2 * RUN_HEADER_BYTES + 3 * CELL_BYTES);
         // run 1
@@ -225,10 +236,10 @@ mod tests {
         let mut dst = vec![0u8; MAX_ENCODED];
         let n = encode_keyframe(&prev, &next, &mut dst);
         assert_eq!(n, KEYFRAME_BYTES);
-        let (flags, _, runs, reserved) = hdr(&dst);
+        let (flags, _, runs, rows, cols) = hdr(&dst);
         assert_eq!(flags, FLAG_KEYFRAME);
         assert_eq!(runs, 1);
-        assert_eq!(reserved, 0);
+        assert_eq!((rows, cols), (GEOMETRY_ROWS, GEOMETRY_COLS));
         assert_eq!(u16::from_le_bytes([dst[9], dst[10]]), 0); // start
         assert_eq!(u16::from_le_bytes([dst[11], dst[12]]), FRAME_CELLS as u16); // len 1920
         // full grid follows
@@ -248,7 +259,7 @@ mod tests {
         let mut dst = vec![0u8; MAX_ENCODED];
         let n = encode_run_list_or_keyframe(&prev, &next, &mut dst);
         assert_eq!(n, KEYFRAME_BYTES);
-        let (flags, _, _, _) = hdr(&dst);
+        let (flags, _, _, _, _) = hdr(&dst);
         assert_eq!(flags, FLAG_KEYFRAME);
     }
 

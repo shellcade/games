@@ -150,6 +150,8 @@ fn byte_identical_against_go_reference() {
             let mut expect_kf = vec![0u8; KEYFRAME_BYTES];
             expect_kf[0] = FLAG_KEYFRAME;
             expect_kf[5..7].copy_from_slice(&1u16.to_le_bytes()); // runCount = 1
+            expect_kf[7] = 24; // rows geometry byte
+            expect_kf[8] = 80; // cols geometry byte
             expect_kf[DELTA_HEADER_BYTES..DELTA_HEADER_BYTES + 2]
                 .copy_from_slice(&0u16.to_le_bytes()); // start 0
             expect_kf[DELTA_HEADER_BYTES + 2..DELTA_HEADER_BYTES + 4]

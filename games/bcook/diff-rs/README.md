@@ -19,7 +19,8 @@ harness.
 The v2 frame-delta container — the frame payload of every `send`/`identical`:
 
 - 9-byte header: `u8 flags` (bit0 = keyframe), `u32 epoch` (host-owned), `u16
-  runCount`, `u16 reserved = 0`.
+  runCount`, `u8 rows = 24`, `u8 cols = 80` (the geometry bytes that replaced
+  the former reserved `u16`; the host validates them).
 - `runCount` runs of `{u16 startIndex, u16 runLen, runLen × 24-byte cells}`,
   each a maximal span of consecutive *changed* cells.
 - `encode_run_list` — the steady-state delta; a `runCount == 0` payload (header
