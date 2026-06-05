@@ -1,0 +1,284 @@
+package shellracer
+
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	kit "github.com/shellcade/kit"
+)
+
+var (
+	stHeader = kit.Style{FG: kit.White, Attr: kit.AttrBold}
+	stDim    = kit.Style{FG: kit.DimGray}
+	stDone   = kit.Style{FG: kit.Green}
+	stCursor = kit.Style{FG: kit.RGB(0, 0, 0), BG: kit.Cyan}
+	stErr    = kit.Style{FG: kit.White, BG: kit.Red}
+	stPlain  = kit.Style{}
+	stAccent = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}
+)
+
+// render composes a per-viewer frame for every member and sends it. The native
+// game used a per-viewer BroadcastFunc over a frozen Snapshot; the lean ABI has
+// no snapshot, so each member's frame is composed from live state and r.Send-ed.
+func (rm *room) render(r kit.Room) {
+	rm.lastNow = r.Now()
+	for _, v := range r.Members() {
+		rm.compose(rm.frame, r, v)
+		r.Send(v, rm.frame)
+	}
+}
+
+func (rm *room) compose(f *kit.Frame, r kit.Room, v kit.Player) {
+	f.Clear()
+	members := r.Members()
+
+	// Row 0: header
+	f.Text(0, 1, fmt.Sprintf("Shell Racer  [%s]", rm.pdiff), stHeader)
+	f.TextRight(0, kit.Cols-1, fmt.Sprintf("(%d/%d)", len(members), rm.cfg.Capacity), stHeader)
+
+	switch rm.phase {
+	case phLobby:
+		f.Text(10, 1, "Waiting for opponents...", stAccent)
+		f.Text(11, 1, fmt.Sprintf("%d player(s) in the room.", len(members)), stDim)
+	case phResults:
+		rm.composeResults(f, v)
+	default: // countdown, racing
+		rm.composePassage(f, v)
+		rm.composeOpponents(f, r, v)
+		if rm.phase == phCountdown {
+			rm.composeCountdown(f)
+		}
+	}
+
+	// Row 23: status
+	hint := "Esc: leave"
+	if rm.phase == phResults {
+		hint = "Enter: continue to lobby"
+	}
+	f.Text(23, 1, hint, stDim)
+}
+
+func (rm *room) composePassage(f *kit.Frame, v kit.Player) {
+	ps := rm.st[v.AccountID]
+	cursor, outstanding := 0, 0
+	if ps != nil {
+		cursor = ps.cursor
+		outstanding = ps.outstanding
+	}
+	const w = 76
+	lines := wrap(rm.passage, w)
+	// which wrapped line holds the cursor
+	curLine := 0
+	for i, ln := range lines {
+		if cursor >= ln[0] && cursor <= ln[1] {
+			curLine = i
+		}
+	}
+	const panelTop, panelRows = 2, 15
+	// Auto-scroll keeps the cursor on the 3rd-from-bottom visible row.
+	first := curLine - (panelRows - 3)
+	if first < 0 {
+		first = 0
+	}
+	if first > len(lines)-panelRows {
+		first = len(lines) - panelRows
+	}
+	if first < 0 {
+		first = 0
+	}
+	// While errors are outstanding the cursor cannot advance: the player has
+	// mistyped the character expected at the cursor position. That expected
+	// passage character renders in the error style (red) until backspaced — this
+	// is the spot the player must correct. Style precedence is
+	// cursor > error > done > plain: the cursor highlight wins everywhere except
+	// its own position when that position is an outstanding error.
+	for row := 0; row < panelRows; row++ {
+		li := first + row
+		if li >= len(lines) {
+			break
+		}
+		ln := lines[li]
+		col := 2
+		for idx := ln[0]; idx < ln[1]; idx++ {
+			st := stPlain
+			switch {
+			case idx == cursor && outstanding > 0:
+				st = stErr
+			case idx == cursor:
+				st = stCursor
+			case idx < cursor:
+				st = stDone
+			}
+			f.SetRune(panelTop+row, col, rm.passage[idx], st)
+			col++
+		}
+	}
+}
+
+func (rm *room) composeOpponents(f *kit.Frame, r kit.Room, v kit.Player) {
+	var opps []kit.Player
+	for _, p := range r.Members() {
+		if p.AccountID != v.AccountID {
+			opps = append(opps, p)
+		}
+	}
+	sort.SliceStable(opps, func(i, j int) bool {
+		oi, oj := rm.st[opps[i].AccountID], rm.st[opps[j].AccountID]
+		if oi == nil || oj == nil {
+			return false
+		}
+		if oi.joinOrder != oj.joinOrder {
+			return oi.joinOrder < oj.joinOrder
+		}
+		return opps[i].AccountID < opps[j].AccountID
+	})
+	// Opponent strip occupies spec rows 19–23 (0-based 18–22): up to 5 rows.
+	const stripTop = 18
+	for i, p := range opps {
+		if i >= 5 {
+			break
+		}
+		ps := rm.st[p.AccountID]
+		if ps == nil {
+			continue
+		}
+		row := stripTop + i
+		name := p.DisplayName()
+		if len(name) > 18 {
+			name = name[:18]
+		}
+		f.Text(row, 1, fmt.Sprintf("%-18s", name), stPlain)
+		bar := progressBar(ps.cursor, len(rm.passage), 20)
+		f.Text(row, 20, bar, stDone)
+		acc := accuracyStr(ps)
+		f.Text(row, 43, fmt.Sprintf("WPM:%3d  ACC:%s", ps.wpmSnapOrLive(rm), acc), stDim)
+	}
+}
+
+func (rm *room) composeCountdown(f *kit.Frame) {
+	rem := rm.countdownDeadline.Sub(rm.lastNow)
+	secs := int(rem.Seconds())
+	if rem > time.Duration(secs)*time.Second {
+		secs++ // ceil, so it counts 10..1 rather than 9..0
+	}
+	if secs < 1 {
+		secs = 1
+	}
+	if secs > 99 {
+		secs = 99
+	}
+	msg := fmt.Sprintf("Starting in %d...", secs)
+	// a centered band over the passage panel
+	f.Text(9, (kit.Cols-len(msg))/2, msg, stAccent)
+}
+
+func (rm *room) composeResults(f *kit.Frame, v kit.Player) {
+	f.Text(2, 1, "RESULTS", stHeader)
+	f.Text(4, 2, fmt.Sprintf("%-4s %-20s %-6s %-6s %s", "#", "Player", "WPM", "ACC", "Status"), stDim)
+	row := 5
+	for _, pr := range rm.result.Rankings {
+		if row > 20 {
+			break
+		}
+		ps := rm.st[pr.Player.AccountID]
+		acc := "--"
+		if ps != nil {
+			acc = accuracyStr(ps)
+		}
+		name := pr.Player.DisplayName()
+		if len(name) > 20 {
+			name = name[:20]
+		}
+		st := stPlain
+		if pr.Player.AccountID == v.AccountID {
+			st = stAccent
+		}
+		f.Text(row, 2, fmt.Sprintf("%-4d %-20s %-6d %-6s %s", pr.Rank, name, pr.Metric, acc, statusLabel(pr.Status)), st)
+		row++
+	}
+}
+
+// ---- helpers --------------------------------------------------------------
+
+func statusLabel(s kit.Status) string {
+	switch s {
+	case kit.StatusFinished:
+		return "finished"
+	case kit.StatusFlagged:
+		return "flagged"
+	default:
+		return "dnf"
+	}
+}
+
+func (ps *pstate) wpmSnapOrLive(rm *room) int {
+	if ps.statusSet {
+		return ps.wpmSnap
+	}
+	if rm.raceStart.IsZero() {
+		return 0
+	}
+	return rm.netWPM(ps, rm.lastNow)
+}
+
+func accuracyStr(ps *pstate) string {
+	denom := ps.cursor + ps.errorsTotal
+	if denom == 0 {
+		return "--"
+	}
+	return fmt.Sprintf("%d%%", ps.cursor*100/denom)
+}
+
+func progressBar(done, total, width int) string {
+	if total <= 0 {
+		total = 1
+	}
+	filled := done * width / total
+	if filled > width {
+		filled = width
+	}
+	b := make([]byte, 0, width+2)
+	b = append(b, '[')
+	for i := 0; i < width; i++ {
+		if i < filled {
+			b = append(b, '#')
+		} else {
+			b = append(b, '.')
+		}
+	}
+	b = append(b, ']')
+	return string(b)
+}
+
+// wrap greedily word-wraps runes to width w, returning [start,end) ranges.
+func wrap(runes []rune, w int) [][2]int {
+	var lines [][2]int
+	n := len(runes)
+	i := 0
+	for i < n {
+		end := i + w
+		if end >= n {
+			lines = append(lines, [2]int{i, n})
+			break
+		}
+		brk := -1
+		for j := i; j <= end && j < n; j++ {
+			if runes[j] == ' ' {
+				brk = j
+			}
+		}
+		if brk <= i {
+			brk = end
+		}
+		lines = append(lines, [2]int{i, brk})
+		i = brk
+		if i < n && runes[i] == ' ' {
+			i++
+		}
+	}
+	if len(lines) == 0 {
+		lines = append(lines, [2]int{0, 0})
+	}
+	return lines
+}

@@ -1,0 +1,6 @@
+# Built artifacts are never committed; CI builds what gets published.
+*.wasm
+
+# Local module resolution for the private kit module (machine-local paths).
+go.work
+go.work.sum
