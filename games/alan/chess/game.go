@@ -1,6 +1,6 @@
 package main
 
-import kit "github.com/shellcade/kit"
+import kit "github.com/shellcade/kit/v2"
 
 // Game is the chess registry entry: static metadata plus the per-room factory.
 type Game struct{}
