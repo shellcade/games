@@ -1,0 +1,3 @@
+*.wasm
+# the native dev binary `go build` drops here (named after the module dir)
+/pokies
