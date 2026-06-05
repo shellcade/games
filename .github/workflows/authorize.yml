@@ -51,9 +51,10 @@ jobs:
           files=$(gh api --paginate \
             "repos/${REPO}/pulls/${PR_NUMBER}/files" \
             -q '.[].filename')
-          # Reduce to distinct games/<owner>/<game> namespaces.
+          # Reduce to distinct <owner>/<game> identities (the slug — the
+          # canonical form the endpoint takes; no games/ prefix).
           dirs=$(printf '%s\n' "$files" \
-                 | awk -F/ 'NF>=3 && $1=="games" {print $1"/"$2"/"$3}' \
+                 | awk -F/ 'NF>=3 && $1=="games" {print $2"/"$3}' \
                  | sort -u)
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
 
