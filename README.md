@@ -10,22 +10,28 @@ a game is a pull request.**
 
        shellcade-kit new mygame && cd mygame && go run .
 
-2. When `shellcade-kit check mygame.wasm` passes, open a PR adding:
+2. **Link your GitHub account to your shellcade account** (one-time):
+   `ssh shellcade.com` → User → *Link GitHub*. You claim your GitHub username
+   and prove it with an SSH key GitHub knows — instant if you use the same key
+   for both, otherwise one command (`ssh link@shellcade.com <code>`). The link
+   is what authorizes your catalog namespace and puts your handle on the lobby.
 
-       games/<your-github-username>/<game-slug>/
+3. When `shellcade-kit check mygame.wasm` passes, open a PR adding:
+
+       games/<your-shellcade-username>/<game-slug>/
        ├── game.toml          # name, slug, players, description
        ├── main.go …          # your game's source (source is required)
        └── go.mod
 
-3. CI verifies: the path matches **your** GitHub username, the game builds
-   (TinyGo), and `shellcade-kit check` passes — the same gate the arcade runs.
-4. A maintainer reviews and merges. Merge = accepted into the catalog;
-   an arcade operator then flips it live.
+   Add yourself to `authors.toml` (`<shellcade-username> = "<github-login>"`)
+   in the same PR if this is your first game — a maintainer verifies the link
+   in-arcade before merging. (This file is interim; an API will replace it.)
 
-**Going live requires linking your GitHub account to your shellcade account**
-(in the arcade: `ssh shellcade.com` → User → *Link GitHub* — a github.com/login/device
-code flow). That link is what puts your handle on the lobby page and makes you
-accountable for what players run.
+4. CI verifies: the path's shellcade username maps to **your** GitHub login,
+   the game builds (TinyGo), and `shellcade-kit check` passes — the same gate
+   the arcade runs.
+5. A maintainer reviews and merges. Merge = accepted into the catalog;
+   an arcade operator then flips it live, attributed to your handle.
 
 ## Rules
 
