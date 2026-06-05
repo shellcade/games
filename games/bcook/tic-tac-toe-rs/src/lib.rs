@@ -3,13 +3,18 @@
 //! Go `tic-tac-toe` game in this same catalog and exists to measure how hard
 //! cross-language guest support is.
 //!
-//! This is ABI v1: fixed 16-byte cells, a full-frame `identical` broadcast on
-//! every change (no delta encoding — that is a later ABI version).
+//! This is ABI v2: 24-byte grapheme cells and a frame-delta container as the
+//! frame payload of `identical` (the steady state ships run-coalesced deltas;
+//! the keyframe form is the bootstrap/full-frame). The delta path is hand-rolled
+//! per ABI.md §4.5 (host-authority epoch, keyframe on first send / rejection /
+//! roster change) and byte-aligned with the `bcook/diff-rs` reference encoder.
 //!
 //! Transport is Extism (ABI.md §preamble): the kernel memory/IO plumbing comes
 //! from extism-pdk, the host functions are raw wasm imports (ABI.md §3, §7),
 //! and the 8 entry points are bare `extern "C"` exports returning i32 (0 = ok).
 
+mod broadcast;
+mod delta;
 mod frame;
 mod game;
 mod host;
@@ -21,7 +26,7 @@ mod exports {
     use crate::host::{read_input, write_output};
     use crate::wire::{decode_ctx, Buf};
 
-    const ABI_VERSION: u32 = 1;
+    const ABI_VERSION: u32 = 2;
 
     // Per-room state. One plugin instance == one room (ABI §1), and callbacks
     // are serial, so a single mutable global holds the entire room state. It is

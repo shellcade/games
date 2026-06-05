@@ -1,12 +1,24 @@
-//! The fixed 80x24 cell grid and its packed wire encoding (ABI.md §4.3),
-//! mirroring the kit SDK's authoring Frame. Writes outside the grid are
-//! clamped (never errored). A composed Frame packs to exactly 30720 bytes.
+//! The fixed 80x24 cell grid and its packed wire encoding (ABI.md §4.3,
+//! v2 24-byte grapheme cell), mirroring the kit SDK's authoring Frame. Writes
+//! outside the grid are clamped (never errored). A composed Frame packs to
+//! exactly 46080 bytes.
+//!
+//! v2 cell anchor layout (24 bytes, little-endian):
+//!   u32 rune @0 | u32 cp2 @4 | u32 cp3 @8        base + extra grapheme code points
+//!   u8 fgSet,fgR,fgG,fgB @12 | u8 bgSet,bgR,bgG,bgB @16
+//!   u8 attr @20 | u8 cont @21 | u16 pad @22 (zero)
+//!
+//! Canonical-zero rule: unused cp slots and pad MUST be zero, so cell equality
+//! is exactly a 24-byte memcmp (load-bearing for the delta diff and hibernation
+//! byte-identity). `pack_into` is the normative enforcer — it always writes
+//! pad = 0 and zeroes any unset cp slot regardless of the in-memory Cell.
 
 pub const ROWS: usize = 24;
 pub const COLS: usize = 80;
-pub const CELL_BYTES: usize = 16;
+/// v2 grapheme cell width.
+pub const CELL_BYTES: usize = 24;
 pub const FRAME_CELLS: usize = ROWS * COLS; // 1920
-pub const FRAME_BYTES: usize = FRAME_CELLS * CELL_BYTES; // 30720
+pub const FRAME_BYTES: usize = FRAME_CELLS * CELL_BYTES; // 46080
 
 /// An optional truecolor value; `None`-like (unset) maps to the terminal
 /// default. The standard palette below matches the kit canvas constants.
@@ -54,10 +66,13 @@ impl Style {
     }
 }
 
-/// One drawable cell.
+/// One drawable cell. `cp2`/`cp3` carry the extra code points of a grapheme
+/// cluster (0 = unused); single-code-point content leaves them zero.
 #[derive(Clone, Copy)]
 pub struct Cell {
     pub rune: u32,
+    pub cp2: u32,
+    pub cp3: u32,
     pub fg: Color,
     pub bg: Color,
     pub attr: u8,
@@ -66,7 +81,15 @@ pub struct Cell {
 
 impl Cell {
     const fn blank() -> Self {
-        Cell { rune: ' ' as u32, fg: Color::unset(), bg: Color::unset(), attr: 0, cont: false }
+        Cell {
+            rune: ' ' as u32,
+            cp2: 0,
+            cp3: 0,
+            fg: Color::unset(),
+            bg: Color::unset(),
+            attr: 0,
+            cont: false,
+        }
     }
 }
 
@@ -90,7 +113,15 @@ impl Frame {
             return;
         }
         let i = (row as usize) * COLS + (col as usize);
-        self.cells[i] = Cell { rune: r as u32, fg: st.fg, bg: st.bg, attr: st.attr, cont: false };
+        self.cells[i] = Cell {
+            rune: r as u32,
+            cp2: 0,
+            cp3: 0,
+            fg: st.fg,
+            bg: st.bg,
+            attr: st.attr,
+            cont: false,
+        };
     }
 
     /// Write a string left-to-right, clamped to the row. Returns the next col.
@@ -111,41 +142,47 @@ impl Frame {
     }
 
     /// Pack the frame into `dst` (must be FRAME_BYTES). Matches wire.PutCell /
-    /// ABI.md §4.3: u32 rune, fgSet+rgb, bgSet+rgb, attr, cont, u16 pad=0.
+    /// ABI.md §4.3 v2 anchor layout: u32 rune @0, u32 cp2 @4, u32 cp3 @8,
+    /// fgSet+rgb @12, bgSet+rgb @16, attr @20, cont @21, u16 pad=0 @22. This is
+    /// the canonical-zero enforcer: pad and unset cp slots are always written
+    /// zero, regardless of the in-memory Cell.
     pub fn pack_into(&self, dst: &mut [u8]) {
         debug_assert!(dst.len() >= FRAME_BYTES);
         for (i, cell) in self.cells.iter().enumerate() {
             let o = i * CELL_BYTES;
             dst[o..o + 4].copy_from_slice(&cell.rune.to_le_bytes());
+            dst[o + 4..o + 8].copy_from_slice(&cell.cp2.to_le_bytes());
+            dst[o + 8..o + 12].copy_from_slice(&cell.cp3.to_le_bytes());
             if cell.fg.set {
-                dst[o + 4] = 1;
-                dst[o + 5] = cell.fg.r;
-                dst[o + 6] = cell.fg.g;
-                dst[o + 7] = cell.fg.b;
+                dst[o + 12] = 1;
+                dst[o + 13] = cell.fg.r;
+                dst[o + 14] = cell.fg.g;
+                dst[o + 15] = cell.fg.b;
             } else {
-                dst[o + 4] = 0;
-                dst[o + 5] = 0;
-                dst[o + 6] = 0;
-                dst[o + 7] = 0;
+                dst[o + 12] = 0;
+                dst[o + 13] = 0;
+                dst[o + 14] = 0;
+                dst[o + 15] = 0;
             }
             if cell.bg.set {
-                dst[o + 8] = 1;
-                dst[o + 9] = cell.bg.r;
-                dst[o + 10] = cell.bg.g;
-                dst[o + 11] = cell.bg.b;
+                dst[o + 16] = 1;
+                dst[o + 17] = cell.bg.r;
+                dst[o + 18] = cell.bg.g;
+                dst[o + 19] = cell.bg.b;
             } else {
-                dst[o + 8] = 0;
-                dst[o + 9] = 0;
-                dst[o + 10] = 0;
-                dst[o + 11] = 0;
+                dst[o + 16] = 0;
+                dst[o + 17] = 0;
+                dst[o + 18] = 0;
+                dst[o + 19] = 0;
             }
-            dst[o + 12] = cell.attr;
-            dst[o + 13] = if cell.cont { 1 } else { 0 };
-            dst[o + 14] = 0;
-            dst[o + 15] = 0;
+            dst[o + 20] = cell.attr;
+            dst[o + 21] = if cell.cont { 1 } else { 0 };
+            dst[o + 22] = 0; // pad (canonical zero)
+            dst[o + 23] = 0;
         }
     }
 
+    #[allow(dead_code)] // convenience packer; the hot path uses pack_into into a reused buffer
     pub fn pack(&self) -> Vec<u8> {
         let mut v = vec![0u8; FRAME_BYTES];
         self.pack_into(&mut v);

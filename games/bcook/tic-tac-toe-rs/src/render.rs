@@ -25,9 +25,10 @@ const BOARD_W: i32 = CELL_W * 3 + 2; // two vertical separators
 const BOARD_COL: i32 = (COLS as i32 - BOARD_W) / 2;
 const BOARD_ROW: i32 = 8;
 
-/// render composes the full frame and broadcasts it. The Frame is built fresh
-/// each call (mirrors the Go game's Clear()+compose then Identical).
-pub fn render(rm: &Room, ctx: &Ctx) {
+/// compose builds the full frame for the current room state. The view is
+/// identical for everyone; the caller broadcasts it via the v2 delta path. The
+/// Frame is built fresh each call (mirrors the Go game's Clear()+compose).
+pub fn compose(rm: &Room, ctx: &Ctx) -> Frame {
     let mut f = Frame::new();
 
     // Title.
@@ -42,7 +43,7 @@ pub fn render(rm: &Room, ctx: &Ctx) {
     f.text(ROWS as i32 - 2, (COLS as i32 - hint.len() as i32) / 2, hint, st_dim());
 
     let _ = ctx; // identical view for all players; ctx unused beyond names.
-    crate::host::send_identical(&f.pack());
+    f
 }
 
 fn style_for(mark: u8) -> Style {

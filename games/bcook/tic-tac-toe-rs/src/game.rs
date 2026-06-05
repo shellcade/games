@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use crate::broadcast::Broadcaster;
 use crate::render;
 use crate::wire::{encode_result, Ctx, Member, Ranking, STATUS_DNF, STATUS_FINISHED};
 
@@ -35,6 +36,9 @@ pub struct Room {
     pub winner_id: String, // "" on draw or while playing
     pub deadline: Option<i64>, // current turn's forfeit deadline (unix nanos)
     started: bool,
+    // v2 transparent frame diffing: the broadcast baseline + epoch state. Every
+    // render diffs against this and ships a delta container via `identical`.
+    broadcaster: Broadcaster,
 }
 
 impl Room {
@@ -50,6 +54,7 @@ impl Room {
             winner_id: String::new(),
             deadline: None,
             started: false,
+            broadcaster: Broadcaster::new(),
         }
     }
 
@@ -65,6 +70,9 @@ impl Room {
 
     /// OnJoin: seat the first two joiners as X then O. A re-join just re-renders.
     pub fn on_join(&mut self, ctx: &Ctx, player_idx: usize) {
+        // Roster change: invalidate the broadcast baseline so the next render is
+        // a keyframe (the guest-side backstop to the host's epoch authority).
+        self.broadcaster.invalidate();
         let p = match ctx.members.get(player_idx) {
             Some(m) => m.clone(),
             None => return,
@@ -88,6 +96,8 @@ impl Room {
 
     /// OnLeave: a seated player leaving mid-game forfeits; otherwise clean up.
     pub fn on_leave(&mut self, ctx: &Ctx, player_idx: usize) {
+        // Roster change: invalidate the broadcast baseline (next render keyframes).
+        self.broadcaster.invalidate();
         if self.over {
             return;
         }
@@ -301,7 +311,8 @@ impl Room {
         }
     }
 
-    fn render(&self, ctx: &Ctx) {
-        render::render(self, ctx);
+    fn render(&mut self, ctx: &Ctx) {
+        let frame = render::compose(self, ctx);
+        self.broadcaster.broadcast(&frame);
     }
 }
