@@ -1,0 +1,59 @@
+name: validate
+on:
+  pull_request:
+
+jobs:
+  submissions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: changed game dirs
+        id: changed
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          dirs=$(git diff --name-only "$base"...HEAD -- 'games/**' | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u)
+          echo "dirs<<EOF" >> "$GITHUB_OUTPUT"; echo "$dirs" >> "$GITHUB_OUTPUT"; echo "EOF" >> "$GITHUB_OUTPUT"
+          outside=$(git diff --name-only "$base"...HEAD | grep -v '^games/' || true)
+          if [ -n "$outside" ] && [ "${{ contains(fromJSON('["OWNER","MEMBER"]'), github.event.pull_request.author_association) }}" != "true" ]; then
+            echo "::error::PR touches files outside games/: $outside"; exit 1
+          fi
+
+      - name: path owner == PR author
+        if: steps.changed.outputs.dirs != ''
+        run: |
+          author="${{ github.event.pull_request.user.login }}"
+          while read -r d; do
+            [ -z "$d" ] && continue
+            owner=$(echo "$d" | cut -d/ -f2)
+            if [ "${owner,,}" != "${author,,}" ]; then
+              echo "::error::$d belongs to '$owner' but the PR author is '$author'"; exit 1
+            fi
+          done <<< "${{ steps.changed.outputs.dirs }}"
+
+      - uses: actions/setup-go@v5
+        if: steps.changed.outputs.dirs != ''
+        with: { go-version: "1.25" }
+      - uses: acifani/setup-tinygo@v2
+        if: steps.changed.outputs.dirs != ''
+        with: { tinygo-version: "0.41.0" }
+      - name: binaryen
+        if: steps.changed.outputs.dirs != ''
+        run: sudo apt-get update -q && sudo apt-get install -y binaryen
+      - name: shellcade-kit
+        if: steps.changed.outputs.dirs != ''
+        run: |
+          curl -fsSL https://github.com/shellcade/kit/releases/latest/download/shellcade-kit_0.1.0_linux_amd64.tar.gz | tar xz
+          ./shellcade-kit version
+
+      - name: build + conformance per game
+        if: steps.changed.outputs.dirs != ''
+        run: |
+          while read -r d; do
+            [ -z "$d" ] && continue
+            echo "=== $d ==="
+            test -f "$d/game.toml" || { echo "::error::$d/game.toml missing"; exit 1; }
+            ( cd "$d" && go mod tidy && tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared . )
+            ./shellcade-kit check "$d/game.wasm"
+          done <<< "${{ steps.changed.outputs.dirs }}"
