@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	kit "github.com/shellcade/kit"
-	"github.com/shellcade/kit/kittest"
+	kit "github.com/shellcade/kit/v2"
+	"github.com/shellcade/kit/v2/kittest"
 )
 
 // TestCaptureFrameSeq drives a single player through three full spins. Each

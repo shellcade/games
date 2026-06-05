@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // Rendering: a near-verbatim port of the native pokies layout to the kit grid.
