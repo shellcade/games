@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - "games/**"
+  workflow_dispatch: {} # manual sanity runs (walks every game dir)
 
 # Single source of truth for the toolchain — keep in lockstep with validate.yml.
 env:
@@ -26,14 +27,20 @@ jobs:
       - name: changed game dirs
         id: changed
         run: |
-          # Diff the merge commit against its first parent (main before merge).
-          before="${{ github.event.before }}"
-          if ! git cat-file -e "$before^{commit}" 2>/dev/null || \
-             [ "$before" = "0000000000000000000000000000000000000000" ]; then
-            before="${{ github.sha }}^"   # first push / shallow: fall back to parent
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual sanity run: walk every game dir (publish is idempotent —
+            # unchanged digests are skipped per-release below).
+            dirs=$(find games -mindepth 2 -maxdepth 2 -type d | sort)
+          else
+            # Diff the merge commit against its first parent (main before merge).
+            before="${{ github.event.before }}"
+            if ! git cat-file -e "$before^{commit}" 2>/dev/null || \
+               [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              before="${{ github.sha }}^"   # first push / shallow: fall back to parent
+            fi
+            dirs=$(git diff --name-only "$before" "${{ github.sha }}" -- 'games/**' \
+                   | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u)
           fi
-          dirs=$(git diff --name-only "$before" "${{ github.sha }}" -- 'games/**' \
-                 | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u)
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v5
