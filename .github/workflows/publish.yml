@@ -67,6 +67,14 @@ jobs:
             echo "=== $d ==="
             test -f "$d/game.toml" || { echo "::error::$d/game.toml missing"; exit 1; }
 
+            # Documentation-only entries (no buildable source) are skipped with
+            # a visible notice — e.g. games/example/* exists to illustrate the
+            # layout and is never published.
+            if [ ! -f "$d/go.mod" ] && [ ! -f "$d/main.go" ]; then
+              echo "::notice::$d has no buildable source (no go.mod/main.go) — skipping publish"
+              continue
+            fi
+
             owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
             game=$(echo "$d" | cut -d/ -f3)     # bare game name (== game.toml name)
 
