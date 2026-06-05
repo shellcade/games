@@ -311,6 +311,48 @@ func TestPerViewerNoLeakage(t *testing.T) {
 	}
 }
 
+// Several outstanding errors render a red region: one passage char per error,
+// starting at the cursor, shrinking from the right as errors are backspaced.
+func TestMultiErrorRegion(t *testing.T) {
+	d, a := soloDriver(t)
+	ps := d.rm.st[a.AccountID]
+
+	d.input(a, runeIn(d.rm.passage[0])) // position 0 correct
+	for i := 0; i < 3; i++ {
+		d.input(a, runeIn('÷')) // '÷' appears in no passage: three errors
+	}
+	if ps.cursor != 1 || ps.outstanding != 3 {
+		t.Fatalf("cursor=%d outstanding=%d, want 1/3", ps.cursor, ps.outstanding)
+	}
+
+	f := d.frameFor(a)
+	for idx := 1; idx <= 3; idx++ {
+		r, c := passageCell(d.rm, idx)
+		if got := styleOf(f, r, c); got != stErr {
+			t.Fatalf("pos%d style=%+v, want error %+v", idx, got, stErr)
+		}
+	}
+	r4, c4 := passageCell(d.rm, 4)
+	if got := styleOf(f, r4, c4); got == stErr || got == stCursor {
+		t.Fatalf("pos4 style=%+v, want plain (outside the error region)", got)
+	}
+
+	// One backspace clears the rightmost error: region shrinks to [1,3).
+	d.input(a, keyIn(kit.KeyBackspace))
+	if ps.outstanding != 2 {
+		t.Fatalf("outstanding=%d after backspace, want 2", ps.outstanding)
+	}
+	f = d.frameFor(a)
+	r3, c3 := passageCell(d.rm, 3)
+	if got := styleOf(f, r3, c3); got == stErr {
+		t.Fatalf("pos3 still error-styled after backspace")
+	}
+	r1, c1 := passageCell(d.rm, 1)
+	if got := styleOf(f, r1, c1); got != stErr {
+		t.Fatalf("pos1 style=%+v, want error %+v", got, stErr)
+	}
+}
+
 // the countdown renders a live remaining count.
 func TestCountdownRendered(t *testing.T) {
 	d := newDriver(kit.ModeQuick, 5)

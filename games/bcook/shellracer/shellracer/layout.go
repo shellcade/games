@@ -88,11 +88,12 @@ func (rm *room) composePassage(f *kit.Frame, v kit.Player) {
 		first = 0
 	}
 	// While errors are outstanding the cursor cannot advance: the player has
-	// mistyped the character expected at the cursor position. That expected
-	// passage character renders in the error style (red) until backspaced — this
-	// is the spot the player must correct. Style precedence is
-	// cursor > error > done > plain: the cursor highlight wins everywhere except
-	// its own position when that position is an outstanding error.
+	// mistyped. One passage character per outstanding error renders in the
+	// error style (red) starting at the cursor — the red region's width IS the
+	// number of backspaces needed, shrinking from the right as the player
+	// corrects. (Errors typed past the end of the passage clamp at the last
+	// character.) With no errors outstanding the cursor cell gets the cursor
+	// highlight; style precedence is error region > cursor > done > plain.
 	for row := 0; row < panelRows; row++ {
 		li := first + row
 		if li >= len(lines) {
@@ -103,7 +104,7 @@ func (rm *room) composePassage(f *kit.Frame, v kit.Player) {
 		for idx := ln[0]; idx < ln[1]; idx++ {
 			st := stPlain
 			switch {
-			case idx == cursor && outstanding > 0:
+			case idx >= cursor && idx < cursor+outstanding:
 				st = stErr
 			case idx == cursor:
 				st = stCursor
