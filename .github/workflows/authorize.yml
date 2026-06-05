@@ -61,6 +61,11 @@ jobs:
       - name: authorize each namespace
         id: authz
         if: steps.gate.outputs.skip != 'true' && steps.changed.outputs.dirs != ''
+        env:
+          # Attacker-controlled (derived from PR filenames). Pass via env so it
+          # is shell DATA, never spliced into the script as ${{ }} — otherwise a
+          # crafted path injects commands into this pull_request_target runner.
+          DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
           set -euo pipefail
           denied=0
@@ -104,7 +109,7 @@ jobs:
               printf '%s\n\n' "$message"
             } >> deny_messages.txt
             denied=1
-          done <<< "${{ steps.changed.outputs.dirs }}"
+          done <<< "$DIRS"
           echo "denied=$denied" >> "$GITHUB_OUTPUT"
 
       # Post (or update) ONE bot comment with the denial details. Keyed by a
