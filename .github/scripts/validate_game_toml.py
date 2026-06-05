@@ -42,6 +42,17 @@ def validate(game_dir):
     if not os.path.isfile(toml_path):
         fail(toml_path, f"{toml_path} is missing")
 
+    # --- every game is a standalone Go module: a go.mod is required ---
+    # Documentation-only entries (game.toml without buildable source) are no
+    # longer allowed — the platform builds each game from its own module.
+    gomod_path = os.path.join(game_dir, "go.mod")
+    if not os.path.isfile(gomod_path):
+        fail(
+            gomod_path,
+            f"{gomod_path} is missing: every game must be a standalone Go "
+            "module (its own go.mod). Documentation-only entries are not allowed.",
+        )
+
     try:
         with open(toml_path, "rb") as f:
             data = tomllib.load(f)
