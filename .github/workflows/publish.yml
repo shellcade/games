@@ -1,0 +1,130 @@
+name: publish
+on:
+  push:
+    branches: [main]
+    paths:
+      - "games/**"
+
+# Single source of truth for the toolchain — keep in lockstep with validate.yml.
+env:
+  KIT_VERSION: "0.5.0"          # shellcade-kit release (tag v$KIT_VERSION)
+  TINYGO_VERSION: "0.41.0"
+  BINARYEN_VERSION: "version_123"
+  GO_VERSION: "1.25"
+
+# Need write access to cut releases; GITHUB_TOKEN only, no external secrets.
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # full history + all tags for N derivation
+
+      - name: changed game dirs
+        id: changed
+        run: |
+          # Diff the merge commit against its first parent (main before merge).
+          before="${{ github.event.before }}"
+          if ! git cat-file -e "$before^{commit}" 2>/dev/null || \
+             [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            before="${{ github.sha }}^"   # first push / shallow: fall back to parent
+          fi
+          dirs=$(git diff --name-only "$before" "${{ github.sha }}" -- 'games/**' \
+                 | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u)
+          { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        if: steps.changed.outputs.dirs != ''
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      - uses: acifani/setup-tinygo@v2
+        if: steps.changed.outputs.dirs != ''
+        with: { tinygo-version: "${{ env.TINYGO_VERSION }}" }
+
+      # Pin binaryen to an exact release and verify before use (wasm-opt powers
+      # the -opt=2 release build).
+      - name: binaryen
+        if: steps.changed.outputs.dirs != ''
+        run: |
+          base="https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}"
+          tarball="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          curl -fsSL -o "$tarball" "$base/$tarball"
+          curl -fsSL -o "$tarball.sha256" "$base/$tarball.sha256"
+          sha256sum -c "$tarball.sha256"
+          tar xzf "$tarball"
+          echo "$PWD/binaryen-${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: build, digest, and release per game
+        if: steps.changed.outputs.dirs != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          while read -r d; do
+            [ -z "$d" ] && continue
+            echo "=== $d ==="
+            test -f "$d/game.toml" || { echo "::error::$d/game.toml missing"; exit 1; }
+
+            owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
+            game=$(echo "$d" | cut -d/ -f3)     # bare game name (== game.toml name)
+
+            # Resolve the namespace owner through authors.toml and fail clearly
+            # if absent. FUTURE: swap this lookup for the shellcade
+            # author-resolution endpoint (planned) — the mapping it returns is
+            # the same shellcade-username -> GitHub login pair we read here.
+            mapped=$(grep -E "^${owner}[[:space:]]*=" authors.toml | sed -E 's/.*"(.*)".*/\1/' | head -1)
+            if [ -z "$mapped" ]; then
+              echo "::error::games/$owner has no authors.toml entry — cannot attribute or publish $d"; exit 1
+            fi
+            echo "owner=$owner game=$game github=$mapped"
+
+            # Release-profile build.
+            ( cd "$d" && go mod tidy && tinygo build -opt=2 -no-debug -gc=leaking \
+                -o game.wasm -target wasip1 -buildmode=c-shared . )
+            digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
+            echo "digest: sha256:$digest"
+
+            # Next version integer N from existing <owner>-<game>-vN tags.
+            prefix="${owner}-${game}-v"
+            last=$(git tag -l "${prefix}*" | sed -E "s/^${prefix}//" \
+                   | grep -E '^[0-9]+$' | sort -n | tail -1)
+            if [ -z "$last" ]; then
+              # No prior release: this is v1.
+              next=1
+            else
+              # Idempotency: if the newest release already pins this exact
+              # digest, the content is unchanged — skip the re-run.
+              prev_tag="${prefix}${last}"
+              prev_digest=$(gh release view "$prev_tag" --json body \
+                            --jq '.body' 2>/dev/null \
+                            | grep -oE 'digest: sha256:[0-9a-f]{64}' \
+                            | sed 's/digest: sha256://' | head -1 || true)
+              if [ "$prev_digest" = "$digest" ]; then
+                echo "$prev_tag already pins sha256:$digest — nothing to publish"
+                continue
+              fi
+              next=$((last + 1))
+            fi
+
+            tag="${prefix}${next}"
+            asset="${owner}-${game}-v${next}.wasm"
+            cp "$d/game.wasm" "$asset"
+
+            notes=$(printf '%s\n\n%s\n%s\n' \
+              "Catalog release of \`${owner}/${game}\` (v${next}), attributed to @${mapped}." \
+              "path: ${d}" \
+              "digest: sha256:${digest}")
+
+            # Idempotent create-or-append: tag may race or pre-exist on re-run.
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release upload "$tag" "$asset" --clobber
+            else
+              gh release create "$tag" "$asset" \
+                --title "${owner}/${game} v${next}" \
+                --notes "$notes" \
+                --target "${{ github.sha }}"
+            fi
+            echo "published $tag ($asset)"
+          done <<< "${{ steps.changed.outputs.dirs }}"
