@@ -8,7 +8,7 @@ on:
 
 # Single source of truth for the toolchain — keep in lockstep with validate.yml.
 env:
-  KIT_VERSION: "0.5.0"          # shellcade-kit release (tag v$KIT_VERSION)
+  KIT_VERSION: "0.6.0"          # shellcade-kit release (tag v$KIT_VERSION)
   TINYGO_VERSION: "0.41.0"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
@@ -72,7 +72,7 @@ jobs:
           while read -r d; do
             [ -z "$d" ] && continue
             echo "=== $d ==="
-            test -f "$d/game.toml" || { echo "::error::$d/game.toml missing"; exit 1; }
+            test -f "$d/go.mod" || { echo "::error::$d/go.mod missing"; exit 1; }
 
             # Belt-and-braces: the schema validator already requires go.mod,
             # but skip loudly rather than fail if a source-less dir slips in.
@@ -82,7 +82,7 @@ jobs:
             fi
 
             owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
-            game=$(echo "$d" | cut -d/ -f3)     # bare game name (== game.toml name)
+            game=$(echo "$d" | cut -d/ -f3)     # bare game name (== artifact meta slug)
 
             # Resolve the namespace owner through authors.toml and fail clearly
             # if absent. FUTURE: swap this lookup for the shellcade
@@ -130,6 +130,17 @@ jobs:
               "Catalog release of \`${owner}/${game}\` (v${next}), attributed to @${mapped}." \
               "path: ${d}" \
               "digest: sha256:${digest}")
+
+            # Optional human release notes: the top section of the game's
+            # CHANGELOG.md (first heading to the next same-level heading) is
+            # folded into the release body. No changesets machinery — games
+            # have no downstream consumers; vN + digest carry identity.
+            if [ -f "$d/CHANGELOG.md" ]; then
+              top=$(awk '/^## /{n++} n==1{print} n==2{exit}' "$d/CHANGELOG.md")
+              if [ -n "$top" ]; then
+                notes=$(printf '%s\n\n%s\n' "$notes" "$top")
+              fi
+            fi
 
             # Idempotent create-or-append: tag may race or pre-exist on re-run.
             if gh release view "$tag" >/dev/null 2>&1; then
