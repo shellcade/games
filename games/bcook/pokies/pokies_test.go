@@ -12,7 +12,7 @@ import (
 
 // --- harness -----------------------------------------------------------------
 
-func space() kit.Input  { return kit.Input{Kind: kit.InputRune, Rune: ' '} }
+func space() kit.Input   { return kit.Input{Kind: kit.InputRune, Rune: ' '} }
 func keyUp() kit.Input   { return kit.Input{Kind: kit.InputKey, Key: kit.KeyUp} }
 func keyDown() kit.Input { return kit.Input{Kind: kit.InputKey, Key: kit.KeyDown} }
 
@@ -432,7 +432,7 @@ func TestGridBlankBeforeFirstSpin(t *testing.T) {
 	g := rm.grid(rm.machines[p.AccountID])
 	for row := 0; row < 3; row++ {
 		for reel := 0; reel < 3; reel++ {
-			if g[row][reel] != rune(symBlank) {
+			if g[row][reel] != symBlank {
 				t.Fatalf("pre-spin grid[%d][%d] = %q, want blank", row, reel, g[row][reel])
 			}
 		}
@@ -454,7 +454,7 @@ func TestGridCenterRowIsThePayline(t *testing.T) {
 
 	g := rm.grid(m)
 	for reel := 0; reel < 3; reel++ {
-		if g[1][reel] != rune(m.reels[reel]) {
+		if g[1][reel] != m.reels[reel] {
 			t.Errorf("center grid[1][%d] = %q, want settled face %q", reel, g[1][reel], rune(m.reels[reel]))
 		}
 	}
@@ -474,6 +474,140 @@ func TestGridScrollsAsTheClockAdvances(t *testing.T) {
 
 	if g0 == g1 {
 		t.Error("expected the reel window to scroll as the derived clock advances")
+	}
+}
+
+// --- emoji reel faces (v2 grapheme cells) --------------------------------------
+
+// soloCardCol is the left column of the (single) machine cabinet when exactly
+// one player has joined: one card centered on the canvas.
+func soloCardCol() int { return (kit.Cols - cardW) / 2 }
+
+// soloFaceCol is the frame column of reel face `reel` (0..2) on the solo card:
+// faces are width-2 glyphs packed at screen cols sx+1, sx+3, sx+5.
+func soloFaceCol(reel int) int { return soloCardCol() + 2 + 1 + reel*2 }
+
+// settleKnownFaces drives a deterministic landing: 7 on reel 0, cherry on reel
+// 1, dollar on reel 2 (indices on the default strip), then renders.
+func settleKnownFaces(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
+	t.Helper()
+	m := rm.machines[p.AccountID]
+	m.bet = 10
+	m.balance = startBalance - 10
+	m.spin = &spinState{
+		startedAt: r.Now(),
+		variant:   rm.variant,
+		stopIdx:   [3]int{0, 11, 1}, // default strip: [0]=7, [11]=C, [1]=$
+		final:     [3]symbol{sym7, symCherry, symDollar},
+	}
+	rm.settleSpin(r, p.AccountID)
+	rm.render(r)
+}
+
+func TestReelFacesRenderAsWideGraphemes(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	settleKnownFaces(t, rm, r, p)
+
+	f := r.LastFrame(p)
+	if f == nil {
+		t.Fatal("no frame sent")
+	}
+	payline := cardTop + 3
+	cases := []struct {
+		reel           string
+		col            int
+		base, cp2, cp3 rune
+	}{
+		{"seven keycap", soloFaceCol(0), '7', 0xFE0F, 0x20E3},
+		{"cherry", soloFaceCol(1), '\U0001F352', 0, 0},
+		{"diamond", soloFaceCol(2), '\U0001F48E', 0, 0},
+	}
+	for _, c := range cases {
+		cell := f.Cells[payline][c.col]
+		if cell.Rune != c.base || cell.Cp2 != c.cp2 || cell.Cp3 != c.cp3 {
+			t.Errorf("%s cell = %q/%q/%q, want %q/%q/%q",
+				c.reel, cell.Rune, cell.Cp2, cell.Cp3, c.base, c.cp2, c.cp3)
+		}
+		if !f.Cells[payline][c.col+1].Cont {
+			t.Errorf("%s: cell right of the glyph is not a continuation cell", c.reel)
+		}
+	}
+}
+
+func TestBlankFacesAreSingleWidthDashes(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+
+	f := r.LastFrame(p)
+	if f == nil {
+		t.Fatal("no frame sent")
+	}
+	payline := cardTop + 3
+	for reel := 0; reel < 3; reel++ {
+		c := soloFaceCol(reel)
+		if f.Cells[payline][c].Rune != '-' {
+			t.Errorf("pre-spin face %d = %q, want '-'", reel, f.Cells[payline][c].Rune)
+		}
+		if f.Cells[payline][c+1].Cont {
+			t.Errorf("pre-spin face %d must not mark a continuation cell", reel)
+		}
+	}
+}
+
+// TestScreenBoxFitsWideFaces: the reel screen box is 8 wide (three packed
+// width-2 faces) with the payline markers hugging its sides.
+func TestScreenBoxFitsWideFaces(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+
+	f := r.LastFrame(p)
+	sx := soloCardCol() + 2
+	if got := f.Cells[cardTop+1][sx].Rune; got != '╭' {
+		t.Errorf("screen top-left = %q, want ╭", got)
+	}
+	if got := f.Cells[cardTop+1][sx+7].Rune; got != '╮' {
+		t.Errorf("screen top-right = %q, want ╮ at sx+7 (8-wide box)", got)
+	}
+	if got := f.Cells[cardTop+3][sx-1].Rune; got != '>' {
+		t.Errorf("left payline marker = %q, want >", got)
+	}
+	if got := f.Cells[cardTop+3][sx+8].Rune; got != '<' {
+		t.Errorf("right payline marker = %q, want < at sx+8", got)
+	}
+}
+
+// TestPaytableStripNamesSymbolsWithArt: the strip under the cabinets names the
+// paying symbols with their emoji art and multipliers, highest first.
+func TestPaytableStripNamesSymbolsWithArt(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+
+	for _, want := range []string{"x500", "x150", "x55", "x10"} {
+		if !frameContains(r, p, want) {
+			t.Errorf("paytable strip missing %q", want)
+		}
+	}
+	f := r.LastFrame(p)
+	row := -1
+	for rr := 0; rr < kit.Rows; rr++ {
+		if strings.Contains(kittest.String(f, rr), "x500") {
+			row = rr
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatal("no paytable row found")
+	}
+	line := kittest.String(f, row)
+	for _, art := range []rune{'\U0001F48E', '⭐', '\U0001F514'} { // 💎 ⭐ 🔔
+		if !strings.ContainsRune(line, art) {
+			t.Errorf("paytable row %q missing symbol art %q", line, art)
+		}
 	}
 }
 

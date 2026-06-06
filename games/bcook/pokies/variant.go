@@ -6,8 +6,11 @@ import (
 	"sort"
 )
 
-// symbol is a single-width ASCII slot face. ASCII (never emoji) keeps every
-// landed reel one cell wide so the fixed 80x24 grid is never corrupted.
+// symbol is the single-byte logical ID of a slot face: the key the odds
+// variant JSON uses for weights/paytable (admin-surface compatible) and the
+// element a reel strip is built from. What a face *looks like* is presentation
+// only — faceArt in layout.go maps each symbol to its width-2 emoji cluster,
+// drawn via the kit v2 grapheme cells.
 type symbol byte
 
 const (
@@ -227,28 +230,26 @@ func (v *variant) weightSummary() string {
 	return out
 }
 
-// paytableSummary renders the triple paytable highest-multiplier first in a
-// stable order, e.g. ["7 7 7  x500", ...]. Stable sort keeps equal multipliers in
-// their original order so the output never depends on map iteration order.
-func (v *variant) paytableSummary() []string {
-	type row struct {
-		sym  symbol
-		mult int
-	}
-	var rows []row
+// payRow is one paytable entry: three of sym pays mult × the bet.
+type payRow struct {
+	sym  symbol
+	mult int
+}
+
+// payRows returns the paying triples highest-multiplier first in a stable
+// order, feeding the paytable strip under the cabinets. Stable sort keeps
+// equal multipliers in stripOrder so the output never depends on map
+// iteration order.
+func (v *variant) payRows() []payRow {
+	var rows []payRow
 	// Range stripOrder (not the triples map) so iteration order is deterministic.
 	for _, s := range stripOrder {
 		if m := v.triples[s]; m > 0 {
-			rows = append(rows, row{s, m})
+			rows = append(rows, payRow{s, m})
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].mult > rows[j].mult })
-	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		f := nameOfSymbol(r.sym)
-		out = append(out, fmt.Sprintf("%s %s %s  x%d", f, f, f, r.mult))
-	}
-	return out
+	return rows
 }
 
 // windowAt returns the three visible faces (top, center, bottom) when the strip
