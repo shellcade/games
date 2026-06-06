@@ -13,9 +13,12 @@ steps:
   - rune: "2" # X top-middle
   - shot: midgame
 
-  # Finish: O blocks elsewhere, X completes the top row (1,2,3) for the win.
+  # O blocks elsewhere — the last calm board before the winning move.
   - seat: 1
   - rune: "4" # O middle-left
+  - shot: block
+
+  # X completes the top row (1,2,3) for the win.
   - seat: 0
   - rune: "3" # X top-right -> three in a row, X wins
   - shot: win
