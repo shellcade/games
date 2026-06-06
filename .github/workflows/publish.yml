@@ -50,6 +50,12 @@ jobs:
         if: steps.changed.outputs.dirs != ''
         with: { tinygo-version: "${{ env.TINYGO_VERSION }}" }
 
+      # Rust games (Cargo.toml module marker) build with the runner's stable
+      # rustup toolchain; only the wasm target needs adding.
+      - name: rust wasm32-wasip1 target (for Cargo games)
+        if: steps.changed.outputs.dirs != ''
+        run: rustup target add wasm32-wasip1
+
       # Pin binaryen to an exact release and verify before use (wasm-opt powers
       # the -opt=2 release build).
       - name: binaryen
@@ -72,13 +78,10 @@ jobs:
           while read -r d; do
             [ -z "$d" ] && continue
             echo "=== $d ==="
-            test -f "$d/go.mod" || { echo "::error::$d/go.mod missing"; exit 1; }
-
-            # Belt-and-braces: the schema validator already requires go.mod,
-            # but skip loudly rather than fail if a source-less dir slips in.
-            if [ ! -f "$d/go.mod" ] && [ ! -f "$d/main.go" ]; then
-              echo "::notice::$d has no buildable source (no go.mod/main.go) — skipping publish"
-              continue
+            # Module marker decides the toolchain — mirrors validate_game_dir.py:
+            # go.mod => TinyGo, Cargo.toml => cargo/wasm32-wasip1.
+            if [ ! -f "$d/go.mod" ] && [ ! -f "$d/Cargo.toml" ]; then
+              echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
             fi
 
             owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
@@ -94,9 +97,18 @@ jobs:
                        -q '.[0].user.login' 2>/dev/null || true)
             if [ "$mapped" = "null" ]; then mapped=""; fi
 
-            # Release-profile build.
-            ( cd "$d" && go mod tidy && tinygo build -opt=2 -no-debug -gc=leaking \
-                -o game.wasm -target wasip1 -buildmode=c-shared . )
+            # Release-profile build, per module marker.
+            if [ -f "$d/go.mod" ]; then
+              ( cd "$d" && go mod tidy && tinygo build -opt=2 -no-debug -gc=leaking \
+                  -o game.wasm -target wasip1 -buildmode=c-shared . )
+            else
+              # Rust: the crate's own [profile.release] carries the size/lto
+              # settings; the artifact lands under target/ named after the
+              # crate (hyphens become underscores).
+              crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
+              ( cd "$d" && cargo build --release --target wasm32-wasip1 )
+              cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
+            fi
             digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
             echo "digest: sha256:$digest"
 
