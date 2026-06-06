@@ -5,7 +5,7 @@ on:
 # Single source of truth for the toolchain. Bump these (and publish.yml, which
 # pins the same versions) together; CI must be reproducible across re-runs.
 env:
-  KIT_VERSION: "2.1.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
+  KIT_VERSION: "2.1.1"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.0"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
