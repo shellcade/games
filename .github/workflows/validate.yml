@@ -165,7 +165,7 @@ jobs:
             ./shellcade-kit smoke "$d/game.wasm" --out "$out"
             shots='[]'
             for ansi in "$out"/*.ansi; do
-              freeze "$ansi" -o "${ansi%.ansi}.svg"
+              freeze "$ansi" --language ansi -o "${ansi%.ansi}.svg"
               shots=$(echo "$shots" | jq -c --arg s "$(basename "${ansi%.ansi}.svg")" '. + [$s]')
             done
             games_json=$(echo "$games_json" | jq -c --arg dir "$d" --arg sub "${owner}-${game}" --argjson shots "$shots" '. + [{dir: $dir, sub: $sub, shots: $shots}]')
