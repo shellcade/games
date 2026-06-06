@@ -19,19 +19,26 @@ const (
 	payRowY     = 15 // paytable strip row, one blank line below the cabinets
 )
 
-// faceArt maps a symbol to its reel art: an emoji grapheme cluster of at most
-// three code points, drawn width-2 via SetGraphemeWide (the kit v2 grapheme
-// cells). The symbol byte stays the logical/config ID; this is presentation
-// only. Width-2 is the author's contract — every face declares wide so the
-// reel grid stays uniform on terminals that agree. Non-UTF-8 sessions degrade
-// host-side: cp2/cp3 are dropped and the base code point ASCII-falls-back, so
-// the keycap seven survives as '7' while the pure-emoji bases become '?'.
+// faceArt maps a symbol to its reel art, drawn width-2 via SetGraphemeWide
+// (the kit v2 grapheme cells). The symbol byte stays the logical/config ID;
+// this is presentation only.
+//
+// Width-2 is the author's contract, so every face must be a glyph whose
+// rendered width is UNCONTESTED: all five are single code points with East
+// Asian Width W/F, which runewidth, uniseg, x/ansi, and real terminals all
+// agree render as two columns. The keycap 7️⃣ ('7'+VS16+U+20E3) was tried
+// first and corrupted layouts in production: its width is contested
+// (runewidth/uniseg say 1, x/ansi says 2, terminals split on font
+// composition), and a narrow-rendering viewer desyncs every column to the
+// glyph's right. U+FF17 FULLWIDTH DIGIT SEVEN is the defensive choice — and
+// the wide ７７７ is what a slot reel wants anyway. Non-UTF-8 sessions
+// degrade host-side via asciiFallback (７→7, 🍒→C, etc.).
 var faceArt = map[symbol]string{
-	sym7:      "7\uFE0F\u20E3", // 7️⃣ keycap (base + VS16 + combining keycap); base '7' degrades to '7'
-	symDollar: "\U0001F48E",    // 💎 degrades to '?'
-	symStar:   "\u2B50",        // ⭐ degrades to '?'
-	symBar:    "\U0001F514",    // 🔔 degrades to '?'
-	symCherry: "\U0001F352",    // 🍒 degrades to '?'
+	sym7:      "\uFF17",     // ７ fullwidth seven
+	symDollar: "\U0001F48E", // 💎
+	symStar:   "\u2B50",     // ⭐
+	symBar:    "\U0001F514", // 🔔
+	symCherry: "\U0001F352", // 🍒
 }
 
 var (
