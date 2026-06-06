@@ -35,6 +35,10 @@ func (Game) Meta() kit.GameMeta {
 			Aggregation: kit.BestResult,
 			Format:      kit.Integer,
 		},
+
+		// The admin-settable config surface (config.go): the odds-variant
+		// PAR sheet, declared so the arcade's admin tools render a rich form.
+		Config: configSpecs(),
 	}
 }
 
