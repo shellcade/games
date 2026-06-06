@@ -15,8 +15,24 @@ const (
 	gutter      = 1
 	cardTop     = 3
 	maxMachines = 5
-	scrollSpeed = 2 // reel-strip rows advanced per animation cycle while spinning
+	scrollSpeed = 2  // reel-strip rows advanced per animation cycle while spinning
+	payRowY     = 15 // paytable strip row, one blank line below the cabinets
 )
+
+// faceArt maps a symbol to its reel art: an emoji grapheme cluster of at most
+// three code points, drawn width-2 via SetGraphemeWide (the kit v2 grapheme
+// cells). The symbol byte stays the logical/config ID; this is presentation
+// only. Width-2 is the author's contract — every face declares wide so the
+// reel grid stays uniform on terminals that agree. Non-UTF-8 sessions degrade
+// host-side: cp2/cp3 are dropped and the base code point ASCII-falls-back, so
+// the keycap seven survives as '7' while the pure-emoji bases become '?'.
+var faceArt = map[symbol]string{
+	sym7:      "7\uFE0F\u20E3", // 7️⃣ keycap (base + VS16 + combining keycap); base '7' degrades to '7'
+	symDollar: "\U0001F48E",    // 💎 degrades to '?'
+	symStar:   "\u2B50",        // ⭐ degrades to '?'
+	symBar:    "\U0001F514",    // 🔔 degrades to '?'
+	symCherry: "\U0001F352",    // 🍒 degrades to '?'
+}
 
 var (
 	stTitle   = kit.Style{FG: kit.White, Attr: kit.AttrBold}
@@ -27,7 +43,7 @@ var (
 	stNameOwn = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}
 	stName    = kit.Style{FG: kit.White}
 	stPayline = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold} // center row
-	stReelDim = kit.Style{FG: kit.DimGray}                     // top/bottom rows
+	stReelDim = kit.Style{FG: kit.DimGray}                    // top/bottom rows
 	stMarker  = kit.Style{FG: kit.Cyan, Attr: kit.AttrBold}
 	stLabel   = kit.Style{FG: kit.DimGray}
 	stWin     = kit.Style{FG: kit.Green, Attr: kit.AttrBold}
@@ -80,6 +96,8 @@ func (rm *room) compose(v kit.Player) *kit.Frame {
 		}
 	}
 
+	rm.drawPaytable(f, payRowY)
+
 	f.Text(kit.Rows-1, 2, "Up/Down bet   SPACE spin   Esc leave", stDim)
 	if m := rm.machines[v.AccountID]; m != nil {
 		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.balance, m.highScore), stDim)
@@ -124,22 +142,25 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 		f.SetRune(top+r, right, '│', bord)
 	}
 
-	// Reel screen box (cols col+2..col+8): ╭─────╮ / │ . . . │ / ╰─────╯
+	// Reel screen box (cols col+2..col+9): ╭──────╮ / │ 🍒🍒🍒 │ / ╰──────╯ —
+	// an 8-wide box whose 6-col interior packs three width-2 emoji faces.
 	sx := col + 2
 	f.SetRune(top+1, sx, '╭', bord)
 	f.SetRune(top+5, sx, '╰', bord)
-	f.SetRune(top+1, sx+6, '╮', bord)
-	f.SetRune(top+5, sx+6, '╯', bord)
-	for c := sx + 1; c < sx+6; c++ {
+	f.SetRune(top+1, sx+7, '╮', bord)
+	f.SetRune(top+5, sx+7, '╯', bord)
+	for c := sx + 1; c < sx+7; c++ {
 		f.SetRune(top+1, c, '─', bord)
 		f.SetRune(top+5, c, '─', bord)
 	}
 	for r := 2; r <= 4; r++ {
 		f.SetRune(top+r, sx, '│', bord)
-		f.SetRune(top+r, sx+6, '│', bord)
+		f.SetRune(top+r, sx+7, '│', bord)
 	}
 
-	// The 3x3 faces; the center row (top+3) is the payline.
+	// The 3x3 faces: width-2 emoji art packed at sx+1, sx+3, sx+5; the center
+	// row (top+3) is the payline. The blank pre-spin face is a plain dash (a
+	// width-1 rune leaves its second slot cell empty — still one slot).
 	g := rm.grid(m)
 	for row := 0; row < 3; row++ {
 		st := stReelDim
@@ -147,12 +168,17 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 			st = stPayline
 		}
 		for reel := 0; reel < 3; reel++ {
-			f.SetRune(top+2+row, sx+1+reel*2, g[row][reel], st)
+			c := sx + 1 + reel*2
+			if s := g[row][reel]; s == symBlank {
+				f.SetRune(top+2+row, c, '-', st)
+			} else {
+				f.SetGraphemeWide(top+2+row, c, faceArt[s], st)
+			}
 		}
 	}
 	// Payline markers pointing at the center row.
 	f.SetRune(top+3, sx-1, '>', stMarker)
-	f.SetRune(top+3, sx+7, '<', stMarker)
+	f.SetRune(top+3, sx+8, '<', stMarker)
 
 	// Lever to the right of the screen: knob rides up when idle, drops mid-spin.
 	rm.lever(f, col, top, m)
@@ -166,6 +192,42 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 	// Bottom border with a coin slot.
 	rm.border(f, top+10, col, '╰', '╯', bord)
 	f.Text(top+10, col+5, "[__]", bord)
+}
+
+// drawPaytable centers the active variant's paying triples on one row under
+// the cabinets — "7️⃣7️⃣7️⃣ x500   💎💎💎 x150  …" — naming each symbol with its
+// reel art. Width is computed up front (each glyph is declared width-2) so the
+// strip centers; an absurd admin variant that overflows simply clamps at the
+// canvas edges (SetGraphemeWide/SetRune refuse out-of-bounds writes).
+func (rm *room) drawPaytable(f *kit.Frame, row int) {
+	v := rm.variant
+	if v == nil {
+		return
+	}
+	rows := v.payRows()
+	if len(rows) == 0 {
+		return
+	}
+	const glyphsW, gap = 3 * 2, 3 // three width-2 faces; gap between entries
+	labels := make([]string, len(rows))
+	width := (len(rows) - 1) * gap
+	for i, pr := range rows {
+		labels[i] = fmt.Sprintf(" x%d", pr.mult)
+		width += glyphsW + len(labels[i])
+	}
+	col := (kit.Cols - width) / 2
+	if col < 0 {
+		col = 0
+	}
+	for i, pr := range rows {
+		if i > 0 {
+			col += gap
+		}
+		for n := 0; n < 3; n++ {
+			col = f.SetGraphemeWide(row, col, faceArt[pr.sym], stReelDim)
+		}
+		col = f.Text(row, col, labels[i], stLabel)
+	}
 }
 
 // border draws a rounded horizontal edge with the given left/right corners.
@@ -217,13 +279,13 @@ func (rm *room) lever(f *kit.Frame, col, top int, m *machine) {
 	f.SetRune(top+5, lx, '┴', stLever) // pivot
 }
 
-// grid returns the 3x3 visible faces as runes, indexed [row][reel] with row 0
+// grid returns the 3x3 visible faces as symbols, indexed [row][reel] with row 0
 // the top, row 1 the center payline, row 2 the bottom. Reels scroll while
 // spinning (cycle derived from elapsed time), freeze to their landing window as
 // they settle, show the last result when idle, and are blank before the first
 // spin.
-func (rm *room) grid(m *machine) [3][3]rune {
-	var out [3][3]rune
+func (rm *room) grid(m *machine) [3][3]symbol {
+	var out [3][3]symbol
 	for reel := 0; reel < 3; reel++ {
 		var w [3]symbol
 		switch {
@@ -237,7 +299,7 @@ func (rm *room) grid(m *machine) [3][3]rune {
 			w = [3]symbol{symBlank, symBlank, symBlank}
 		}
 		for row := 0; row < 3; row++ {
-			out[row][reel] = rune(w[row])
+			out[row][reel] = w[row]
 		}
 	}
 	return out
