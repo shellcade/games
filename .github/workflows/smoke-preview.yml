@@ -88,12 +88,14 @@ jobs:
           while read -r entry; do
             dir=$(echo "$entry" | jq -r .dir)
             sub=$(echo "$entry" | jq -r .sub)
-            body+=$'\n'"### \`$dir\`"$'\n'
+            count=$(echo "$entry" | jq -r '.shots | length')
+            body+=$'\n'"<details>"$'\n'"<summary><b><code>$dir</code></b> — $count screens</summary>"$'\n'
             while read -r shot; do
               name="${shot%.svg}"
               url="${PUBLIC_BASE}/pr-${PR}/${SHA}/${sub}/${shot}"
               body+=$'\n'"**${name}**"$'\n'"<img src=\"${url}\" width=\"640\" alt=\"${name}\">"$'\n'
             done < <(echo "$entry" | jq -r '.shots[]')
+            body+=$'\n'"</details>"$'\n'
           done < <(jq -c '.games[]' previews/manifest.json)
 
           existing=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" --paginate \
