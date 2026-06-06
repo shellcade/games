@@ -73,6 +73,13 @@ jobs:
         if: steps.changed.outputs.dirs != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Arcade auto-publish (add-game-versions): after each release is cut,
+          # CI asks the arcade to verify+promote it per the arcade's publish
+          # policy (graduated default: live games auto-update; first publishes
+          # wait for admin go-live). The arcade re-verifies everything locally
+          # (digest + conformance) — this call carries no trust, only the tag.
+          PUBLISH_ENDPOINT: "https://shellcade.com/admin/game:publish"
+          ADMIN_SECRET: ${{ secrets.SHELLCADE_ADMIN_SECRET }}
         run: |
           set -euo pipefail
           while read -r d; do
@@ -170,4 +177,20 @@ jobs:
                 --target "${{ github.sha }}"
             fi
             echo "published $tag ($asset)"
+
+            # Arcade auto-publish — FAIL-SOFT: a missing secret or an
+            # unreachable arcade never fails the release (the admin area can
+            # always verify+promote manually). The endpoint is idempotent, so
+            # a re-run re-verifies and re-applies the policy without
+            # duplicating anything.
+            if [ -n "${ADMIN_SECRET}" ]; then
+              body=$(printf '{"tag":"%s","githubUser":"%s"}' "$tag" "$mapped")
+              resp=$(curl -sS -m 90 -X POST \
+                       -H "Authorization: Bearer ${ADMIN_SECRET}" \
+                       -H "Content-Type: application/json" \
+                       -d "$body" "${PUBLISH_ENDPOINT}" || true)
+              echo "game:publish → ${resp:-no response (arcade unreachable; promote via Admin tools)}"
+            else
+              echo "SHELLCADE_ADMIN_SECRET not set — skipping arcade auto-publish"
+            fi
           done <<< "${{ steps.changed.outputs.dirs }}"
