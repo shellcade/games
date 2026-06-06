@@ -19,13 +19,27 @@ jobs:
 
       - name: changed game dirs
         id: changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           base="${{ github.event.pull_request.base.sha }}"
           dirs=$(git diff --name-only "$base"...HEAD -- 'games/**' | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u)
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          # Files outside games/ are maintainer-only plumbing. The maintainer
+          # test is the author's REPO PERMISSION (admin/maintain/write), not
+          # author_association — association reports MEMBER/OWNER only when the
+          # org membership is PUBLIC, so a private-membership org admin would
+          # read as a plain contributor. The permission endpoint needs only the
+          # metadata read every workflow token has (fork PRs included).
           outside=$(git diff --name-only "$base"...HEAD | grep -v '^games/' || true)
-          if [ -n "$outside" ] && [ "${{ contains(fromJSON('["OWNER","MEMBER"]'), github.event.pull_request.author_association) }}" != "true" ]; then
-            echo "::error::PR touches files outside games/: $outside"; exit 1
+          if [ -n "$outside" ]; then
+            author="${{ github.event.pull_request.user.login }}"
+            level=$(gh api "repos/${{ github.repository }}/collaborators/${author}/permission" \
+                      --jq .permission 2>/dev/null || echo none)
+            case "$level" in
+              admin|maintain|write) echo "maintainer ($level): plumbing changes allowed" ;;
+              *) echo "::error::PR touches files outside games/: $outside"; exit 1 ;;
+            esac
           fi
 
       # Authorship is no longer checked here. Namespace ownership is authorized
