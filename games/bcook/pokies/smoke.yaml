@@ -1,0 +1,10 @@
+seed: 18
+seats: 1
+heartbeat: 50ms
+steps:
+  - shot: idle
+  - key: space
+  - advance: 300ms
+  - shot: mid-spin
+  - advance: 1600ms
+  - shot: settled
