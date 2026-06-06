@@ -1,11 +1,11 @@
 //! Rendering — a faithful port of the Go game's render.go. A centered 3x3
 //! board, a title, both players' names with marks, and a status line. The view
-//! is identical for everyone, so one composed frame is broadcast with
-//! `identical`.
+//! is identical for everyone, so the caller broadcasts one composed frame with
+//! `identical` (the SDK's delta path does the rest).
 
-use crate::frame::*;
-use crate::game::{Room, MARK_X, MARK_O};
-use crate::wire::Ctx;
+use shellcade_kit::prelude::*;
+
+use crate::game::{Match, MARK_O, MARK_X};
 
 // Styles (match render.go).
 fn st_title() -> Style { Style::new(WHITE, ATTR_BOLD) }
@@ -22,28 +22,24 @@ fn st_wait() -> Style { Style::new(DIM_GRAY, 0) }
 // Board geometry: each cell 5 wide x 1 tall, separated by grid lines, centered.
 const CELL_W: i32 = 5;
 const BOARD_W: i32 = CELL_W * 3 + 2; // two vertical separators
-const BOARD_COL: i32 = (COLS as i32 - BOARD_W) / 2;
+const BOARD_COL: i32 = (COLS - BOARD_W) / 2;
 const BOARD_ROW: i32 = 8;
 
-/// compose builds the full frame for the current room state. The view is
-/// identical for everyone; the caller broadcasts it via the v2 delta path. The
-/// Frame is built fresh each call (mirrors the Go game's Clear()+compose).
-pub fn compose(rm: &Room, ctx: &Ctx) -> Frame {
-    let mut f = Frame::new();
+/// compose rebuilds the full frame for the current match state into the
+/// caller's reused Frame (clear + compose — the allocation-free steady state).
+pub fn compose(rm: &Match, f: &mut Frame) {
+    f.clear();
 
     // Title.
     let title = "TIC - TAC - TOE";
-    f.text(1, (COLS as i32 - title.len() as i32) / 2, title, st_title());
+    f.text(1, (COLS - title.len() as i32) / 2, title, st_title());
 
-    draw_players(rm, &mut f);
-    draw_board(rm, &mut f);
-    draw_status(rm, &mut f);
+    draw_players(rm, f);
+    draw_board(rm, f);
+    draw_status(rm, f);
 
     let hint = "Press 1-9 to place your mark";
-    f.text(ROWS as i32 - 2, (COLS as i32 - hint.len() as i32) / 2, hint, st_dim());
-
-    let _ = ctx; // identical view for all players; ctx unused beyond names.
-    f
+    f.text(ROWS - 2, (COLS - hint.len() as i32) / 2, hint, st_dim());
 }
 
 fn style_for(mark: u8) -> Style {
@@ -54,25 +50,25 @@ fn style_for(mark: u8) -> Style {
     }
 }
 
-fn draw_players(rm: &Room, f: &mut Frame) {
+fn draw_players(rm: &Match, f: &mut Frame) {
     let x_name = if rm.x_id.is_empty() { "(waiting)".to_string() } else { rm.display_name(&rm.x_id) };
     let o_name = if rm.o_id.is_empty() { "(waiting)".to_string() } else { rm.display_name(&rm.o_id) };
 
     let left = format!("X  {}", x_name);
     let right = format!("{}  O", o_name);
     f.text(4, 4, &left, style_for(MARK_X));
-    f.text_right(4, COLS as i32 - 5, &right, style_for(MARK_O));
+    f.text_right(4, COLS - 5, &right, style_for(MARK_O));
 
     if !rm.over && rm.both_seated() {
         if rm.turn == MARK_X {
             f.set_rune(4, 2, '>', st_turn());
         } else {
-            f.set_rune(4, COLS as i32 - 3, '<', st_turn());
+            f.set_rune(4, COLS - 3, '<', st_turn());
         }
     }
 }
 
-fn draw_board(rm: &Room, f: &mut Frame) {
+fn draw_board(rm: &Match, f: &mut Frame) {
     for cell in 0..9i32 {
         let rowq = cell / 3;
         let colq = cell % 3;
@@ -105,7 +101,7 @@ fn draw_board(rm: &Room, f: &mut Frame) {
     }
 }
 
-fn draw_status(rm: &Room, f: &mut Frame) {
+fn draw_status(rm: &Match, f: &mut Frame) {
     let row = BOARD_ROW + 3 * 2 + 1;
     let (msg, st): (String, Style) = if !rm.both_seated() {
         ("Waiting for both players...".to_string(), st_wait())
@@ -119,5 +115,5 @@ fn draw_status(rm: &Room, f: &mut Frame) {
         ("O to move".to_string(), st_turn())
     };
     let n = msg.chars().count() as i32;
-    f.text(row, (COLS as i32 - n) / 2, &msg, st);
+    f.text(row, (COLS - n) / 2, &msg, st);
 }
