@@ -303,6 +303,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "shellcade-kit"
+version = "2.2.0"
+source = "git+https://github.com/shellcade/kit?tag=v2.2.0#918019235ac3c02b6f665bde0b716745571f5f67"
+dependencies = [
+ "extism-pdk",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -323,7 +331,7 @@ dependencies = [
 name = "tic-tac-toe-rs"
 version = "0.1.0"
 dependencies = [
- "extism-pdk",
+ "shellcade-kit",
 ]
 
 [[package]]
