@@ -31,11 +31,15 @@ steps:
   - advance: 100ms
   - shot: decided
 
-  # Seat 1 stands too -> both hands resolved -> dealer reveals the hole card and
-  # draws to 17. Sweep past the reveal (600ms hole pause + staggered draws) and
-  # into the 6s results flash.
+  # Seat 1 hits its 19 — the bust hand is part of the story — which resolves the
+  # last live hand. Sweep the card slide so the third card is face up in shot.
   - seat: 1
-  - rune: "s"
+  - rune: "h"
+  - advance: 600ms
+  - shot: hit
+
+  # Both hands resolved -> dealer reveals the hole card and draws to 17. Sweep
+  # past the reveal (600ms hole pause + staggered draws) into the results flash.
   - advance: 1500ms
   - advance: 1500ms
   - advance: 1500ms
