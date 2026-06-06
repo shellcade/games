@@ -520,7 +520,11 @@ func TestReelFacesRenderAsWideGraphemes(t *testing.T) {
 		col            int
 		base, cp2, cp3 rune
 	}{
-		{"seven keycap", soloFaceCol(0), '7', 0xFE0F, 0x20E3},
+		// Fullwidth seven, NOT the keycap 7️⃣: keycap width is contested
+		// (runewidth/uniseg say 1, x/ansi says 2, terminals split) and a
+		// narrow-rendering viewer desyncs every column to its right. U+FF17
+		// is EAW=Fullwidth — unanimously width 2 everywhere.
+		{"fullwidth seven", soloFaceCol(0), '７', 0, 0},
 		{"cherry", soloFaceCol(1), '\U0001F352', 0, 0},
 		{"diamond", soloFaceCol(2), '\U0001F48E', 0, 0},
 	}
