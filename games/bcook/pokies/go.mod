@@ -2,7 +2,7 @@ module github.com/bcook/pokies
 
 go 1.25.0
 
-require github.com/shellcade/kit v0.5.0
+require github.com/shellcade/kit/v2 v2.0.0
 
 require (
 	github.com/extism/go-pdk v1.1.3 // indirect

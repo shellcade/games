@@ -1,0 +1,42 @@
+[package]
+name = "tic-tac-toe-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Tic-Tac-Toe, a shellcade catalog game written in RUST, implemented from the
+# public shellcade ABI (kit/ABI.md) alone. It is a behavioral port of the Go
+# tic-tac-toe game in this same catalog (../tic-tac-toe), and exists to measure
+# how hard cross-language guest support is. ABI v2: 24-byte grapheme cells and a
+# frame-delta container as the `identical` payload (run-coalesced deltas with a
+# keyframe form), hand-rolled per ABI.md §4.5.
+#
+# Build (release profile — what CI ships):
+#   cargo build --release --target wasm32-wasip1
+# The artifact lands at target/wasm32-wasip1/release/tic_tac_toe_rs.wasm.
+# Verify with:  shellcade-kit check tic_tac_toe_rs.wasm   (NOTE: the released
+# shellcade-kit is ABI v1-only and CANNOT validate this v2 artifact yet.)
+
+[lib]
+# cdylib on wasm32-wasip1 produces a WASI reactor (a `memory` export and an
+# `_initialize` export); the 8 ABI entry points are added via #[no_mangle]
+# extern "C" exports. rlib additionally lets the pure game/frame/delta logic be
+# unit-tested natively (`cargo test`) — the extism transport is wasm-gated and
+# replaced by inert stubs off-wasm.
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# extism-pdk supplies only the kernel plumbing (input/output regions, the
+# Memory allocator over extism:host/env). The shellcade host functions are
+# declared directly as raw wasm imports in src/host.rs — the PDK's #[host_fn]
+# macro corrupts scalar args (see ABI.md §7). It references undefined kernel
+# symbols off-wasm, so it is a wasm-only dependency; native `cargo test` builds
+# the inert host stubs instead.
+extism-pdk = "1.4"
+
+[profile.release]
+# Small, fast-to-build, matching the dev-profile intent of the TinyGo games.
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

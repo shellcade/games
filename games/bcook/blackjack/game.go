@@ -1,6 +1,6 @@
 package main
 
-import kit "github.com/shellcade/kit"
+import kit "github.com/shellcade/kit/v2"
 
 // Game is the blackjack registry entry: static metadata plus the per-room
 // factory. The catalog slug is composed by the platform from the directory path

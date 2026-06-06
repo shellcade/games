@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // turnTimeout is how long a player has to move before forfeiting. Held as a

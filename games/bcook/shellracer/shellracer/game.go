@@ -13,7 +13,7 @@
 // Handler directly; the module's main + exports wire kit.Main/kit.Run to Game{}.
 package shellracer
 
-import kit "github.com/shellcade/kit"
+import kit "github.com/shellcade/kit/v2"
 
 // Game is the shellracer registry entry: static metadata plus the per-room
 // factory. The native meta declared min 1 / max 5. The meta slug is the BARE

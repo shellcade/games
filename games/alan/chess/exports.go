@@ -2,7 +2,7 @@
 
 package main
 
-import kit "github.com/shellcade/kit"
+import kit "github.com/shellcade/kit/v2"
 
 func init() { kit.Run(Game{}) }
 

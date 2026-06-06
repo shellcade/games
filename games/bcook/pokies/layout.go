@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // Rendering: a near-verbatim port of the native pokies layout to the kit grid.
@@ -41,6 +41,12 @@ var (
 // state never allocates a fresh variant per render.
 var fallbackStrip = defaultVariant().strip
 
+// composeFrame is the single reused render buffer. The guest runs as a serial
+// actor and each composed frame is fully consumed by r.Send before the next
+// compose, so a package-global frame cleared per call is alloc-free in steady
+// state (no kit.NewFrame() allocation per viewer per render).
+var composeFrame = kit.NewFrame()
+
 // render composes and sends a per-viewer frame to every member.
 func (rm *room) render(r kit.Room) {
 	rm.lastNow = r.Now()
@@ -50,7 +56,8 @@ func (rm *room) render(r kit.Room) {
 }
 
 func (rm *room) compose(v kit.Player) *kit.Frame {
-	f := kit.NewFrame()
+	f := composeFrame
+	f.Clear()
 
 	f.Text(0, 2, "*** POKIES ***", stTitle)
 	f.TextRight(0, kit.Cols-2, "pull the lever - chase your high score", stDim)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // Spec row constants (0-based frame rows; the spec table is 1-based).

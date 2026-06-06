@@ -16,6 +16,6 @@
 //	go run .
 package main
 
-import kit "github.com/shellcade/kit"
+import kit "github.com/shellcade/kit/v2"
 
 func main() { kit.Main(Game{}) }

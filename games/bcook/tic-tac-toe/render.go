@@ -1,6 +1,6 @@
 package main
 
-import kit "github.com/shellcade/kit"
+import kit "github.com/shellcade/kit/v2"
 
 // Rendering: a centered 3x3 board, a title, both players' names with their
 // marks, and a status line. The view is identical for everyone (nothing is

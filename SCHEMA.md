@@ -10,8 +10,8 @@ nothing is declared twice and nothing can drift.
 
 | File | Rule |
 |---|---|
-| `go.mod` | Every game is a **standalone Go module** (any module path; `require github.com/shellcade/kit`) |
-| source | Builds with the pinned TinyGo profile and passes `shellcade-kit check` (the same harness the arcade runs) |
+| module marker | Every game is a **standalone module** in its source language: `go.mod` for a Go guest (any path; `require github.com/shellcade/kit`), or `Cargo.toml` for a Rust guest (a `cdylib` for `wasm32-wasip1`; implement the ABI from `ABI.md` — see `bcook/tic-tac-toe-rs`). The **built artifact** and its `meta` are the real contract; the language is your choice |
+| source | Builds with its pinned toolchain profile (TinyGo dev profile, or `cargo build --release --target wasm32-wasip1`) and passes `shellcade-kit check` (the same harness the arcade runs) |
 | `LICENSE` | One of: **MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, Unlicense** |
 
 The **directory name** is the game's bare name — `[a-z0-9-]{1,32}`, no slash —
@@ -31,11 +31,24 @@ Built artifacts (`*.wasm`) are **never committed** — CI builds what ships.
 
 ## Validating locally
 
+Go guest:
+
 ```sh
 cd games/<you>/<game>
 go mod tidy
 tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared .
 shellcade-kit check game.wasm   # full conformance, the merge gate
 shellcade-kit meta game.wasm    # what the platform will read
+python3 ../../../.github/scripts/validate_game_dir.py "$(pwd)"
+```
+
+Rust guest (cdylib, `wasm32-wasip1`):
+
+```sh
+cd games/<you>/<game>
+cargo build --release --target wasm32-wasip1
+W=target/wasm32-wasip1/release/<crate_name>.wasm   # crate name, underscores
+shellcade-kit check "$W"        # full conformance, the merge gate
+shellcade-kit meta "$W"         # what the platform will read
 python3 ../../../.github/scripts/validate_game_dir.py "$(pwd)"
 ```

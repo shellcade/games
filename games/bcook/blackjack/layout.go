@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // Felt-table geometry (a casino table): a rounded felt frame with the dealer

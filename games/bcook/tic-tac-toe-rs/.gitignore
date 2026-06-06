@@ -1,0 +1,7 @@
+# Cargo build output. Built .wasm artifacts are never committed — CI builds what
+# ships (SCHEMA.md). The release artifact lands at
+# target/wasm32-wasip1/release/tic_tac_toe_rs.wasm.
+/target
+
+# Cargo.lock IS committed: a game is a leaf binary, so the lockfile pins exact
+# dependency versions for reproducible CI builds.

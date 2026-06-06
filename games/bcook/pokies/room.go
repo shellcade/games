@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	kit "github.com/shellcade/kit"
+	kit "github.com/shellcade/kit/v2"
 )
 
 // Game is the pokies registry entry: static metadata plus the per-room factory.
