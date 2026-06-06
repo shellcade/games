@@ -8,7 +8,7 @@ steps:
   - shot: mid-spin
   - advance: 1600ms
   - shot: settled
-  # A second pull: the next outcome is just as deterministic as the first.
+  # A second pull: the next outcome is just as deterministic as the first one.
   - key: space
   - advance: 1900ms
   - shot: second-spin
