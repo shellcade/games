@@ -41,33 +41,44 @@ impl Broadcaster {
     }
 
     /// Pack `frame`, diff it against the baseline, send the delta (or a keyframe
-    /// on first send / forced), and mirror the host's returned epoch. On a host
-    /// rejection (returned epoch != sent epoch) the next send is forced to a
-    /// keyframe, self-healing without any hibernation or roster inference.
+    /// on first send / forced), and mirror the host's returned epoch. A rejected
+    /// delta (returned epoch != sent epoch: hibernation restore, baseline loss)
+    /// is immediately RE-SENT as a keyframe stamped with the returned epoch —
+    /// still on-stack, keyframes are unconditionally accepted, so no render is
+    /// ever lost and hibernation conformance stays frame-for-frame exact
+    /// (ABI.md §4.6/§4.7 obligation 2).
     pub fn broadcast(&mut self, frame: &Frame) {
         frame.pack_into(&mut self.packed);
 
-        let force_keyframe = !self.present;
+        let was_delta = self.present;
         let n = encode(
             &self.baseline,
             &self.packed,
             &mut self.scratch,
             self.epoch,
-            force_keyframe,
+            !self.present,
         );
 
-        let returned = crate::host::send_identical(&self.scratch[..n]);
+        let mut returned = crate::host::send_identical(&self.scratch[..n]);
 
-        // Adopt the baseline: the host now holds this exact frame for everyone.
+        if returned != self.epoch && was_delta {
+            // Rejected delta: resync to the host's epoch and retry this same
+            // frame as a keyframe (one retry — a keyframe cannot be rejected).
+            self.epoch = returned;
+            let n = encode(
+                &self.baseline,
+                &self.packed,
+                &mut self.scratch,
+                self.epoch,
+                true, // keyframe
+            );
+            returned = crate::host::send_identical(&self.scratch[..n]);
+        }
+
+        // Adopt the baseline + epoch: the host now holds this exact frame.
         self.baseline.copy_from_slice(&self.packed);
         self.present = true;
-
-        if returned != self.epoch {
-            // Host rejected (or re-seeded the epoch, e.g. after hibernation):
-            // adopt the new epoch and force a keyframe next send.
-            self.epoch = returned;
-            self.present = false;
-        }
+        self.epoch = returned;
     }
 }
 
