@@ -1,0 +1,107 @@
+# Publishes smoke screens as an inline PR preview. Two-stage by design:
+# validate.yml runs in PR context with NO secrets (fork-safe) and only uploads
+# an artifact; this workflow runs in BASE-repo context on its completion,
+# verifies the artifact against the triggering run's metadata, uploads the
+# SVGs to the public shellcade-previews bucket (Tigris; objects expire via the
+# bucket's lifecycle rule), and upserts one sticky PR comment with the screens.
+# It never executes artifact content — images and a comment are its only writes.
+name: smoke-preview
+on:
+  workflow_run:
+    workflows: [validate]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  actions: read
+
+env:
+  BUCKET: shellcade-previews
+  PUBLIC_BASE: https://shellcade-previews.t3.tigrisbucket.io
+
+jobs:
+  preview:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: download smoke artifact
+        id: dl
+        uses: actions/download-artifact@v4
+        continue-on-error: true # validate runs with no changed games upload nothing
+        with:
+          name: smoke-previews
+          path: previews
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The artifact came from fork-controlled code: trust nothing in it until
+      # its claims match what GitHub says about the triggering run. The PR
+      # number must be one of the PRs whose head is the run's head SHA.
+      - name: verify manifest against the triggering run
+        id: verify
+        if: steps.dl.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          pr=$(jq -r .pr previews/manifest.json)
+          sha=$(jq -r .sha previews/manifest.json)
+          if [ "$sha" != "$HEAD_SHA" ]; then
+            echo "::error::manifest sha $sha != run head $HEAD_SHA — refusing to publish"; exit 1
+          fi
+          ok=false
+          for n in $(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" --jq '.[].number'); do
+            [ "$n" = "$pr" ] && ok=true
+          done
+          $ok || { echo "::error::manifest PR #$pr does not match any PR for $HEAD_SHA"; exit 1; }
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: upload SVGs to the previews bucket
+        if: steps.verify.outcome == 'success'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_PREVIEWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_PREVIEWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
+          PR: ${{ steps.verify.outputs.pr }}
+          SHA: ${{ steps.verify.outputs.sha }}
+        run: |
+          aws s3 sync previews/ "s3://${BUCKET}/pr-${PR}/${SHA}/" \
+            --endpoint-url https://fly.storage.tigris.dev \
+            --exclude '*' --include '*.svg' --content-type image/svg+xml
+
+      - name: upsert sticky comment
+        if: steps.verify.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.verify.outputs.pr }}
+          SHA: ${{ steps.verify.outputs.sha }}
+        run: |
+          set -euo pipefail
+          marker='<!-- shellcade-smoke -->'
+          body="$marker
+          ## Smoke screens
+
+          Deterministic scripted screens for \`${SHA}\` ([what is this?](https://github.com/shellcade/kit/blob/main/GUIDE.md#smoke-scripts-scripted-screens))
+          "
+          while read -r entry; do
+            dir=$(echo "$entry" | jq -r .dir)
+            sub=$(echo "$entry" | jq -r .sub)
+            body+=$'\n'"### \`$dir\`"$'\n'
+            while read -r shot; do
+              name="${shot%.svg}"
+              url="${PUBLIC_BASE}/pr-${PR}/${SHA}/${sub}/${shot}"
+              body+=$'\n'"**${name}**"$'\n'"<img src=\"${url}\" width=\"640\" alt=\"${name}\">"$'\n'
+            done < <(echo "$entry" | jq -r '.shots[]')
+          done < <(jq -c '.games[]' previews/manifest.json)
+
+          existing=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" --paginate \
+                       --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id" 2>/dev/null || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$body" > /dev/null
+            echo "updated comment $existing"
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/${PR}/comments" -f body="$body" > /dev/null
+            echo "created comment"
+          fi

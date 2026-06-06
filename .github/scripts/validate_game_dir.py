@@ -11,6 +11,8 @@ Enforces:
     a "the sources build as their own module" sanity check.
   - LICENSE present, first line matching the allowlist:
       MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, Unlicense
+  - smoke.yaml present (the scripted-screens contract; `shellcade-kit smoke`
+    validates the schema and runs it — this just asserts the file exists)
   - no committed build artifacts (*.wasm)
 """
 import os
@@ -55,12 +57,18 @@ def main() -> None:
     if spdx is None:
         err(f"{d}/LICENSE not recognized — allowlist: MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, Unlicense")
 
+    # The smoke contract: every game ships a smoke.yaml (scripted screens for
+    # PR previews). Schema + run validation happens in `shellcade-kit smoke`;
+    # presence is the static gate.
+    if not os.path.isfile(os.path.join(d, "smoke.yaml")):
+        err(f"{d}/smoke.yaml missing — every game ships a smoke script (see SCHEMA.md)")
+
     for root, _dirs, files in os.walk(d):
         for fn in files:
             if fn.endswith(".wasm"):
                 err(f"{os.path.join(root, fn)}: built artifacts are never committed — CI builds what ships")
 
-    print(f"ok: {d} (license={spdx}, module + sources present)")
+    print(f"ok: {d} (license={spdx}, module + smoke.yaml + sources present)")
 
 
 if __name__ == "__main__":

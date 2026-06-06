@@ -1,0 +1,44 @@
+seed: 42
+seats: 2
+heartbeat: 50ms
+steps:
+  # (a) Initial table: both seats parked at the bet prompt before anyone bets.
+  - shot: bet
+
+  # Seat 0 raises to 50 and bets; seat 1 bets the default stake (25). Once both
+  # seated players have placed, a 1s grace beat elapses and the table deals.
+  - seat: 0
+  - key: up
+  - key: space
+  - seat: 1
+  - key: space
+
+  # Grace beat (1s) -> deal fires. Sweep past the staggered slide+flip deal
+  # animation: 6 cards at 120ms stagger, each slide 260ms + flip 240ms; the last
+  # card settles < 1s after the deal fires, so ~2.4s clears it comfortably.
+  - advance: 1200ms
+  - advance: 1200ms
+
+  # (b) Deal complete: dealer shows one card + hole, each seat sees its own hand
+  # highlighted and its own action/chips line (seat0 "YOUR TURN", seat1 waits).
+  - shot: dealt
+
+  # (c) Seat 0 (first in join order) stands. A short sweep lets the turn pass to
+  # seat 1 cleanly (no dealer animation yet, since seat 1 is still to act). Views
+  # now differ the other way: seat1 is on turn, seat0 is resolved/waiting.
+  - seat: 0
+  - rune: "s"
+  - advance: 100ms
+  - shot: decided
+
+  # Seat 1 stands too -> both hands resolved -> dealer reveals the hole card and
+  # draws to 17. Sweep past the reveal (600ms hole pause + staggered draws) and
+  # into the 6s results flash.
+  - seat: 1
+  - rune: "s"
+  - advance: 1500ms
+  - advance: 1500ms
+  - advance: 1500ms
+
+  # (d) Dealer hole revealed, dealer drew out, settlement/payout shown per seat.
+  - shot: payout

@@ -1,0 +1,45 @@
+seed: 42
+seats: 2
+heartbeat: 50ms
+steps:
+  # Two seats join before the first step. With 2 players the room enters a
+  # 10s countdown, so sweep past it to start the race (raceStart is set on the
+  # wake that crosses the countdown deadline). At the start shot WPM is 0.
+  - advance: 11s
+  - shot: start
+
+  # --- Mid-race --------------------------------------------------------------
+  # Both seats type early so neither idles past the 25s AFK timeout before the
+  # midrace shot (an idle racer is dropped as DNF and further keystrokes are
+  # ignored). Advances stay under 25s and WPM derives from the virtual clock:
+  # seat 0 reaches cursor 110 at ~30s elapsed -> ~44 WPM.
+
+  # Seat 0: correct 60-char prefix.
+  - seat: 0
+  - text: "The dog ran fast across the open field to chase a red ball. "
+
+  # Seat 1: fewer chars plus one wrong keystroke. The passage's 26th char
+  # (0-based index 25) is 'h' (in "...across the..."); typing 'x' there marks an
+  # error. The mistyped passage cell renders red (error style) and the cursor
+  # cannot advance past it until backspaced, so seat 1 stalls at cursor 25.
+  - seat: 1
+  - text: "The dog ran fast across t"
+  - rune: "x"
+
+  # Let the clock run, then seat 0 types more. Per-seat views differ: each seat
+  # sees its own accent-styled "You (...)" row with its own live WPM.
+  - advance: 10s
+  - seat: 0
+  - text: "His ears flew back in the wind and his tongue hung"
+  - advance: 9s
+  - shot: midrace
+
+  # --- Deep mid-race / near-finish ------------------------------------------
+  # Seat 0 types on to char 270 of the 283-char passage, leaving a short tail.
+  # The passage is too long to finish via a fully scripted type, so this deep
+  # mid-race state stands in for the finish (progress bar nearly full, high WPM).
+  # Seat 1 has been idle and is dropped as DNF by the AFK sweep here.
+  - seat: 0
+  - text: " out. When he reached the ball he grabbed it in his mouth and turned around. Then he raced back to the boy, dropped the ball, and waited with bright eyes for on"
+  - advance: 20s
+  - shot: nearfinish

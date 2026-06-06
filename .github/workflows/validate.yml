@@ -5,10 +5,11 @@ on:
 # Single source of truth for the toolchain. Bump these (and publish.yml, which
 # pins the same versions) together; CI must be reproducible across re-runs.
 env:
-  KIT_VERSION: "2.0.2"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2
+  KIT_VERSION: "2.1.1"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.0"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
+  FREEZE_VERSION: "0.2.2"       # charmbracelet/freeze — ANSI shot → SVG preview
 
 jobs:
   submissions:
@@ -64,6 +65,13 @@ jobs:
         if: steps.changed.outputs.dirs != ''
         with: { tinygo-version: "${{ env.TINYGO_VERSION }}" }
 
+      # Rust games (Cargo.toml module marker) build with the runner's stable
+      # rustup toolchain; only the wasm target needs adding (publish.yml pins
+      # the same way).
+      - name: rust wasm32-wasip1 target (for Cargo games)
+        if: steps.changed.outputs.dirs != ''
+        run: rustup target add wasm32-wasip1
+
       # Pin binaryen to an exact release (TinyGo shells out to wasm-opt) and
       # verify it against the release's published .sha256 before use.
       - name: binaryen
@@ -90,14 +98,37 @@ jobs:
           tar xzf "$tarball"
           ./shellcade-kit version
 
+      # Pin freeze (ANSI → SVG) to an exact release and verify against the
+      # release's checksums.txt; it renders the smoke shots into the preview
+      # images the smoke-preview workflow publishes.
+      - name: freeze
+        if: steps.changed.outputs.dirs != ''
+        run: |
+          base="https://github.com/charmbracelet/freeze/releases/download/v${FREEZE_VERSION}"
+          tarball="freeze_${FREEZE_VERSION}_Linux_x86_64.tar.gz"
+          curl -fsSL -o "$tarball" "$base/$tarball"
+          curl -fsSL -o freeze-checksums.txt "$base/checksums.txt"
+          grep " $tarball\$" freeze-checksums.txt | sha256sum -c -
+          tar xzf "$tarball" "freeze_${FREEZE_VERSION}_Linux_x86_64/freeze"
+          echo "$PWD/freeze_${FREEZE_VERSION}_Linux_x86_64" >> "$GITHUB_PATH"
+
       - name: build + conformance per game
         if: steps.changed.outputs.dirs != ''
         run: |
           while read -r d; do
             [ -z "$d" ] && continue
             echo "=== $d ==="
-            test -f "$d/go.mod" || { echo "::error::$d/go.mod missing"; exit 1; }
-            ( cd "$d" && go mod tidy && tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared . )
+            # Module marker decides the toolchain — mirrors publish.yml:
+            # go.mod => TinyGo (dev profile), Cargo.toml => cargo/wasm32-wasip1.
+            if [ -f "$d/go.mod" ]; then
+              ( cd "$d" && go mod tidy && tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared . )
+            elif [ -f "$d/Cargo.toml" ]; then
+              crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
+              ( cd "$d" && cargo build --release --target wasm32-wasip1 )
+              cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
+            else
+              echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
+            fi
             ./shellcade-kit check "$d/game.wasm"
 
             # The artifact IS the metadata: assert it agrees with the path.
@@ -114,3 +145,41 @@ jobs:
               echo "::error::$d: player bounds $minp-$maxp outside the platform's 1..8"; exit 1
             fi
           done <<< "${{ steps.changed.outputs.dirs }}"
+
+      # Smoke: run each changed game's smoke.yaml against the artifact just
+      # built (the script is validated and executed by shellcade-kit; a missing
+      # or broken script fails the PR), render every shot to SVG with the
+      # pinned freeze, and bundle the lot for the preview workflow. This job
+      # runs WITHOUT secrets (fork-safe); smoke-preview.yml (base-repo
+      # context) publishes the images and posts the sticky comment.
+      - name: smoke screens per game
+        if: steps.changed.outputs.dirs != ''
+        run: |
+          mkdir -p previews
+          games_json='[]'
+          while read -r d; do
+            [ -z "$d" ] && continue
+            owner=$(echo "$d" | cut -d/ -f2); game=$(echo "$d" | cut -d/ -f3)
+            out="previews/${owner}-${game}"
+            echo "=== smoke $d ==="
+            ./shellcade-kit smoke "$d/game.wasm" --out "$out"
+            shots='[]'
+            for ansi in "$out"/*.ansi; do
+              freeze --language ansi -o "${ansi%.ansi}.svg" < "$ansi"
+              shots=$(echo "$shots" | jq -c --arg s "$(basename "${ansi%.ansi}.svg")" '. + [$s]')
+            done
+            games_json=$(echo "$games_json" | jq -c --arg dir "$d" --arg sub "${owner}-${game}" --argjson shots "$shots" '. + [{dir: $dir, sub: $sub, shots: $shots}]')
+          done <<< "${{ steps.changed.outputs.dirs }}"
+          jq -n --argjson games "$games_json" \
+            --arg pr "${{ github.event.pull_request.number }}" \
+            --arg sha "${{ github.event.pull_request.head.sha }}" \
+            '{pr: ($pr|tonumber), sha: $sha, games: $games}' > previews/manifest.json
+          cat previews/manifest.json
+
+      - name: upload smoke previews
+        if: steps.changed.outputs.dirs != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-previews
+          path: previews/
+          retention-days: 14

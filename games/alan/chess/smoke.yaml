@@ -1,0 +1,62 @@
+seed: 42
+seats: 2
+# Chess is driven entirely by cursor navigation: Enter selects the origin piece,
+# then the arrows snap the cursor across that piece's legal target squares, and a
+# second Enter confirms the move. There is no algebraic text entry.
+#
+# For seed 42 the seeded colour coin-flip assigns seat1 = White (moves first) and
+# seat0 = Black; each seat views the board from its own side (White sees rank 1 at
+# the bottom; Black's view is flipped, so its on-screen up/down/left/right invert).
+# Cursors start on the e-file home square (e1 for White, e8 for Black).
+steps:
+  # --- Opening position -----------------------------------------------------
+  - shot: opening
+
+  # --- 1. e4 (White = seat1, cursor starts on e1) ---------------------------
+  - seat: 1
+  - key: up        # e1 -> e2
+  - key: enter     # select the e2 pawn (targets e3, e4)
+  - key: up        # snap e2 -> e3
+  - key: up        # snap e3 -> e4
+  - key: enter     # play e2e4
+
+  # --- 1... e5 (Black = seat0, cursor starts on e8, flipped view) -----------
+  - seat: 0
+  - key: up        # e8 -> e7
+  - key: enter     # select the e7 pawn (targets e6, e5)
+  - key: up        # snap e7 -> e6
+  - key: up        # snap e6 -> e5
+  - key: enter     # play e7e5
+
+  - shot: after-1-e4-e5
+
+  # --- 2. Nf3 (White = seat1, cursor sits on e4) ----------------------------
+  - seat: 1
+  - key: down      # e4 -> e3
+  - key: down      # e3 -> e2
+  - key: down      # e2 -> e1
+  - key: right     # e1 -> f1
+  - key: right     # f1 -> g1
+  - key: enter     # select the g1 knight (targets e2, f3, h3)
+  - key: up        # snap g1 -> e2 (nearest forward target)
+  - key: up        # snap e2 -> f3
+  - key: enter     # play Ng1f3
+
+  - shot: after-2-Nf3
+
+  # --- 2... d6 (Black = seat0, cursor sits on e5) ---------------------------
+  - seat: 0
+  - key: right     # e5 -> d5  (screen-right is the d-file for Black)
+  - key: down      # d5 -> d6  (screen-down is toward Black's pawns)
+  - key: down      # d6 -> d7
+  - key: enter     # select the d7 pawn (targets d6, d5)
+  - key: up        # snap d7 -> d6
+  - key: enter     # play d7d6 (a quiet move that leaves the e5 pawn hanging)
+
+  # --- 3. Nxe5 (White = seat1, knight on f3 captures the e5 pawn) -----------
+  - seat: 1
+  - key: enter     # select the f3 knight (the cursor followed it here)
+  - key: left      # snap f3 -> e5 (the capture target)
+  - key: enter     # play Nf3xe5 — a capture, winning the e5 pawn
+
+  - shot: after-3-Nxe5
