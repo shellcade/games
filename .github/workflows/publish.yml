@@ -8,7 +8,7 @@ on:
 
 # Single source of truth for the toolchain — keep in lockstep with validate.yml.
 env:
-  KIT_VERSION: "0.6.0"          # shellcade-kit release (tag v$KIT_VERSION)
+  KIT_VERSION: "2.0.2"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2
   TINYGO_VERSION: "0.41.0"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
