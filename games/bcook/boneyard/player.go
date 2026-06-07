@@ -21,6 +21,7 @@ type delver struct {
 	// Torch (design §7, hybrid drain): 1t per action plus 1t per 2s of
 	// wall-clock on a floor. At 0 the dark closes in.
 	torch       int
+	centiburn   int // fractional burn accumulator (kit/relic multipliers)
 	lastPassive time.Time
 
 	// moveCD (design §5): clamp(200 - 5*Dex, 90, 200) ms between moves.
@@ -36,6 +37,11 @@ type delver struct {
 
 	// explored is the fog-of-war memory, per visited floor.
 	explored map[int]*[floorH][floorW]bool
+
+	weapon, armor, relic *itemDef
+	heals                int
+	torchMul             int // percent of baseline burn (LANTERN 60)
+	kit                  *kitDef
 
 	online bool // connected (offline delvers persist but are not targets)
 	rng    uint64 // per-actor combat PRNG (week-seed derived; never wall-clock)
@@ -60,7 +66,8 @@ func newDelver(p kit.Player, w *world, r kit.Room) *delver {
 	}
 	d.online = true
 	d.rng = actorSeed(w.seed, fnvHash(p.AccountID), 0)
-	d.say("The Boneyard. The bones of the week's dead are down here somewhere.")
+	d.applyKit(&kits[1]) // LANTERN until chosen; [1][2][3] at the Gate swap it
+	d.say("The Boneyard. [1]BLADE [2]LANTERN [3]FLASK — choose your kit.")
 	d.reveal(f)
 	return d
 }
@@ -74,10 +81,9 @@ func (d *delver) resetRun(rm *room, r kit.Room, killer string, restFloor int) {
 	}
 	f := rm.world.at(1)
 	d.floor, d.x, d.y = 1, f.upX, f.upY
-	d.hp, d.maxHP = 30, 30
 	d.gold, d.kills, d.luck, d.respects, d.looted = 0, 0, 0, 0, 0
 	d.banked, d.deepest = 0, 1
-	d.torch = 600
+	d.applyKit(d.kit) // same kit, fresh loadout (swap with [1-3] at the Gate)
 	d.lastPassive = r.Now()
 	d.runs++
 	d.rng = actorSeed(rm.world.seed, fnvHash(d.p.AccountID), uint64(d.runs))
@@ -141,8 +147,23 @@ func (d *delver) camera() (ox, oy int) {
 }
 
 // burn spends torch (clamped at 0) and dirties the HUD when the gauge moves.
+// The kit multiplier applies to BOTH active and passive components (design
+// §7) via a centitorch accumulator, so LANTERN's 0.6x is exact.
 func (d *delver) burn(t int) {
 	if d.torch <= 0 {
+		return
+	}
+	mul := d.torchMul
+	if mul == 0 {
+		mul = 100
+	}
+	if d.relic != nil && d.relic.power == 1 { // amulet of the deep: -30%
+		mul = mul * 70 / 100
+	}
+	d.centiburn += t * mul
+	t = d.centiburn / 100
+	d.centiburn %= 100
+	if t == 0 {
 		return
 	}
 	d.torch -= t
@@ -211,6 +232,15 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 				d.respectBones(rm, c)
 			}
 			return
+		case 'q':
+			d.quaff()
+			return
+		case '1', '2', '3':
+			f := rm.world.at(d.floor)
+			if d.floor == 1 && f.tiles[d.y][d.x] == tUp {
+				d.applyKit(&kits[in.Rune-'1'])
+			}
+			return
 		default:
 			return
 		}
@@ -259,6 +289,10 @@ func (d *delver) step(rm *room, r kit.Room, dx, dy int) {
 	d.dirty = true
 	rm.dirtyWitnesses(d.floor, nx, ny, d)
 
+	if dr := rm.dropAt(d.floor, nx, ny); dr != nil {
+		d.pickup(rm, dr)
+		return
+	}
 	if c := rm.corpseAt(d.floor, nx, ny); c != nil {
 		d.inspectBones(c)
 		return

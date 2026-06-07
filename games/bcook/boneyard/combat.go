@@ -20,21 +20,39 @@ func darkPenalty(d *delver) int {
 	return 0
 }
 
-// playerArmor: 10 + AC + Dex mod (AC 0 until armor lands in stage 3).
-func (d *delver) armorClass() int { return 10 + 0 + (d.dex-10)/2 }
+// playerArmor: 10 + AC + Dex mod.
+func (d *delver) armorClass() int {
+	ac := 0
+	if d.armor != nil {
+		ac = d.armor.power
+	}
+	return 10 + ac + (d.dex-10)/2
+}
+
+// luckHit is the combat slice of the luck table (cap +3 each way).
+func luckHit(d *delver) int {
+	if d.luck > 3 {
+		return 3
+	}
+	return d.luck
+}
 
 // attackMonster is the player's bump attack: 1d6 baseline weapon until the
 // item catalog lands.
 func (d *delver) attackMonster(rm *room, r kit.Room, m *monster) {
 	dieRoll := roll(&d.rng, 20)
-	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+strMod(d.str)-darkPenalty(d) >= m.sp.armor)
+	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+strMod(d.str)+luckHit(d)-darkPenalty(d) >= m.sp.armor)
 	if !hit {
 		d.say("You miss the " + m.sp.name + ".")
 		return
 	}
-	dmg := roll(&d.rng, 6) + strMod(d.str)
+	die := 6
+	if d.weapon != nil {
+		die = d.weapon.power
+	}
+	dmg := roll(&d.rng, die) + strMod(d.str)
 	if dieRoll == 20 {
-		dmg += roll(&d.rng, 6) + strMod(d.str)
+		dmg += roll(&d.rng, die) + strMod(d.str)
 	}
 	if dmg < 1 {
 		dmg = 1
@@ -60,7 +78,7 @@ func (d *delver) attackMonster(rm *room, r kit.Room, m *monster) {
 // the floor's lethality (design §1: dice scale by scaling the rolled total).
 func (rm *room) monsterAttack(r kit.Room, m *monster, d *delver) {
 	dieRoll := roll(&m.rng, 20)
-	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+m.sp.atk+darkPenalty(d) >= d.armorClass())
+	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+m.sp.atk+darkPenalty(d)-luckHit(d) >= d.armorClass())
 	d.dirty = true
 	if !hit {
 		d.say("The " + m.sp.name + " misses you.")

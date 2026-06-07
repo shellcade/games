@@ -82,6 +82,16 @@ func (rm *room) compose(d *delver) {
 	// tomb mimic hides among them, byte-identical), then LIVE entities, which
 	// render only inside current torch sight: the fog remembers floors, never
 	// what walks them.
+	for _, dr := range rm.drops {
+		if dr.taken || dr.floor != d.floor {
+			continue
+		}
+		if dr.def == nil {
+			rm.plot(d, dr.x, dr.y, '$', kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}, false)
+		} else {
+			rm.plot(d, dr.x, dr.y, dr.def.glyph, dr.def.style, false)
+		}
+	}
 	for _, c := range rm.bones {
 		if c.floor == d.floor && !c.dust() {
 			rm.plot(d, c.x, c.y, '%', kit.Style{FG: kit.Gray(0xb8)}, false)

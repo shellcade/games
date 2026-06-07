@@ -98,6 +98,7 @@ func TestTorchBurn(t *testing.T) {
 	rm.OnStart(tr)
 	rm.OnJoin(tr, a)
 	d := rm.delvers[a.AccountID]
+	d.applyKit(&kits[0]) // BLADE: 600t at the 1.0x baseline burn
 
 	start := d.torch
 	// Passive: 10 wakes over 2.0s = exactly one passive tick.
@@ -109,7 +110,7 @@ func TestTorchBurn(t *testing.T) {
 		t.Fatalf("passive burn over 2s: %d -> %d, want -1", start, d.torch)
 	}
 
-	d.torch = 1
+	d.torch, d.centiburn = 1, 0
 	d.burn(1)
 	if d.torch != 0 || d.sightRadius() != 2 {
 		t.Fatalf("the dark: torch=%d sight=%d, want 0/2", d.torch, d.sightRadius())

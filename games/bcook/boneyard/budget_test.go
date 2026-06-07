@@ -155,3 +155,25 @@ func BenchmarkWake100(b *testing.B) {
 		rm.OnWake(tr)
 	}
 }
+
+// GATE 4 — kit torch economics stay exact: LANTERN's 480t at 0.6x is 800t
+// effective (design §7) — more than BLADE's 600 despite the lower face value.
+func TestKitTorchEconomics(t *testing.T) {
+	burnAll := func(k *kitDef) int {
+		d := &delver{}
+		d.applyKit(k)
+		n := 0
+		for d.torch > 0 && n < 2000 {
+			d.burn(1)
+			n++
+		}
+		return n
+	}
+	blade, lantern := burnAll(&kits[0]), burnAll(&kits[1])
+	if blade != 600 {
+		t.Fatalf("BLADE burns out after %d units, want 600", blade)
+	}
+	if lantern != 800 {
+		t.Fatalf("LANTERN burns out after %d units, want 800 (480/0.6)", lantern)
+	}
+}

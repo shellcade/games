@@ -49,6 +49,7 @@ type room struct {
 	roster   []kit.Player       // join-ordered, for the send loop
 	monsters []*monster         // every live spawn, all floors
 	bones    []*corpse          // the week's fallen (the point of the game)
+	drops    []*drop            // seed-placed floor items
 
 	frame *kit.Frame // reused for every per-player send
 	wakes int
@@ -65,6 +66,7 @@ func (rm *room) floorAt(depth int) *floor {
 	if _, ok := rm.world.floors[depth]; !ok {
 		f := rm.world.at(depth)
 		rm.spawnFloor(f)
+		rm.placeDrops(f)
 		return f
 	}
 	return rm.world.at(depth)
