@@ -137,6 +137,10 @@ func (rm *room) evictBones(floor int) {
 
 func (c *corpse) dust() bool { return c.x < 0 }
 
+// name is the display handle, clamped: handles are unbounded on the wire and
+// are the dominant overflow driver in bones lines.
+func (c *corpse) name() string { return clampCols(c.handle, 14) }
+
 // corpseAt returns the rendered corpse on (floor,x,y), or nil.
 func (rm *room) corpseAt(floor, x, y int) *corpse {
 	for i := len(rm.bones) - 1; i >= 0; i-- {
@@ -152,7 +156,7 @@ func (rm *room) corpseAt(floor, x, y int) *corpse {
 // points where they ran. Reading the bones arms the AVENGE vow: kill their
 // killer's kind on this floor and the dead are avenged.
 func (d *delver) inspectBones(c *corpse) {
-	d.say("Here lies " + c.handle + " — " + c.killer + ". \"" + c.words + "\" (fled " + c.gaspDir + ")")
+	d.say("Here lies " + c.name() + " — " + c.killer + ". \"" + c.words + "\" (fled " + c.gaspDir + ")")
 	d.say("[L]oot " + itoa(c.gold) + "g  [R]espect  [D]evour")
 	d.vow = c
 }
@@ -165,7 +169,7 @@ func (d *delver) devourBones(rm *room, c *corpse) {
 		return
 	}
 	if c.respects >= 3 {
-		d.say("The flowers stay your hand. " + c.handle + " is too well mourned.")
+		d.say("The flowers stay your hand. " + c.name() + " is too well mourned.")
 		return
 	}
 	c.devoured = true
@@ -191,7 +195,7 @@ func (d *delver) creditAvenge(rm *room, speciesName string) {
 	c.avenged++
 	d.avenges++
 	d.vow = nil
-	d.say("You avenge " + c.handle + ". The " + speciesName + " answers for its dead.")
+	d.say("You avenge " + c.name() + ".")
 }
 
 // lootBones takes the corpse's gold (the graverobber's path).
@@ -201,7 +205,7 @@ func (d *delver) lootBones(rm *room, c *corpse) {
 		return
 	}
 	d.gold += c.gold
-	d.say("You take " + itoa(c.gold) + " gold off " + c.handle + "'s bones.")
+	d.say("You take " + itoa(c.gold) + " gold off " + c.name() + "'s bones.")
 	c.gold, c.looted = 0, true
 	d.looted++
 }
@@ -223,5 +227,5 @@ func (d *delver) respectBones(rm *room, r kit.Room, c *corpse) {
 		d.luck = 5
 	}
 	rm.creditRespect(r, d, c)
-	d.say("You pay your respects to " + c.handle + ". (+" + itoa(gain) + " luck)")
+	d.say("You pay your respects to " + c.name() + ". (+" + itoa(gain) + " luck)")
 }

@@ -177,3 +177,21 @@ func TestKitTorchEconomics(t *testing.T) {
 		t.Fatalf("LANTERN burns out after %d units, want 800 (480/0.6)", lantern)
 	}
 }
+
+// GATE 5 — the layout invariant: no message-log line may collide with the
+// hint bar (the "respects to th[hjkl]" bug). say() clamps to msgWidth, which
+// must leave the 17-rune hint its right-aligned room.
+func TestMessageLogNeverCollidesWithHints(t *testing.T) {
+	if msgWidth+18 > 80 {
+		t.Fatalf("msgWidth %d + hint 18 exceeds 80 cols", msgWidth)
+	}
+	d := &delver{}
+	d.say("You pay your respects to somebody-with-an-extremely-long-handle-indeed. (+2 luck)")
+	if n := len([]rune(d.msg[1])); n > msgWidth {
+		t.Fatalf("say() let %d cols through (budget %d)", n, msgWidth)
+	}
+	c := &corpse{handle: "an-unreasonably-long-wire-handle-with-no-cap"}
+	if n := len([]rune(c.name())); n > 14 {
+		t.Fatalf("handle clamp let %d cols through", n)
+	}
+}

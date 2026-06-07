@@ -128,10 +128,24 @@ func (d *delver) sightRadius() int {
 	return 8
 }
 
-// say pushes a message-log line (two-line memory, newest last).
+// msgWidth is the message log's column budget: row 23 shares with the
+// compact hint bar (layout invariant: hint <= 17 runes, right-aligned).
+const msgWidth = 62
+
+// clampCols clamps s to n display columns, rune-aware, with an ellipsis.
+func clampCols(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
+
+// say pushes a message-log line (two-line memory, newest last), clamped to
+// the log's column budget — every player-visible string passes through here.
 func (d *delver) say(s string) {
 	d.msg[0] = d.msg[1]
-	d.msg[1] = s
+	d.msg[1] = clampCols(s, msgWidth)
 	d.dirty = true
 }
 
