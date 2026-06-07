@@ -118,8 +118,18 @@ func maxAbs(a, b int) int {
 	return b
 }
 
-// evictBones enforces the per-floor render cap, oldest first (evicted bones
-// become unrendered dust; the record itself stays for the week's memorial).
+// evictBones enforces the per-floor render cap by CURATION: the least
+// interesting bones dust first (mourned, avenged, or carved bones outlive
+// fresh nobodies; ties go oldest-first via slice order).
+func (c *corpse) curation() int { return c.respects*3 + c.avenged*2 + boolInt(!c.looted) }
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (rm *room) evictBones(floor int) {
 	n := 0
 	for _, c := range rm.bones {
@@ -127,12 +137,15 @@ func (rm *room) evictBones(floor int) {
 			n++
 		}
 	}
-	for i := 0; i < len(rm.bones) && n > bonesRenderCap; i++ {
-		c := rm.bones[i]
-		if c.floor == floor && !c.dust() {
-			c.x, c.y = -1, -1 // dust: remembered, not rendered
-			n--
+	for n > bonesRenderCap {
+		var worst *corpse
+		for _, c := range rm.bones {
+			if c.floor == floor && !c.dust() && (worst == nil || c.curation() < worst.curation()) {
+				worst = c
+			}
 		}
+		worst.x, worst.y = -1, -1 // dust: remembered, not rendered
+		n--
 	}
 }
 

@@ -53,6 +53,8 @@ type delver struct {
 	dying      *corpse   // last-words modal target (this run's fresh corpse)
 	dyingUntil time.Time // modal window
 
+	heldUntil   time.Time // gelatinous engulf: movement locked
+	knownHeal   bool      // identification: draughts are murky until first quaff
 	viewingWall bool // the memorial overlay ([m])
 
 	online bool // connected (offline delvers persist but are not targets)
@@ -317,8 +319,8 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 // step is one real-time move: gated by moveCD, blocked by walls, burning 1t.
 func (d *delver) step(rm *room, r kit.Room, dx, dy int) {
 	now := r.Now()
-	if now.Before(d.nextMoveAt) {
-		return
+	if now.Before(d.nextMoveAt) || now.Before(d.heldUntil) {
+		return // cooldown, or held fast in the cube
 	}
 	f := rm.world.at(d.floor)
 	nx, ny := d.x+dx, d.y+dy
@@ -382,6 +384,21 @@ func (d *delver) descend(rm *room, r kit.Room) {
 	d.luck = 0 // RESPECT luck is one-floor
 	d.reveal(nf)
 	d.say("Down. B" + itoa(d.floor) + ".")
+	// Skeleton-rise (design): 1-in-8 on floor entry, a corpse node RISES.
+	if d.floor >= 4 && roll(&d.rng, 8) == 8 {
+		for _, c := range rm.bones {
+			if c.floor == d.floor && !c.dust() {
+				rm.monsters = append(rm.monsters, &monster{
+					sp: speciesByName("skeleton"), floor: d.floor, x: c.x, y: c.y,
+					hp:  scaled(14, hpScalar(d.floor)),
+					rng: actorSeed(rm.world.seed, uint64(d.floor), uint64(len(rm.monsters))),
+				})
+				c.x, c.y = -1, -1 // the bones walk now
+				d.say("The bones of " + c.name() + " RISE.")
+				break
+			}
+		}
+	}
 	rm.dirtyFloor(d.floor)
 }
 

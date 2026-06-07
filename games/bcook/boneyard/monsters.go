@@ -39,6 +39,10 @@ var bestiary = []species{
 	// the wall/cube distinction (walls are DimGray), exactly the corpse/mimic
 	// kind of ambiguity the Boneyard trades in.
 	{"gelatinous cube", '#', kit.Style{FG: kit.RGB(0x40, 0xd0, 0xa0), Attr: kit.AttrBold}, 6, 9, 40, 2, 4, 2, 11, time.Second, false, false},
+	{"cursed wraith", 'W', kit.Style{FG: kit.RGB(0xc0, 0x60, 0xc0), Attr: kit.AttrBold}, 5, 11, 16, 1, 6, 0, 16, 400 * time.Millisecond, false, false},
+	{"crypt stalker", 'S', kit.Style{FG: kit.DimGray, Attr: kit.AttrBold}, 7, 13, 18, 2, 4, 6, 17, 280 * time.Millisecond, false, false},
+	{"plague ghoul", 'z', kit.Style{FG: kit.Green, Attr: kit.AttrBold}, 8, 14, 22, 1, 8, 0, 16, 400 * time.Millisecond, false, false},
+	{"bone golem", 'G', kit.Style{FG: kit.White, Attr: kit.AttrBold}, 10, 18, 55, 2, 8, 7, 18, 650 * time.Millisecond, false, false},
 	// The tomb mimic renders EXACTLY like a fresh corpse (the one sanctioned
 	// glyph+color overlap) and springs when looted.
 	{"tomb mimic", '%', kit.Style{FG: kit.Gray(0xb8)}, 4, 9, 8, 1, 8, 0, 14, 400 * time.Millisecond, false, false},
@@ -255,4 +259,14 @@ func wanderDir(h int) (int, int) {
 	default:
 		return 0, 0
 	}
+}
+
+// speciesByName finds a bestiary entry (skeleton-rise, tests).
+func speciesByName(n string) *species {
+	for i := range bestiary {
+		if bestiary[i].name == n {
+			return &bestiary[i]
+		}
+	}
+	return &bestiary[0]
 }
