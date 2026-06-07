@@ -8,6 +8,11 @@ import (
 // torch-radius sight and explored-memory fog; HUD and message log below.
 // One reused frame; cells written directly (allocation-free steady state).
 
+// hintLegend is the row-23 key bar. LAYOUT INVARIANT: msgWidth + its rune
+// count must fit 80 cols — Gate 5 measures THIS string, so growing it fails
+// the build until msgWidth is re-budgeted.
+const hintLegend = "[wasd > b l f e q]"
+
 var (
 	stWall     = kit.Style{FG: kit.DimGray}
 	stFloorDim = kit.Style{FG: kit.Gray(0x38)} // explored, out of sight
@@ -176,7 +181,7 @@ func (rm *room) hud(d *delver) {
 
 	// Row 23: the newest message line + hints.
 	fr.Text(23, 0, d.msg[1], stMsg)
-	fr.TextRight(23, kit.Cols-1, "[wasd >stairs b-ank l-oot f-respect e-at q-uaff]", stHUDDim)
+	fr.TextRight(23, kit.Cols-1, hintLegend, stHUDDim)
 }
 
 // torchGauge draws ▓-blocks for the remaining torch (600t = 5 blocks) + the
