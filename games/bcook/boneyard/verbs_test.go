@@ -66,3 +66,26 @@ func TestVerbsOnTheFallen(t *testing.T) {
 		t.Fatal("devoured a corpse with 3 respects — the flowers failed")
 	}
 }
+
+// One flower per account per corpse — repeat respects neither farm luck nor
+// inflate the boards; and you cannot mourn your own bones.
+func TestRespectIsOncePerAccount(t *testing.T) {
+	a := bp("ada")
+	tr := kittest.NewRoom(a)
+	rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
+	rm.OnStart(tr)
+	rm.OnJoin(tr, a)
+	ada := rm.delvers[a.AccountID]
+	c := &corpse{handle: "bob", floor: 1, x: 1, y: 1}
+	ada.respectBones(rm, tr, c)
+	ada.respectBones(rm, tr, c)
+	ada.respectBones(rm, tr, c)
+	if c.respects != 1 || ada.luck != 1 || ada.respects != 1 {
+		t.Fatalf("respect farmed: corpse=%d luck=%d", c.respects, ada.luck)
+	}
+	own := &corpse{handle: "ada", floor: 1, x: 2, y: 1}
+	ada.respectBones(rm, tr, own)
+	if own.respects != 0 {
+		t.Fatal("self-mourning counted")
+	}
+}

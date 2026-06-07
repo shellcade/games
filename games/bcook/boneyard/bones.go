@@ -25,7 +25,8 @@ type corpse struct {
 	species string // killer's bestiary slug (the avenge target)
 	floor0  int    // unjittered death floor (== floor; kept for clarity)
 
-	respects int  // flowers left at these bones
+	respects int             // flowers left at these bones
+	mourners map[string]bool // who already mourned (one flower per account)
 	looted   bool // gold taken
 	devoured bool // marrow taken (blocked once respects >= 3)
 	avenged  int  // kills credited against these bones
@@ -215,6 +216,18 @@ func (d *delver) lootBones(rm *room, c *corpse) {
 // respectBones leaves a flower: +1 luck (capped, one-floor — full effects
 // land in stage 3; the counter and the social signal land NOW).
 func (d *delver) respectBones(rm *room, r kit.Room, c *corpse) {
+	if c.mourners[d.p.AccountID] {
+		d.say("You have already mourned " + c.name() + ".")
+		return
+	}
+	if c.handle == d.p.Handle {
+		d.say("You cannot mourn yourself. Yet.")
+		return
+	}
+	if c.mourners == nil {
+		c.mourners = map[string]bool{}
+	}
+	c.mourners[d.p.AccountID] = true
 	c.respects++
 	d.respects++
 	gain := 1
