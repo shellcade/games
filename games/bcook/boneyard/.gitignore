@@ -1,0 +1,3 @@
+# build outputs (CI builds the published wasm; never commit binaries)
+/boneyard
+/game.wasm

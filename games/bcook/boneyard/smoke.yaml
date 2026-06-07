@@ -1,0 +1,32 @@
+# Boneyard smoke screens: a deterministic descent through the week's dungeon.
+# Seed 7 is the smoke week: the Gate, a few steps into the dark, and the
+# bones of an ancestor — the game's whole fantasy in three screens.
+seed: 7
+seats: 2
+heartbeat: 100ms
+steps:
+  - advance: 200ms
+  - shot: the-gate
+  # Choose the FLASK kit (44 HP and two draughts) and step off the stairs.
+  - rune: "3"
+  - advance: 200ms
+  - rune: "d"
+  - advance: 300ms
+  - rune: "d"
+  - advance: 300ms
+  - rune: "s"
+  - advance: 300ms
+  - shot: first-steps
+  # Keep walking: the torch burns, the fog peels back, the floor is shared —
+  # seat 2 is on this floor somewhere.
+  - rune: "d"
+  - advance: 300ms
+  - rune: "d"
+  - advance: 300ms
+  - rune: "s"
+  - advance: 300ms
+  - rune: "s"
+  - advance: 300ms
+  - rune: "d"
+  - advance: 300ms
+  - shot: into-the-dark
