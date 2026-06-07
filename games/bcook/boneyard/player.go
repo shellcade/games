@@ -29,6 +29,11 @@ type delver struct {
 	banked  int // deepest banked depth (the leaderboard metric)
 	deepest int // deepest floor reached this run (display)
 
+	kills    int
+	luck     int // RESPECT luck: +1/corpse, cap +5, one-floor (resets on stairs)
+	respects int
+	looted   int
+
 	// explored is the fog-of-war memory, per visited floor.
 	explored map[int]*[floorH][floorW]bool
 
@@ -39,7 +44,7 @@ type delver struct {
 // Starting line (stage 3 brings the BLADE/LANTERN/FLASK kits; until then the
 // baseline delver is LANTERN-shaped: balanced stats, standard torch).
 func newDelver(p kit.Player, w *world, r kit.Room) *delver {
-	f := w.at(1)
+	f := w.at(1) // B1 always exists by the time anyone joins (OnJoin gens it)
 	d := &delver{
 		p: p, floor: 1, x: f.upX, y: f.upY,
 		hp: 30, maxHP: 30,
@@ -157,6 +162,16 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 		case '<':
 			d.ascend(rm, r)
 			return
+		case 'L':
+			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
+				d.lootBones(rm, c)
+			}
+			return
+		case 'R':
+			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
+				d.respectBones(rm, c)
+			}
+			return
 		default:
 			return
 		}
@@ -191,12 +206,24 @@ func (d *delver) step(rm *room, r kit.Room, dx, dy int) {
 		return
 	}
 	d.nextMoveAt = now.Add(d.moveCD())
+	if m := rm.monsterAt(d.floor, nx, ny); m != nil {
+		// Bump attack: the move becomes a swing.
+		d.burn(1)
+		d.attackMonster(rm, r, m)
+		d.dirty = true
+		rm.dirtyWitnesses(d.floor, nx, ny, d)
+		return
+	}
 	d.x, d.y = nx, ny
 	d.burn(1)
 	d.reveal(f)
 	d.dirty = true
 	rm.dirtyWitnesses(d.floor, nx, ny, d)
 
+	if c := rm.corpseAt(d.floor, nx, ny); c != nil {
+		d.inspectBones(c)
+		return
+	}
 	switch f.tiles[ny][nx] {
 	case tDown:
 		d.say("Stairs down. [>] to descend.")
@@ -223,9 +250,10 @@ func (d *delver) descend(rm *room, r kit.Room) {
 	if d.floor > d.deepest {
 		d.deepest = d.floor
 	}
-	nf := rm.world.at(d.floor)
+	nf := rm.floorAt(d.floor)
 	d.x, d.y = nf.upX, nf.upY
 	d.lastPassive = r.Now()
+	d.luck = 0 // RESPECT luck is one-floor
 	d.reveal(nf)
 	d.say("Down. B" + itoa(d.floor) + ".")
 	rm.dirtyFloor(d.floor)
@@ -244,9 +272,10 @@ func (d *delver) ascend(rm *room, r kit.Room) {
 	}
 	rm.dirtyFloor(d.floor)
 	d.floor--
-	nf := rm.world.at(d.floor)
+	nf := rm.floorAt(d.floor)
 	d.x, d.y = nf.downX, nf.downY
 	d.lastPassive = r.Now()
+	d.luck = 0
 	d.reveal(nf)
 	d.say("Up. B" + itoa(d.floor) + ".")
 	rm.dirtyFloor(d.floor)

@@ -78,6 +78,18 @@ func (rm *room) compose(d *delver) {
 		}
 	}
 
+	// Bones first (terrain-level), then monsters, then delvers on top.
+	for _, c := range rm.bones {
+		if c.floor == d.floor && !c.dust() {
+			rm.plot(d, c.x, c.y, '%', kit.Style{FG: kit.Gray(0xb8)})
+		}
+	}
+	for _, m := range rm.monsters {
+		if m.hp > 0 && m.floor == d.floor {
+			rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style)
+		}
+	}
+
 	// Other delvers on this floor (live co-presence), then self on top.
 	for _, o := range rm.delvers {
 		if o == d || o.floor != d.floor {
@@ -141,7 +153,7 @@ func (rm *room) hud(d *delver) {
 
 	// Row 23: the newest message line + hints.
 	fr.Text(23, 0, d.msg[1], stMsg)
-	fr.TextRight(23, kit.Cols-1, "[hjkl]move [>]down [<]up", stHUDDim)
+	fr.TextRight(23, kit.Cols-1, "[hjkl]move [>]dn [<]up [L]oot [R]espect", stHUDDim)
 }
 
 // torchGauge draws ▓-blocks for the remaining torch (600t = 5 blocks) + the

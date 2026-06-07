@@ -44,9 +44,11 @@ func (Game) NewRoom(cfg kit.RoomConfig, svc kit.Services) kit.Handler {
 type room struct {
 	kit.Base
 
-	world   *world
-	delvers map[string]*delver // by AccountID (rejoin = same run)
-	roster  []kit.Player       // join-ordered, for the send loop
+	world    *world
+	delvers  map[string]*delver // by AccountID (rejoin = same run)
+	roster   []kit.Player       // join-ordered, for the send loop
+	monsters []*monster         // every live spawn, all floors
+	bones    []*corpse          // the week's fallen (the point of the game)
 
 	frame *kit.Frame // reused for every per-player send
 	wakes int
@@ -58,6 +60,16 @@ func (rm *room) OnStart(r kit.Room) {
 	rm.frame = kit.NewFrame()
 }
 
+// floorAt returns B<depth>, generating AND populating it on first entry.
+func (rm *room) floorAt(depth int) *floor {
+	if _, ok := rm.world.floors[depth]; !ok {
+		f := rm.world.at(depth)
+		rm.spawnFloor(f)
+		return f
+	}
+	return rm.world.at(depth)
+}
+
 func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	if d, ok := rm.delvers[p.AccountID]; ok {
 		// Rejoin (same seat, post-restore re-seat included): the run resumes
@@ -65,6 +77,7 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 		d.dirty = true
 		return
 	}
+	rm.floorAt(1) // first join generates + populates B1
 	d := newDelver(p, rm.world, r)
 	rm.delvers[p.AccountID] = d
 	rm.roster = append(rm.roster, p)
@@ -104,6 +117,7 @@ func (rm *room) OnWake(r kit.Room) {
 	for _, d := range rm.delvers {
 		d.tick(rm, now)
 	}
+	rm.tickMonsters(r, now)
 
 	for _, p := range rm.roster {
 		d, ok := rm.delvers[p.AccountID]
