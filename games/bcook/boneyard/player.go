@@ -277,6 +277,9 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 		case 'b':
 			d.bank(rm, r)
 			return
+		case '7', '8', '9':
+			d.shop(rm, r, in.Rune)
+			return
 		case '1', '2', '3':
 			f := rm.world.at(d.floor)
 			if d.floor == 1 && f.tiles[d.y][d.x] == tUp {
@@ -345,7 +348,7 @@ func (d *delver) step(rm *room, r kit.Room, dx, dy int) {
 	case tDown:
 		d.say("Stairs down. [>] to descend.")
 	case tShrine:
-		d.say("A stairwell shrine. The deep can't touch what you bank here.")
+		d.say("Shrine: [b]ank  [7]torch " + itoa(shopPrice(80, d.floor)) + "g [8]draught " + itoa(shopPrice(120, d.floor)) + "g [9]oil " + itoa(shopPrice(60, d.floor)) + "g")
 	case tWater:
 		// flavor only (the Ossuary is sinking)
 	}

@@ -68,3 +68,30 @@ func TestBankingAtTheShrine(t *testing.T) {
 }
 
 var _ = kit.MergeMax // the boards rely on max-merge being available
+
+// The shrine shop is the gold sink: prices scale with depth, purchases land.
+func TestShrineShop(t *testing.T) {
+	a := bp("ada")
+	tr := kittest.NewRoom(a)
+	rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
+	rm.OnStart(tr)
+	rm.OnJoin(tr, a)
+	d := rm.delvers[a.AccountID]
+	f3 := rm.floorAt(3)
+	d.floor, d.x, d.y = 3, f3.shrineX, f3.shrineY
+	d.gold, d.heals = 200, 0
+	d.shop(rm, tr, '8') // draught at B3: 120g
+	if d.heals != 1 || d.gold != 80 {
+		t.Fatalf("draught: heals=%d gold=%d", d.heals, d.gold)
+	}
+	d.shop(rm, tr, '8') // can't afford the second
+	if d.heals != 1 || d.gold != 80 {
+		t.Fatal("sold on credit")
+	}
+	d.x = 1 // off the shrine: shop is closed
+	d.gold = 999
+	d.shop(rm, tr, '7')
+	if d.gold != 999 {
+		t.Fatal("bought off-shrine")
+	}
+}
