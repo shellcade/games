@@ -112,15 +112,18 @@ impl Handler for TttRoom {
         if self.m.solo {
             // The solo player walked out. Before any move: clear the seats so
             // a peek-and-leave records nothing (mirrors the lone-seat cleanup
-            // below). Mid-game: record the abandonment.
+            // below). Mid-game: record the abandonment. Render either way —
+            // a watching viewer should not keep a stale board.
             if self.m.moves == 0 {
                 self.m.x_id.clear();
                 self.m.o_id.clear();
                 self.m.players.remove(&leaver);
+                self.render(r);
                 return;
             }
             self.m.over = true;
             self.m.deadline = None;
+            self.render(r);
             self.end(r, &[(leaver, 0, 1, Status::Dnf)]);
             return;
         }
@@ -309,11 +312,11 @@ impl Match {
     }
 
     /// input_mark is the mark `id` may place RIGHT NOW: the current turn's
-    /// mark when it is their move (in solo the one player owns both marks and
-    /// alternates), EMPTY when not seated or out of turn.
+    /// mark when it is their move (in solo the one seated player owns both
+    /// marks and alternates), EMPTY when not seated or out of turn.
     fn input_mark(&self, id: &str) -> u8 {
         if self.solo {
-            return if id == self.x_id { self.turn } else { EMPTY };
+            return if self.mark_for(id) != EMPTY { self.turn } else { EMPTY };
         }
         let m = self.mark_for(id);
         if m == self.turn {
@@ -329,7 +332,7 @@ impl Match {
         } else if id == self.o_id {
             MARK_O
         } else {
-            0
+            EMPTY
         }
     }
 

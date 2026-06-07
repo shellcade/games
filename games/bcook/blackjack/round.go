@@ -55,6 +55,12 @@ func settleHand(p, d hand) outcome {
 	return settleHandEx(p, p.isBlackjack(), d, d.isBlackjack())
 }
 
+// halfUp halves n in integer chips with the half-chip rounded UP — the single
+// owner of the player-favorable rounding policy used by the 3:2 blackjack
+// payout and the surrender return (so the two sites can never drift apart and
+// silently break chip conservation on odd bets).
+func halfUp(n int) int { return (n + 1) / 2 }
+
 // creditFor is the amount returned to a player's chips at settlement for a hand
 // of the given bet. The stake was deducted at deal time, so a loss credits 0, a
 // push returns the stake, a win pays even money, and a blackjack pays 3:2 —
@@ -65,7 +71,7 @@ func creditFor(o outcome, bet int) int {
 	case outWin:
 		return 2 * bet
 	case outBlackjack:
-		return bet + (bet*3+1)/2
+		return bet + halfUp(bet*3)
 	case outPush:
 		return bet
 	default: // outLose

@@ -666,8 +666,9 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 		h.surrendered = true
 		h.resolved = true
 		// Return half; the bet was deducted at deal. An odd bet's half-chip
-		// rounds UP to the player (mirrors the 3:2 rounding in creditFor).
-		s.chips += (h.bet + 1) / 2
+		// rounds UP to the player (halfUp owns the policy, shared with the
+		// 3:2 payout in creditFor and the net accounting in settle).
+		s.chips += halfUp(h.bet)
 		rm.beginTurn(r)
 	}
 }
@@ -793,7 +794,7 @@ func (rm *room) settle(r kit.Room) {
 		net := 0
 		for _, h := range s.hands {
 			if h.surrendered {
-				net -= h.bet - (h.bet+1)/2 // lost half (half-chip rounded to the player, as credited in act)
+				net -= h.bet - halfUp(h.bet) // lost half (the same halfUp act credited)
 				continue
 			}
 			pbj := h.cards.isBlackjack() && !h.fromSplit

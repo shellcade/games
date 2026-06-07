@@ -131,8 +131,9 @@ const (
 
 // shoe is a multi-deck stack dealt from front to back, reshuffled past a cut
 // card. It draws from the room-seeded RNG so a seeded room reproduces every
-// deal (and survives hibernation, since the shoe lives entirely in guest
-// memory and the RNG is reconstructed from the room seed).
+// deal (and survives hibernation: the shoe AND the RNG's consumed state live
+// in guest memory, restored byte-for-byte by the snapshot — the RNG is never
+// re-seeded mid-room, which would diverge the post-thaw stream).
 type shoe struct {
 	cards      []card
 	pos        int
@@ -155,12 +156,18 @@ func newShoe(rng *rand.Rand) *shoe {
 	return s
 }
 
-// shuffle Fisher–Yates shuffles the whole shoe and resets the draw cursor.
-func (s *shoe) shuffle(rng *rand.Rand) {
-	for i := len(s.cards) - 1; i > 0; i-- {
+// shuffleCards Fisher–Yates shuffles cards in place — the one shuffle
+// implementation, shared by the full-shoe reshuffle and the discard recycle.
+func shuffleCards(rng *rand.Rand, cards []card) {
+	for i := len(cards) - 1; i > 0; i-- {
 		j := rng.Intn(i + 1)
-		s.cards[i], s.cards[j] = s.cards[j], s.cards[i]
+		cards[i], cards[j] = cards[j], cards[i]
 	}
+}
+
+// shuffle reshuffles the whole shoe and resets the draw cursor.
+func (s *shoe) shuffle(rng *rand.Rand) {
+	shuffleCards(rng, s.cards)
 	s.pos = 0
 	s.roundStart = 0
 	s.recycled = false
@@ -191,14 +198,15 @@ func (s *shoe) draw(rng *rand.Rand) card {
 // remains.
 func (s *shoe) recycle(rng *rand.Rand) {
 	if s.roundStart == 0 {
+		// Unreachable invariant breach (a round consumed the whole shoe):
+		// clamp, and force a full reshuffle at the next round boundary so the
+		// repetition cannot outlive the round.
 		s.pos = len(s.cards) - 1
+		s.recycled = true
 		return
 	}
 	discards := s.cards[:s.roundStart]
-	for i := len(discards) - 1; i > 0; i-- {
-		j := rng.Intn(i + 1)
-		discards[i], discards[j] = discards[j], discards[i]
-	}
+	shuffleCards(rng, discards)
 	rebuilt := make([]card, 0, len(s.cards))
 	rebuilt = append(rebuilt, s.cards[s.roundStart:]...) // this round's dealt cards
 	rebuilt = append(rebuilt, discards...)               // then the recycled discards
