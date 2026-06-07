@@ -57,7 +57,7 @@ func benchRoom(t testing.TB) (*kittest.Room, *room, []kit.Player) {
 // driveWakes runs n 100ms wakes with a realistic input mix (~1.5 moves/sec per
 // player ⇒ 15 inputs per wake) and returns per-wake wall times.
 func driveWakes(tr *kittest.Room, rm *room, players []kit.Player, n int) []time.Duration {
-	moves := []rune{'h', 'j', 'k', 'l'}
+	moves := []rune{'a', 's', 'w', 'd'}
 	durs := make([]time.Duration, 0, n)
 	for w := 0; w < n; w++ {
 		for i := 0; i < benchPlayers*3/20; i++ { // 15 inputs per 100ms wake
@@ -145,7 +145,7 @@ func BenchmarkWake100(b *testing.B) {
 	driveWakes(tr, rm, players, 20)
 	b.ReportAllocs()
 	b.ResetTimer()
-	moves := []rune{'h', 'j', 'k', 'l'}
+	moves := []rune{'a', 's', 'w', 'd'}
 	for w := 0; w < b.N; w++ {
 		for i := 0; i < 15; i++ {
 			p := players[(w*15+i)%benchPlayers]

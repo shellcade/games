@@ -149,12 +149,12 @@ func TestBumpAttackKillsTheRat(t *testing.T) {
 func dirRune(dx, dy int) rune {
 	switch {
 	case dx == 1:
-		return 'l'
+		return 'd'
 	case dx == -1:
-		return 'h'
+		return 'a'
 	case dy == 1:
-		return 'j'
+		return 's'
 	default:
-		return 'k'
+		return 'w'
 	}
 }

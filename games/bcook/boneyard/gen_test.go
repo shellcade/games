@@ -94,7 +94,7 @@ func TestCombatReplayDeterminism(t *testing.T) {
 		rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
 		rm.OnStart(tr)
 		rm.OnJoin(tr, bp("ada"))
-		moves := []rune{'l', 'j', 'h', 'k', 'l', 'l', 'j', 'j'}
+		moves := []rune{'d', 's', 'a', 'w', 'd', 'd', 's', 's'}
 		for i := 0; i < 400; i++ {
 			tr.Advance(100 * time.Millisecond)
 			rm.OnInput(tr, bp("ada"), kit.Input{Kind: kit.InputRune, Rune: moves[i%len(moves)]})

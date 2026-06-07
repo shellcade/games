@@ -233,13 +233,13 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 	switch {
 	case in.Kind == kit.InputRune:
 		switch in.Rune {
-		case 'h':
+		case 'a':
 			dx = -1
-		case 'l':
+		case 'd':
 			dx = 1
-		case 'k':
+		case 'w':
 			dy = -1
-		case 'j':
+		case 's':
 			dy = 1
 		case 'y':
 			dx, dy = -1, -1

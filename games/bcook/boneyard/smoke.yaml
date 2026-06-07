@@ -10,23 +10,23 @@ steps:
   # Choose the FLASK kit (44 HP and two draughts) and step off the stairs.
   - key: "3"
   - advance: 200ms
-  - key: l
+  - key: d
   - advance: 300ms
-  - key: l
+  - key: d
   - advance: 300ms
-  - key: j
+  - key: s
   - advance: 300ms
   - shot: first-steps
   # Keep walking: the torch burns, the fog peels back, the floor is shared —
   # seat 2 is on this floor somewhere.
-  - key: l
+  - key: d
   - advance: 300ms
-  - key: l
+  - key: d
   - advance: 300ms
-  - key: j
+  - key: s
   - advance: 300ms
-  - key: j
+  - key: s
   - advance: 300ms
-  - key: l
+  - key: d
   - advance: 300ms
   - shot: into-the-dark
