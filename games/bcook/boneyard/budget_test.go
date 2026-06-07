@@ -182,7 +182,7 @@ func TestKitTorchEconomics(t *testing.T) {
 // hint bar (the "respects to th[hjkl]" bug). say() clamps to msgWidth, which
 // must leave the 17-rune hint its right-aligned room.
 func TestMessageLogNeverCollidesWithHints(t *testing.T) {
-	if msgWidth+18 > 80 {
+	if msgWidth+18 > 80 { // legend grew: re-budget msgWidth if this trips
 		t.Fatalf("msgWidth %d + hint 18 exceeds 80 cols", msgWidth)
 	}
 	d := &delver{}

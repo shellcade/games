@@ -241,21 +241,13 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			dy = -1
 		case 's':
 			dy = 1
-		case 'y':
-			dx, dy = -1, -1
-		case 'u':
-			dx, dy = 1, -1
-		case 'b':
-			dx, dy = -1, 1
-		case 'n':
-			dx, dy = 1, 1
 		case '>':
 			d.descend(rm, r)
 			return
 		case '<':
 			d.ascend(rm, r)
 			return
-		case 'L':
+		case 'l':
 			if m := rm.mimicAt(d.floor, d.x, d.y); m != nil {
 				// The bones bite back.
 				m.hidden = false
@@ -269,7 +261,7 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 				d.lootBones(rm, c)
 			}
 			return
-		case 'F':
+		case 'f':
 			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
 				d.respectBones(rm, r, c)
 			}
@@ -277,12 +269,12 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 		case 'q':
 			d.quaff()
 			return
-		case 'D':
+		case 'e':
 			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
 				d.devourBones(rm, c)
 			}
 			return
-		case 'B':
+		case 'b':
 			d.bank(rm, r)
 			return
 		case '1', '2', '3':

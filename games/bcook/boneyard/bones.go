@@ -160,7 +160,7 @@ func (rm *room) corpseAt(floor, x, y int) *corpse {
 // killer's kind on this floor and the dead are avenged.
 func (d *delver) inspectBones(c *corpse) {
 	d.say("Here lies " + c.name() + " — " + c.killer + ". \"" + c.words + "\" (fled " + c.gaspDir + ")")
-	d.say("[L]oot " + itoa(c.gold) + "g  [F] pay respects  [D]evour")
+	d.say("[l]oot " + itoa(c.gold) + "g  [f] pay respects  [e]at the marrow")
 	d.vow = c
 }
 
