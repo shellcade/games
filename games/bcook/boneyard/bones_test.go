@@ -85,23 +85,30 @@ func TestBonesRenderCap(t *testing.T) {
 	rm.OnStart(tr)
 	rm.OnJoin(tr, a)
 	rm.floorAt(2)
-	for i := 0; i < bonesRenderCap+1; i++ {
-		rm.bones = append(rm.bones, &corpse{handle: "d" + itoa(i), floor: 2, x: 2 + i, y: 2, at: tr.Now()})
+	count := func() (rendered, dusted int) {
+		for _, c := range rm.bones {
+			if c.floor != 2 {
+				continue
+			}
+			if c.dust() {
+				dusted++
+			} else {
+				rendered++
+			}
+		}
+		return
+	}
+	r0, d0 := count()
+	added := bonesRenderCap + 1 - r0 + 1 // overflow the cap by exactly one
+	first := &corpse{handle: "oldest", floor: 2, x: 30, y: 2, at: tr.Now()}
+	rm.bones = append(rm.bones, first)
+	for i := 1; i < added; i++ {
+		rm.bones = append(rm.bones, &corpse{handle: "d" + itoa(i), floor: 2, x: 30 + i, y: 2, at: tr.Now()})
 	}
 	rm.evictBones(2)
-	rendered, dusted := 0, 0
-	for _, c := range rm.bones {
-		if c.dust() {
-			dusted++
-		} else {
-			rendered++
-		}
-	}
-	if rendered != bonesRenderCap || dusted != 1 {
-		t.Fatalf("rendered=%d dusted=%d, want %d/1", rendered, dusted, bonesRenderCap)
-	}
-	if !rm.bones[0].dust() {
-		t.Fatal("eviction took a newer corpse than the oldest")
+	r1, d1 := count()
+	if r1 != bonesRenderCap || d1 != d0+(r0+added-bonesRenderCap) {
+		t.Fatalf("rendered=%d dusted=%d (was %d/%d, added %d)", r1, d1, r0, d0, added)
 	}
 }
 

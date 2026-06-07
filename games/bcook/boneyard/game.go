@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	kit "github.com/shellcade/kit/v2"
 )
 
@@ -53,12 +55,21 @@ type room struct {
 
 	frame *kit.Frame // reused for every per-player send
 	wakes int
+
+	cdCache      string    // rendered countdown (refreshed per minute)
+	collapseAt   time.Time // Monday 00:00 UTC: the world's doom
+	collapsed    bool
+	warnedHour   bool
+	warnedMinute bool
+	graceBanked  bool
 }
 
 func (rm *room) OnStart(r kit.Room) {
 	rm.world = newWorld(r.Config().Seed)
 	rm.delvers = map[string]*delver{}
 	rm.frame = kit.NewFrame()
+	rm.collapseAt = nextMondayUTC(r.Now())
+	rm.seedAncestralBones(r)
 }
 
 // floorAt returns B<depth>, generating AND populating it on first entry.
@@ -122,6 +133,17 @@ func (rm *room) OnWake(r kit.Room) {
 		d.tick(rm, now)
 	}
 	rm.tickMonsters(r, now)
+	rm.tickCollapse(r, now)
+	// The doom timer redraws at most once a minute (per-wake redraws would
+	// defeat the dirty tracking — the HUD-throttle rule).
+	if rm.wakes%600 == 1 {
+		rm.cdCache = rm.countdown(now)
+		for _, d := range rm.delvers {
+			if d.online {
+				d.dirty = true
+			}
+		}
+	}
 
 	for _, p := range rm.roster {
 		d, ok := rm.delvers[p.AccountID]

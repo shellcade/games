@@ -167,6 +167,7 @@ func (rm *room) hud(d *delver) {
 		}
 	}
 	fr.Text(22, 0, "BONEYARD", stTitle)
+	fr.TextRight(22, kit.Cols-1, "collapses in "+rm.cdCache, stHUDDim)
 	if others > 0 {
 		fr.Text(22, 10, itoa(others)+" other delver(s) on this floor", stMsg)
 	} else {
