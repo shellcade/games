@@ -74,6 +74,7 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	if d, ok := rm.delvers[p.AccountID]; ok {
 		// Rejoin (same seat, post-restore re-seat included): the run resumes
 		// where it stood; the viewer needs a frame (baselines were reset).
+		d.online = true
 		d.dirty = true
 		return
 	}
@@ -94,6 +95,7 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 		}
 	}
 	if d, ok := rm.delvers[p.AccountID]; ok {
+		d.online = false       // the run persists; the target does not
 		rm.dirtyFloor(d.floor) // their @ vanishes from witnesses' views
 	}
 }

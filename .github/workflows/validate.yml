@@ -121,7 +121,12 @@ jobs:
             # Module marker decides the toolchain — mirrors publish.yml:
             # go.mod => TinyGo (dev profile), Cargo.toml => cargo/wasm32-wasip1.
             if [ -f "$d/go.mod" ]; then
-              ( cd "$d" && go mod tidy && tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared . )
+              # Native tests run BEFORE the wasm build: games may carry gameplay
+              # tests and BUDGET GATES (wake wall-time, steady-state allocations,
+              # death alloc budgets — the player-count contract under the
+              # production -gc=leaking profile). A failing gate fails validation.
+              ( cd "$d" && go mod tidy && go test ./... )
+              ( cd "$d" && tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared . )
             elif [ -f "$d/Cargo.toml" ]; then
               crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
               ( cd "$d" && cargo build --release --target wasm32-wasip1 )

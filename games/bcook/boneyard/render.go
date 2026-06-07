@@ -78,38 +78,50 @@ func (rm *room) compose(d *delver) {
 		}
 	}
 
-	// Bones first (terrain-level), then monsters, then delvers on top.
+	// Bones first (terrain-level: remembered like the map — and the unsprung
+	// tomb mimic hides among them, byte-identical), then LIVE entities, which
+	// render only inside current torch sight: the fog remembers floors, never
+	// what walks them.
 	for _, c := range rm.bones {
 		if c.floor == d.floor && !c.dust() {
-			rm.plot(d, c.x, c.y, '%', kit.Style{FG: kit.Gray(0xb8)})
+			rm.plot(d, c.x, c.y, '%', kit.Style{FG: kit.Gray(0xb8)}, false)
 		}
 	}
 	for _, m := range rm.monsters {
 		if m.hp > 0 && m.floor == d.floor {
-			rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style)
+			if m.hidden {
+				rm.plot(d, m.x, m.y, '%', kit.Style{FG: kit.Gray(0xb8)}, false)
+			} else {
+				rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style, true)
+			}
 		}
 	}
 
 	// Other delvers on this floor (live co-presence), then self on top.
 	for _, o := range rm.delvers {
-		if o == d || o.floor != d.floor {
+		if o == d || o.floor != d.floor || !o.online {
 			continue
 		}
-		rm.plot(d, o.x, o.y, '@', stOther)
+		rm.plot(d, o.x, o.y, '@', stOther, true)
 	}
-	rm.plot(d, d.x, d.y, '@', stSelf)
+	rm.plot(d, d.x, d.y, '@', stSelf, true)
 
 	rm.hud(d)
 }
 
-// plot writes a world-coordinate glyph into d's viewport if explored+visible.
-func (rm *room) plot(d *delver, wx, wy int, g rune, st kit.Style) {
+// plot writes a world-coordinate glyph into d's viewport. Terrain-class
+// marks (bones, the disguised mimic) render from explored MEMORY; live
+// entities additionally require current torch sight (live=true).
+func (rm *room) plot(d *delver, wx, wy int, g rune, st kit.Style, live bool) {
 	ox, oy := d.camera()
 	vx, vy := wx-ox, wy-oy
 	if vx < 0 || vx >= kit.Cols || vy < 0 || vy >= mapRows {
 		return
 	}
 	if mem := d.explored[d.floor]; mem == nil || !mem[wy][wx] {
+		return
+	}
+	if live && cheb(wx-d.x, wy-d.y) > d.sightRadius() {
 		return
 	}
 	rm.frame.Cells[vy][vx] = kit.Cell{Rune: g, FG: st.FG, Attr: st.Attr}

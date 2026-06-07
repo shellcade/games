@@ -35,7 +35,13 @@ var bestiary = []species{
 	{"goblin", 'g', kit.Style{FG: kit.Green}, 3, 8, 12, 1, 6, 4, 14, 400 * time.Millisecond, false, false},
 	{"gnome sapper", 'n', kit.Style{FG: kit.Cyan}, 3, 8, 9, 1, 6, 2, 13, 400 * time.Millisecond, false, false},
 	{"skeleton", 's', kit.Style{FG: kit.White}, 4, 9, 14, 1, 8, 5, 15, 650 * time.Millisecond, false, false},
-	{"gelatinous cube", '#', kit.Style{FG: kit.Cyan}, 6, 9, 40, 2, 4, 2, 11, time.Second, false, false},
+	// The cube keeps the design's '#' glyph: cyan-green ON PURPOSE — color is
+	// the wall/cube distinction (walls are DimGray), exactly the corpse/mimic
+	// kind of ambiguity the Boneyard trades in.
+	{"gelatinous cube", '#', kit.Style{FG: kit.RGB(0x40, 0xd0, 0xa0), Attr: kit.AttrBold}, 6, 9, 40, 2, 4, 2, 11, time.Second, false, false},
+	// The tomb mimic renders EXACTLY like a fresh corpse (the one sanctioned
+	// glyph+color overlap) and springs when looted.
+	{"tomb mimic", '%', kit.Style{FG: kit.Gray(0xb8)}, 4, 9, 8, 1, 8, 0, 14, 400 * time.Millisecond, false, false},
 }
 
 // monster is one live spawn.
@@ -44,18 +50,21 @@ type monster struct {
 	floor  int
 	x, y   int
 	hp     int
-	dmgN   int // scaled damage is applied to the ROLLED total (design §1);
+	rng    uint64 // per-actor combat PRNG: (week_seed, floor, spawn_index)
 	nextAt time.Time
+	fuse   int  // bloat: consecutive acts adjacent to a delver (bursts at 2)
+	hidden bool // tomb mimic: disguised until sprung
 }
 
 // spawnFloor populates a freshly generated floor with its band's species —
 // positions and picks from the SAME deterministic stream as the floor itself
 // (gen-time), so every room of the week agrees where the kobolds started.
 func (rm *room) spawnFloor(f *floor) {
+	// An INDEPENDENT sub-stream from the floor's gen stream: a fresh PRNG at
+	// the same (seed, depth) with a domain tag XORed in. (Do NOT "advance"
+	// this stream to separate it — any change to the draw count would
+	// silently reshuffle every spawn of every week.)
 	g := newGenRNG(rm.world.seed, f.depth)
-	for i := 0; i < 4096; i++ { // re-sync past the gen draws: independent sub-stream
-		_ = i
-	}
 	g.s ^= 0xB0E5 // monster sub-stream tag
 
 	var band []*species
@@ -73,7 +82,9 @@ func (rm *room) spawnFloor(f *floor) {
 		x, y := rm.openTile(g, f)
 		rm.monsters = append(rm.monsters, &monster{
 			sp: sp, floor: f.depth, x: x, y: y,
-			hp: scaled(sp.hp, hpScalar(f.depth)),
+			hp:     scaled(sp.hp, hpScalar(f.depth)),
+			rng:    actorSeed(rm.world.seed, uint64(f.depth), uint64(i)),
+			hidden: sp.glyph == '%',
 		})
 	}
 }
@@ -92,29 +103,83 @@ func (rm *room) openTile(g *genRNG, f *floor) (int, int) {
 // nearest visible delver on the floor (8-tile chebyshev), bump-attack when
 // adjacent, wander otherwise. Movement dirties witnesses.
 func (rm *room) tickMonsters(r kit.Room, now time.Time) {
-	for _, m := range rm.monsters {
-		if m.hp <= 0 || now.Before(m.nextAt) {
-			continue
+	// Floor throttle: AI runs only on floors with an ONLINE delver — an empty
+	// (or abandoned) floor's monsters sleep, so a quiet resident world burns
+	// nothing (the kit GUIDE's idle-throttle rule).
+	var active [maxMVP + 1]bool
+	any := false
+	for _, d := range rm.delvers {
+		if d.online && d.floor >= 1 && d.floor <= maxMVP {
+			active[d.floor] = true
+			any = true
 		}
-		m.nextAt = now.Add(m.sp.period)
-
-		target := rm.nearestDelver(m)
-		if target != nil && m.sp.flees && m.hp == 1 {
-			rm.moveMonster(m, m.x+sign(m.x-target.x), m.y+sign(m.y-target.y))
-			continue
-		}
-		if target == nil || cheb(m.x-target.x, m.y-target.y) > 8 {
-			// Wander: a lazy drunken step keeps floors feeling alive.
-			dx, dy := wanderDir(rm.wakes+m.x*7+m.y*13)
-			rm.moveMonster(m, m.x+dx, m.y+dy)
-			continue
-		}
-		if cheb(m.x-target.x, m.y-target.y) == 1 {
-			rm.monsterAttack(r, m, target)
-			continue
-		}
-		rm.moveMonster(m, m.x+sign(target.x-m.x), m.y+sign(target.y-m.y))
 	}
+	if !any {
+		return
+	}
+	for _, m := range rm.monsters {
+		if m.hp <= 0 || m.hidden || !active[m.floor] {
+			continue
+		}
+		// Catch-up loop (spec): act on the actor's OWN cadence, stepping
+		// nextAt by actPeriod — capped at 4 per wake, snapping after a long
+		// gap (hibernation resume, floor reactivation).
+		if m.nextAt.IsZero() || now.Sub(m.nextAt) > 2*time.Second {
+			m.nextAt = now
+		}
+		for steps := 0; steps < 4 && !now.Before(m.nextAt); steps++ {
+			m.nextAt = m.nextAt.Add(m.sp.period)
+			rm.actMonster(r, m)
+		}
+		if !now.Before(m.nextAt) {
+			m.nextAt = now.Add(m.sp.period) // still behind after the cap: snap
+		}
+	}
+}
+
+// actMonster is one action on the monster's own clock.
+func (rm *room) actMonster(r kit.Room, m *monster) {
+	target := rm.nearestDelver(m)
+
+	if m.sp.burst {
+		// The bloat: two consecutive acts adjacent to a delver and it blows.
+		if target != nil && cheb(m.x-target.x, m.y-target.y) == 1 {
+			m.fuse++
+			if m.fuse >= 2 {
+				m.hp = 0
+				rm.dirtyWitnesses(m.floor, m.x, m.y, nil)
+				rm.burst(r, m)
+				return
+			}
+		} else {
+			m.fuse = 0
+		}
+	}
+
+	if target != nil && m.sp.flees && m.hp == 1 {
+		rm.moveMonster(m, m.x+sign(m.x-target.x), m.y+sign(m.y-target.y))
+		return
+	}
+	if target == nil || cheb(m.x-target.x, m.y-target.y) > 8 {
+		dx, dy := wanderDir(rm.wakes + m.x*7 + m.y*13)
+		rm.moveMonster(m, m.x+dx, m.y+dy)
+		return
+	}
+	if cheb(m.x-target.x, m.y-target.y) == 1 {
+		rm.monsterAttack(r, m, target)
+		return
+	}
+	rm.moveMonster(m, m.x+sign(target.x-m.x), m.y+sign(target.y-m.y))
+}
+
+// mimicAt returns the unsprung tomb mimic on a tile, if any.
+func (rm *room) mimicAt(floor, x, y int) *monster {
+	for _, m := range rm.monsters {
+		if m.hp > 0 && m.hidden && m.floor == floor && m.x == x && m.y == y {
+			return m
+		}
+	}
+	return nil
 }
 
 // nearestDelver returns the closest LIVING delver on m's floor, or nil.
@@ -122,8 +187,8 @@ func (rm *room) nearestDelver(m *monster) *delver {
 	var best *delver
 	bd := 1 << 30
 	for _, d := range rm.delvers {
-		if d.floor != m.floor || d.hp <= 0 {
-			continue
+		if d.floor != m.floor || d.hp <= 0 || !d.online {
+			continue // an offline run persists but is never a target
 		}
 		if c := cheb(m.x-d.x, m.y-d.y); c < bd {
 			bd, best = c, d
@@ -134,7 +199,7 @@ func (rm *room) nearestDelver(m *monster) *delver {
 
 func (rm *room) moveMonster(m *monster, nx, ny int) {
 	f := rm.world.at(m.floor)
-	if !f.open(nx, ny) || rm.monsterAt(m.floor, nx, ny) != nil {
+	if !f.open(nx, ny) || rm.monsterAt(m.floor, nx, ny) != nil || rm.mimicAt(m.floor, nx, ny) != nil {
 		return
 	}
 	ox, oy := m.x, m.y
@@ -146,7 +211,7 @@ func (rm *room) moveMonster(m *monster, nx, ny int) {
 // monsterAt returns the live monster on (floor,x,y), or nil.
 func (rm *room) monsterAt(floor, x, y int) *monster {
 	for _, m := range rm.monsters {
-		if m.hp > 0 && m.floor == floor && m.x == x && m.y == y {
+		if m.hp > 0 && !m.hidden && m.floor == floor && m.x == x && m.y == y {
 			return m
 		}
 	}

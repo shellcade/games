@@ -21,9 +21,9 @@ func TestDeathLeavesBonesForTheNextDelver(t *testing.T) {
 
 	// Ada descends to B2, earns some gold, banks nothing, and dies.
 	ada := rm.delvers[a.AccountID]
+	f2 := rm.floorAt(2)
 	ada.floor, ada.gold = 2, 120
-	rm.floorAt(2)
-	dx, dy := ada.x, ada.y
+	ada.x, ada.y = f2.upX, f2.upY // dies ON the stairs: the corpse must jitter off
 	rm.die(tr, ada, "a gelatinous cube")
 
 	// The death posted her BANKED depth (0 — unbanked progress is tuition).
@@ -35,10 +35,22 @@ func TestDeathLeavesBonesForTheNextDelver(t *testing.T) {
 		t.Fatalf("posted %+v, want ada banked=0 finished", pr)
 	}
 
-	// The corpse is in the world where she fell, words and all.
-	c := rm.corpseAt(2, dx, dy)
-	if c == nil || c.handle != "ada" || c.gold != 120 {
+	// The corpse is in the world near where she fell — jittered OFF the
+	// stairs (the staircase contract), words and all.
+	var c *corpse
+	for _, b := range rm.bones {
+		if b.handle == "ada" {
+			c = b
+		}
+	}
+	if c == nil || c.floor != 2 || c.gold != 120 {
 		t.Fatalf("corpse = %+v", c)
+	}
+	if t2 := f2.tiles[c.y][c.x]; t2 != tFloor && t2 != tWater {
+		t.Fatalf("corpse landed on %q — stairs/shrine exclusion violated", string(t2))
+	}
+	if cheb(c.x-f2.upX, c.y-f2.upY) > 4 {
+		t.Fatal("corpse jittered too far from the death tile")
 	}
 
 	// Ada herself is a fresh run at the Gate.
@@ -50,7 +62,7 @@ func TestDeathLeavesBonesForTheNextDelver(t *testing.T) {
 	// Bob finds the bones: respects them (+1 luck), then robs them anyway.
 	bob := rm.delvers[b.AccountID]
 	bob.floor = 2
-	bob.x, bob.y = dx, dy
+	bob.x, bob.y = c.x, c.y
 	bob.respectBones(rm, c)
 	if c.respects != 1 || bob.luck != 1 {
 		t.Fatalf("respect: corpse=%d luck=%d", c.respects, bob.luck)

@@ -1,6 +1,12 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	kit "github.com/shellcade/kit/v2"
+	"github.com/shellcade/kit/v2/kittest"
+)
 
 // Determinism is the property the shared-bones fantasy rests on: the same
 // (seed, depth) must produce byte-identical floors, every time, everywhere.
@@ -75,5 +81,36 @@ func TestScalingRounding(t *testing.T) {
 	}
 	if got := scaled(6, hpScalar(5)); got != 7 { // 6 * 1.24 = 7.44
 		t.Fatalf("kobold B5 HP = %d, want 7", got)
+	}
+}
+
+// Combat replay determinism: two rooms with the same week seed and the same
+// input script must produce IDENTICAL world states — every die roll comes
+// from week-seed-derived actor PRNGs, never the wall clock. (The stage-5
+// anti-cheat replays runs against exactly this property.)
+func TestCombatReplayDeterminism(t *testing.T) {
+	run := func() (string, int) {
+		tr := kittest.NewRoom(bp("ada"))
+		rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
+		rm.OnStart(tr)
+		rm.OnJoin(tr, bp("ada"))
+		moves := []rune{'l', 'j', 'h', 'k', 'l', 'l', 'j', 'j'}
+		for i := 0; i < 400; i++ {
+			tr.Advance(100 * time.Millisecond)
+			rm.OnInput(tr, bp("ada"), kit.Input{Kind: kit.InputRune, Rune: moves[i%len(moves)]})
+			rm.OnWake(tr)
+		}
+		// Fingerprint: every monster's position+HP and the delver's vitals.
+		fp := ""
+		for _, m := range rm.monsters {
+			fp += m.sp.name + itoa(m.x) + "," + itoa(m.y) + ":" + itoa(m.hp) + ";"
+		}
+		d := rm.delvers["ada"]
+		return fp + "|" + itoa(d.hp) + "," + itoa(d.x) + "," + itoa(d.y), d.hp
+	}
+	a, _ := run()
+	b, _ := run()
+	if a != b {
+		t.Fatal("identical seeds + inputs diverged — combat is drawing non-deterministic randomness")
 	}
 }

@@ -37,6 +37,10 @@ type delver struct {
 	// explored is the fog-of-war memory, per visited floor.
 	explored map[int]*[floorH][floorW]bool
 
+	online bool // connected (offline delvers persist but are not targets)
+	rng    uint64 // per-actor combat PRNG (week-seed derived; never wall-clock)
+	runs   int    // lifetime runs this week (re-seeds the PRNG per run)
+
 	msg   [2]string // the two message-log lines
 	dirty bool      // re-render this view on the next wake
 }
@@ -54,9 +58,35 @@ func newDelver(p kit.Player, w *world, r kit.Room) *delver {
 		explored:    map[int]*[floorH][floorW]bool{},
 		dirty:       true,
 	}
+	d.online = true
+	d.rng = actorSeed(w.seed, fnvHash(p.AccountID), 0)
 	d.say("The Boneyard. The bones of the week's dead are down here somewhere.")
 	d.reveal(f)
 	return d
+}
+
+// resetRun starts a fresh run IN PLACE: under -gc=leaking every allocation is
+// permanent, so the dead delver's fog arrays are zeroed and reused, never
+// replaced (the death-alloc budget gate enforces this).
+func (d *delver) resetRun(rm *room, r kit.Room, killer string, restFloor int) {
+	for _, mem := range d.explored {
+		*mem = [floorH][floorW]bool{}
+	}
+	f := rm.world.at(1)
+	d.floor, d.x, d.y = 1, f.upX, f.upY
+	d.hp, d.maxHP = 30, 30
+	d.gold, d.kills, d.luck, d.respects, d.looted = 0, 0, 0, 0, 0
+	d.banked, d.deepest = 0, 1
+	d.torch = 600
+	d.lastPassive = r.Now()
+	d.runs++
+	d.rng = actorSeed(rm.world.seed, fnvHash(d.p.AccountID), uint64(d.runs))
+	// The death frame: both log lines carry the moment (the full YOU DIED
+	// card is the stage-4/6 death-flow pass).
+	d.msg[0] = "You die. " + killer + " got you on B" + itoa(restFloor) + "."
+	d.msg[1] = "You wake at the Gate. Your bones rest on B" + itoa(restFloor) + "."
+	d.reveal(f)
+	d.dirty = true
 }
 
 func (d *delver) moveCD() time.Duration {
@@ -163,6 +193,15 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			d.ascend(rm, r)
 			return
 		case 'L':
+			if m := rm.mimicAt(d.floor, d.x, d.y); m != nil {
+				// The bones bite back.
+				m.hidden = false
+				d.say("The corpse SPRINGS — a tomb mimic!")
+				rm.dirtyWitnesses(d.floor, m.x, m.y, nil)
+				d.dirty = true
+				rm.monsterAttack(r, m, d)
+				return
+			}
 			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
 				d.lootBones(rm, c)
 			}

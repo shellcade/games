@@ -32,7 +32,7 @@ const bonesRenderCap = 12 // per floor (design: render cap with eviction)
 // Gate with a fresh run.
 func (rm *room) die(r kit.Room, d *delver, killer string) {
 	d.hp = 0
-	d.say("You die. " + killer + " got you on B" + itoa(d.floor) + ".")
+	deathFloor := d.floor
 
 	// Per-death leaderboard post: BestResult aggregation keeps the weekly
 	// max; a resident room never settles, so this is the only posting path.
@@ -40,25 +40,66 @@ func (rm *room) die(r kit.Room, d *delver, killer string) {
 		Player: d.p, Metric: d.banked, Rank: 1, Status: kit.StatusFinished,
 	}}})
 
-	// The corpse joins the world (panic-scrawl: closed vocab, no free text).
+	// The corpse joins the world (panic-scrawl: closed vocab, no free text),
+	// jittered off stairs/shrines and existing corpses so the staircase
+	// contract holds and no record shadows another.
+	cx, cy := rm.corpseSpot(deathFloor, d.x, d.y)
 	c := &corpse{
 		handle: d.p.Handle,
-		floor:  d.floor, x: d.x, y: d.y,
+		floor:  deathFloor, x: cx, y: cy,
 		killer: killer,
 		gold:   d.gold,
 		at:     r.Now(),
 		words:  killer + " got me. ran out of luck.",
 	}
 	rm.bones = append(rm.bones, c)
-	rm.evictBones(d.floor)
-	rm.dirtyFloor(d.floor)
+	rm.evictBones(deathFloor)
+	rm.dirtyFloor(deathFloor)
 
-	// A fresh run from the Gate: the world keeps the old one's bones.
-	old := d.p
-	nd := newDelver(old, rm.world, r)
-	nd.say("You wake at the Gate. Your bones rest on B" + itoa(c.floor) + ".")
-	rm.delvers[old.AccountID] = nd
+	// A fresh run from the Gate, IN the same delver (allocation-free death:
+	// the world keeps the old run's bones, the heap keeps nothing else).
+	d.resetRun(rm, r, killer, deathFloor)
 	rm.dirtyFloor(1)
+}
+
+// corpseSpot spiral-searches the nearest plain-floor tile (never stairs or
+// shrine) without a rendered corpse — starting at the death tile itself.
+func (rm *room) corpseSpot(floor, x, y int) (int, int) {
+	f := rm.world.at(floor)
+	for ring := 0; ring <= 4; ring++ {
+		for dy := -ring; dy <= ring; dy++ {
+			for dx := -ring; dx <= ring; dx++ {
+				if maxAbs(dx, dy) != ring {
+					continue
+				}
+				nx, ny := x+dx, y+dy
+				if nx < 1 || nx >= floorW-1 || ny < 1 || ny >= floorH-1 {
+					continue
+				}
+				if t := f.tiles[ny][nx]; t != tFloor && t != tWater {
+					continue
+				}
+				if rm.corpseAt(floor, nx, ny) != nil {
+					continue
+				}
+				return nx, ny
+			}
+		}
+	}
+	return x, y // pathological crowding: stack rather than lose the record
+}
+
+func maxAbs(a, b int) int {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // evictBones enforces the per-floor render cap, oldest first (evicted bones
