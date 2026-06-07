@@ -1,13 +1,13 @@
-//! Rendering — a faithful port of the Go game's render.go. A centered 3x3
-//! board, a title, both players' names with marks, and a status line. The view
-//! is identical for everyone, so the caller broadcasts one composed frame with
-//! `identical` (the SDK's delta path does the rest).
+//! Rendering — a centered 3x3 board, a title, both players' names with marks,
+//! and a status line. The view is identical for everyone, so the caller
+//! broadcasts one composed frame with `identical` (the SDK's delta path does
+//! the rest).
 
 use shellcade_kit::prelude::*;
 
 use crate::game::{Match, MARK_O, MARK_X};
 
-// Styles (match render.go).
+// Styles.
 fn st_title() -> Style { Style::new(WHITE, ATTR_BOLD) }
 fn st_dim() -> Style { Style::new(DIM_GRAY, 0) }
 fn st_grid() -> Style { Style::new(DIM_GRAY, 0) }
@@ -107,6 +107,9 @@ fn draw_status(rm: &Match, f: &mut Frame) {
         ("Waiting for both players...".to_string(), st_wait())
     } else if rm.over && rm.winner_id.is_empty() {
         ("Draw!".to_string(), st_draw())
+    } else if rm.over && rm.solo {
+        // Solo: both seats are the same person — name the winning MARK.
+        (format!("{} wins!", rm.winner_mark as char), st_win())
     } else if rm.over {
         (format!("{} wins!", rm.display_name(&rm.winner_id)), st_win())
     } else if rm.turn == MARK_X {

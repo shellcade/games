@@ -5,9 +5,8 @@ edition = "2021"
 publish = false
 
 # Tic-Tac-Toe, a shellcade catalog game written in RUST on the shellcade-kit
-# SDK crate — a behavioral port of the Go tic-tac-toe game in this same catalog
-# (../tic-tac-toe). The first hand-rolled v2 incarnation of this game carried
-# ~800 lines of ABI plumbing; the SDK now owns all of it (frame packing, wire
+# SDK crate. The first hand-rolled v2 incarnation of this game carried ~800
+# lines of ABI plumbing; the SDK now owns all of it (frame packing, wire
 # codecs, host imports, delta encoding, baseline/epoch broadcast) and what
 # remains here is the game.
 #
