@@ -191,7 +191,10 @@ func TestMessageLogNeverCollidesWithHints(t *testing.T) {
 		t.Fatalf("say() let %d cols through (budget %d)", n, msgWidth)
 	}
 	c := &corpse{handle: "an-unreasonably-long-wire-handle-with-no-cap"}
-	if n := len([]rune(c.name())); n > 14 {
+	if n := len([]rune(c.name())); n > 24 {
 		t.Fatalf("handle clamp let %d cols through", n)
+	}
+	if ancestor := (&corpse{handle: "a nameless porter"}).name(); ancestor != "a nameless porter" {
+		t.Fatalf("the clamp mangled a reasonable name: %q", ancestor)
 	}
 }

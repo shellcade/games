@@ -138,8 +138,10 @@ func (rm *room) evictBones(floor int) {
 func (c *corpse) dust() bool { return c.x < 0 }
 
 // name is the display handle, clamped: handles are unbounded on the wire and
-// are the dominant overflow driver in bones lines.
-func (c *corpse) name() string { return clampCols(c.handle, 14) }
+// are the dominant overflow driver in bones lines. 24 columns passes every
+// ancestral name and any reasonable account handle intact — say()'s 62-col
+// budget remains the layout backstop for the assembled line.
+func (c *corpse) name() string { return clampCols(c.handle, 24) }
 
 // corpseAt returns the rendered corpse on (floor,x,y), or nil.
 func (rm *room) corpseAt(floor, x, y int) *corpse {
