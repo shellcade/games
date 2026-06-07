@@ -175,7 +175,7 @@ func (rm *room) hud(d *delver) {
 
 	// Row 23: the newest message line + hints.
 	fr.Text(23, 0, d.msg[1], stMsg)
-	fr.TextRight(23, kit.Cols-1, "[hjkl]move [>]dn [<]up [L]oot [R]espect", stHUDDim)
+	fr.TextRight(23, kit.Cols-1, "[hjkl] [>]dn [B]ank [L]oot [R]espect [D]evour [q]uaff", stHUDDim)
 }
 
 // torchGauge draws ▓-blocks for the remaining torch (600t = 5 blocks) + the

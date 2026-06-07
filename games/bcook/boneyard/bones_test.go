@@ -63,7 +63,7 @@ func TestDeathLeavesBonesForTheNextDelver(t *testing.T) {
 	bob := rm.delvers[b.AccountID]
 	bob.floor = 2
 	bob.x, bob.y = c.x, c.y
-	bob.respectBones(rm, c)
+	bob.respectBones(rm, tr, c)
 	if c.respects != 1 || bob.luck != 1 {
 		t.Fatalf("respect: corpse=%d luck=%d", c.respects, bob.luck)
 	}

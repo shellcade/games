@@ -40,8 +40,11 @@ func (rm *room) die(r kit.Room, d *delver, killer string) {
 	d.hp = 0
 	deathFloor := d.floor
 
+	rm.settleRunScore(r, d)
+
 	// Per-death leaderboard post: BestResult aggregation keeps the weekly
-	// max; a resident room never settles, so this is the only posting path.
+	// max; a resident room never settles, so banking and dying are the
+	// posting moments.
 	r.Post(kit.Result{Rankings: []kit.PlayerResult{{
 		Player: d.p, Metric: d.banked, Rank: 1, Status: kit.StatusFinished,
 	}}})
@@ -205,11 +208,20 @@ func (d *delver) lootBones(rm *room, c *corpse) {
 
 // respectBones leaves a flower: +1 luck (capped, one-floor — full effects
 // land in stage 3; the counter and the social signal land NOW).
-func (d *delver) respectBones(rm *room, c *corpse) {
+func (d *delver) respectBones(rm *room, r kit.Room, c *corpse) {
 	c.respects++
 	d.respects++
-	if d.luck < 5 {
-		d.luck++
+	gain := 1
+	if d.armor != nil && d.armor.name == "gilded reliquary mail" {
+		gain = 2 // the mail honors the dead twice over
 	}
-	d.say("You pay your respects to " + c.handle + ". (+1 luck)")
+	if d.relic != nil && d.relic.power == 2 { // graverobber's ring: no luck from flowers
+		gain = 0
+	}
+	d.luck += gain
+	if d.luck > 5 {
+		d.luck = 5
+	}
+	rm.creditRespect(r, d, c)
+	d.say("You pay your respects to " + c.handle + ". (+" + itoa(gain) + " luck)")
 }

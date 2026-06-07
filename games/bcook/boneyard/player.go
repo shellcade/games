@@ -27,8 +27,10 @@ type delver struct {
 	// moveCD (design §5): clamp(200 - 5*Dex, 90, 200) ms between moves.
 	nextMoveAt time.Time
 
-	banked  int // deepest banked depth (the leaderboard metric)
-	deepest int // deepest floor reached this run (display)
+	banked        int // deepest banked depth (the leaderboard metric)
+	deepest       int // deepest floor reached this run (display)
+	turns         int // actions this run (the rush-bonus clock)
+	firstBankTurn int
 
 	kills    int
 	luck     int // RESPECT luck: +1/corpse, cap +5, one-floor (resets on stairs)
@@ -92,6 +94,7 @@ func (d *delver) resetRun(rm *room, r kit.Room, killer string, restFloor int) {
 	d.gold, d.kills, d.luck, d.respects, d.looted = 0, 0, 0, 0, 0
 	d.devours, d.avenges, d.vow = 0, 0, nil
 	d.lastDX, d.lastDY = 0, 0
+	d.turns, d.firstBankTurn = 0, 0
 	d.banked, d.deepest = 0, 1
 	d.applyKit(d.kit) // same kit, fresh loadout (swap with [1-3] at the Gate)
 	d.lastPassive = r.Now()
@@ -254,7 +257,7 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			return
 		case 'R':
 			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
-				d.respectBones(rm, c)
+				d.respectBones(rm, r, c)
 			}
 			return
 		case 'q':
@@ -264,6 +267,9 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
 				d.devourBones(rm, c)
 			}
+			return
+		case 'B':
+			d.bank(rm, r)
 			return
 		case '1', '2', '3':
 			f := rm.world.at(d.floor)
@@ -306,6 +312,7 @@ func (d *delver) step(rm *room, r kit.Room, dx, dy int) {
 	}
 	d.nextMoveAt = now.Add(d.moveCD())
 	d.lastDX, d.lastDY = dx, dy
+	d.turns++
 	if m := rm.monsterAt(d.floor, nx, ny); m != nil {
 		// Bump attack: the move becomes a swing.
 		d.burn(1)
