@@ -25,6 +25,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       5,
 		Tags:             []string{"slots", "casual"},
 
+		// A casual social room: when everyone leaves, the room closes —
+		// no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
+		Lifecycle: kit.LifecycleEphemeral,
+
 		QuickModeLabel:    "Quick spin",
 		SoloModeLabel:     "Solo spin",
 		PrivateInviteLine: "Friends join your floor when they enter the code.",

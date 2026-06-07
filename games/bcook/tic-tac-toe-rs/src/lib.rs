@@ -14,6 +14,7 @@ mod game;
 mod render;
 
 use shellcade_kit::prelude::*;
+use shellcade_kit::Lifecycle;
 
 struct TicTacToe;
 
@@ -26,6 +27,9 @@ impl Game for TicTacToe {
             min_players: 2,
             max_players: 2,
             tags: &["board", "two-player", "classic"],
+            // A casual social room: when everyone leaves, the room closes —
+            // no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
+            lifecycle: Lifecycle::Ephemeral,
             quick_mode_label: "Quick match",
             private_invite_line: "Share the code; your opponent joins your board.",
             ..Meta::DEFAULT

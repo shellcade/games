@@ -39,6 +39,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       2,
 		Tags:             []string{"board", "two-player", "classic"},
 
+		// A casual social room: when everyone leaves, the room closes —
+		// no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
+		Lifecycle: kit.LifecycleEphemeral,
+
 		QuickModeLabel:    "Quick match",
 		PrivateInviteLine: "Share the code; your opponent joins your board.",
 	}
