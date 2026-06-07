@@ -205,3 +205,44 @@ func (rm *room) torchGauge(d *delver, col int) int {
 	fr.Text(21, col+6, itoa(d.torch)+"t", numSt)
 	return col
 }
+
+// memorial renders the week's wall of the dead over the viewport: the most
+// mourned, the deepest fallen, and the freshest graves (artboard: the
+// Memorial Wall). [m] toggles.
+func (rm *room) memorial(d *delver) {
+	fr := rm.frame
+	for r := 0; r < kit.Rows; r++ {
+		for c := 0; c < kit.Cols; c++ {
+			fr.Cells[r][c] = kit.Cell{}
+		}
+	}
+	fr.Text(1, 2, "THE BONEYARD — ROLL OF THE DEAD", stTitle)
+	fr.Text(2, 2, "collapses in "+rm.cdCache, stHUDDim)
+
+	// Top three by respects, then the deepest, then the freshest.
+	row := 4
+	var mostMourned, deepest *corpse
+	for _, c := range rm.bones {
+		if mostMourned == nil || c.respects > mostMourned.respects {
+			mostMourned = c
+		}
+		if deepest == nil || c.floor > deepest.floor {
+			deepest = c
+		}
+	}
+	line := func(label string, c *corpse) {
+		if c == nil {
+			return
+		}
+		fr.Text(row, 2, label, stShrine)
+		fr.Text(row, 18, clampCols(c.name()+" — "+c.killer+", B"+itoa(c.floor), 58), stHUD)
+		row++
+		fr.Text(row, 18, clampCols("\""+c.words+"\"", 58), stMsg)
+		row += 2
+	}
+	line("MOST MOURNED", mostMourned)
+	line("DEEPEST DEATH", deepest)
+	n := len(rm.bones)
+	fr.Text(row+1, 2, itoa(n)+" souls rest in this week's Ossuary.", stMsg)
+	fr.Text(kit.Rows-1, 2, "[m] back to the dark", stHUDDim)
+}

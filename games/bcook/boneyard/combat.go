@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	kit "github.com/shellcade/kit/v2"
 )
 
@@ -99,7 +101,12 @@ func (rm *room) monsterAttack(r kit.Room, m *monster, d *delver) {
 		dmg = 1
 	}
 	d.hp -= dmg
-	d.say("The " + m.sp.name + " hits you for " + itoa(dmg) + ".")
+	if m.sp.name == "gelatinous cube" {
+		d.heldUntil = r.Now().Add(2 * time.Second) // ENGULFED: held fast
+		d.say("The cube ENGULFS you — " + itoa(dmg) + ". You cannot move.")
+	} else {
+		d.say("The " + m.sp.name + " hits you for " + itoa(dmg) + ".")
+	}
 	if d.hp <= 0 {
 		rm.die(r, d, m.sp.name)
 	}

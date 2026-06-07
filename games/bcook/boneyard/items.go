@@ -150,7 +150,11 @@ func (d *delver) pickup(rm *room, dr *drop) {
 		}
 	case iPotionHeal:
 		d.heals++
-		d.say("A healing draught. [q] to quaff. (" + itoa(d.heals) + ")")
+		if d.knownHeal {
+			d.say("A healing draught. [q] to quaff. (" + itoa(d.heals) + ")")
+		} else {
+			d.say("A murky potion. [q] to find out. (" + itoa(d.heals) + ")")
+		}
 	case iPotionTorch:
 		d.torch += 400
 		if d.torch > 999 {
@@ -167,6 +171,10 @@ func (d *delver) quaff() {
 		return
 	}
 	d.heals--
+	if !d.knownHeal {
+		d.knownHeal = true
+		d.say("The murk clears — a healing draught!")
+	}
 	heal := roll(&d.rng, 8) + roll(&d.rng, 8)
 	d.hp += heal
 	if d.hp > d.maxHP {

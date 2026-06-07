@@ -121,3 +121,42 @@ func kvMax(r kit.Room, p kit.Player, key string, n int) {
 	st := r.Services().Accounts.For(p).Store()
 	_ = st.Set(context.Background(), key, []byte(itoa(n)), kit.MergeMax)
 }
+
+// shopPrice scales shrine stock with depth (design §6).
+func shopPrice(base, floor int) int { return base + (floor-3)*10 }
+
+// shop handles a purchase key on a shrine tile.
+func (d *delver) shop(rm *room, r kit.Room, item rune) {
+	f := rm.world.at(d.floor)
+	if f.tiles[d.y][d.x] != tShrine {
+		return
+	}
+	buy := func(name string, base int, apply func()) {
+		price := shopPrice(base, d.floor)
+		if d.gold < price {
+			d.say(name + " is " + itoa(price) + "g. You have " + itoa(d.gold) + ".")
+			return
+		}
+		d.gold -= price
+		apply()
+		d.say("Bought: " + name + " (-" + itoa(price) + "g)")
+	}
+	switch item {
+	case '7':
+		buy("fresh torch", 80, func() {
+			d.torch += 600
+			if d.torch > 999 {
+				d.torch = 999
+			}
+		})
+	case '8':
+		buy("healing draught", 120, func() { d.heals++ })
+	case '9':
+		buy("torch oil", 60, func() {
+			d.torch += 400
+			if d.torch > 999 {
+				d.torch = 999
+			}
+		})
+	}
+}
