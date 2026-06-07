@@ -8,25 +8,25 @@ steps:
   - advance: 200ms
   - shot: the-gate
   # Choose the FLASK kit (44 HP and two draughts) and step off the stairs.
-  - key: "3"
+  - rune: "3"
   - advance: 200ms
-  - key: d
+  - rune: "d"
   - advance: 300ms
-  - key: d
+  - rune: "d"
   - advance: 300ms
-  - key: s
+  - rune: "s"
   - advance: 300ms
   - shot: first-steps
   # Keep walking: the torch burns, the fog peels back, the floor is shared —
   # seat 2 is on this floor somewhere.
-  - key: d
+  - rune: "d"
   - advance: 300ms
-  - key: d
+  - rune: "d"
   - advance: 300ms
-  - key: s
+  - rune: "s"
   - advance: 300ms
-  - key: s
+  - rune: "s"
   - advance: 300ms
-  - key: d
+  - rune: "d"
   - advance: 300ms
   - shot: into-the-dark
