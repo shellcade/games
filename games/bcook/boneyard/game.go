@@ -151,7 +151,11 @@ func (rm *room) OnWake(r kit.Room) {
 			continue
 		}
 		d.dirty = false
-		rm.compose(d)
+		if d.viewingWall {
+			rm.memorial(d)
+		} else {
+			rm.compose(d)
+		}
 		r.Send(p, rm.frame)
 	}
 }

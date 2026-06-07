@@ -53,6 +53,8 @@ type delver struct {
 	dying      *corpse   // last-words modal target (this run's fresh corpse)
 	dyingUntil time.Time // modal window
 
+	viewingWall bool // the memorial overlay ([m])
+
 	online bool // connected (offline delvers persist but are not targets)
 	rng    uint64 // per-actor combat PRNG (week-seed derived; never wall-clock)
 	runs   int    // lifetime runs this week (re-seeds the PRNG per run)
@@ -268,6 +270,10 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			return
 		case 'q':
 			d.quaff()
+			return
+		case 'm':
+			d.viewingWall = !d.viewingWall
+			d.dirty = true
 			return
 		case 'e':
 			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
