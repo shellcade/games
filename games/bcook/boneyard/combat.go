@@ -61,6 +61,7 @@ func (d *delver) attackMonster(rm *room, r kit.Room, m *monster) {
 	if m.hp <= 0 {
 		d.kills++
 		d.say("The " + m.sp.name + " dies.")
+		d.creditAvenge(rm, m.sp.name)
 		rm.dirtyWitnesses(m.floor, m.x, m.y, nil)
 		if m.sp.burst {
 			rm.burst(r, m)

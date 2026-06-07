@@ -21,8 +21,14 @@ type corpse struct {
 	at     time.Time
 	words  string // panic-scrawl for now; the closed-template picker is stage 4
 
+	gaspDir string // the last move direction — "they fled east"
+	species string // killer's bestiary slug (the avenge target)
+	floor0  int    // unjittered death floor (== floor; kept for clarity)
+
 	respects int  // flowers left at these bones
 	looted   bool // gold taken
+	devoured bool // marrow taken (blocked once respects >= 3)
+	avenged  int  // kills credited against these bones
 }
 
 const bonesRenderCap = 12 // per floor (design: render cap with eviction)
@@ -44,14 +50,20 @@ func (rm *room) die(r kit.Room, d *delver, killer string) {
 	// jittered off stairs/shrines and existing corpses so the staircase
 	// contract holds and no record shadows another.
 	cx, cy := rm.corpseSpot(deathFloor, d.x, d.y)
+	gasp := gaspName(d.lastDX, d.lastDY)
 	c := &corpse{
 		handle: d.p.Handle,
 		floor:  deathFloor, x: cx, y: cy,
-		killer: killer,
-		gold:   d.gold,
-		at:     r.Now(),
-		words:  killer + " got me. ran out of luck.",
+		killer:  killer,
+		species: killer,
+		gold:    d.gold,
+		at:      r.Now(),
+		gaspDir: gasp,
+		words:   panicScrawl(killer, gasp),
 	}
+	// The dying breath: an 8-wake window to pick last words ([1-5]).
+	d.dying = c
+	d.dyingUntil = r.Now().Add(8 * time.Second)
 	rm.bones = append(rm.bones, c)
 	rm.evictBones(deathFloor)
 	rm.dirtyFloor(deathFloor)
@@ -133,10 +145,50 @@ func (rm *room) corpseAt(floor, x, y int) *corpse {
 	return nil
 }
 
-// inspectBones is the walk-over moment: the dead speak.
+// inspectBones is the walk-over moment: the dead speak — and the last gasp
+// points where they ran. Reading the bones arms the AVENGE vow: kill their
+// killer's kind on this floor and the dead are avenged.
 func (d *delver) inspectBones(c *corpse) {
-	d.say("Here lies " + c.handle + " — " + c.killer + ". \"" + c.words + "\"")
-	d.say("[L]oot their gold (" + itoa(c.gold) + ")  [R]espect the dead")
+	d.say("Here lies " + c.handle + " — " + c.killer + ". \"" + c.words + "\" (fled " + c.gaspDir + ")")
+	d.say("[L]oot " + itoa(c.gold) + "g  [R]espect  [D]evour")
+	d.vow = c
+}
+
+// devourBones takes the marrow: heal = min(8 + floor/2, 20) — but the
+// well-mourned are protected (respects >= 3).
+func (d *delver) devourBones(rm *room, c *corpse) {
+	if c.devoured {
+		d.say("The marrow is gone.")
+		return
+	}
+	if c.respects >= 3 {
+		d.say("The flowers stay your hand. " + c.handle + " is too well mourned.")
+		return
+	}
+	c.devoured = true
+	heal := 8 + c.floor/2
+	if heal > 20 {
+		heal = 20
+	}
+	d.hp += heal
+	if d.hp > d.maxHP {
+		d.hp = d.maxHP
+	}
+	d.devours++
+	d.say("You crack the bones and take the marrow. +" + itoa(heal) + " HP. The dark approves.")
+}
+
+// creditAvenge is called when d kills a monster: an armed vow against that
+// species on this floor settles it.
+func (d *delver) creditAvenge(rm *room, speciesName string) {
+	c := d.vow
+	if c == nil || c.floor != d.floor || c.species != speciesName {
+		return
+	}
+	c.avenged++
+	d.avenges++
+	d.vow = nil
+	d.say("You avenge " + c.handle + ". The " + speciesName + " answers for its dead.")
 }
 
 // lootBones takes the corpse's gold (the graverobber's path).

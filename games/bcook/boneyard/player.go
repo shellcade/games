@@ -43,6 +43,14 @@ type delver struct {
 	torchMul             int // percent of baseline burn (LANTERN 60)
 	kit                  *kitDef
 
+	lastDX, lastDY int // last move direction (the corpse's last gasp)
+
+	vow        *corpse // armed avenge target (read bones to arm)
+	devours    int
+	avenges    int
+	dying      *corpse   // last-words modal target (this run's fresh corpse)
+	dyingUntil time.Time // modal window
+
 	online bool // connected (offline delvers persist but are not targets)
 	rng    uint64 // per-actor combat PRNG (week-seed derived; never wall-clock)
 	runs   int    // lifetime runs this week (re-seeds the PRNG per run)
@@ -82,6 +90,8 @@ func (d *delver) resetRun(rm *room, r kit.Room, killer string, restFloor int) {
 	f := rm.world.at(1)
 	d.floor, d.x, d.y = 1, f.upX, f.upY
 	d.gold, d.kills, d.luck, d.respects, d.looted = 0, 0, 0, 0, 0
+	d.devours, d.avenges, d.vow = 0, 0, nil
+	d.lastDX, d.lastDY = 0, 0
 	d.banked, d.deepest = 0, 1
 	d.applyKit(d.kit) // same kit, fresh loadout (swap with [1-3] at the Gate)
 	d.lastPassive = r.Now()
@@ -187,6 +197,21 @@ func (d *delver) tick(rm *room, now time.Time) {
 
 // handleInput routes a key/rune to the run.
 func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
+	// The dying breath: [1-5] rewrites the fresh corpse's last words from
+	// the closed templates; anything else (or the window lapsing) keeps the
+	// panic-scrawl and gets on with the next run.
+	if d.dying != nil {
+		if r.Now().Before(d.dyingUntil) && in.Kind == kit.InputRune && in.Rune >= '1' && in.Rune <= '5' {
+			t := lwTemplates[in.Rune-'1']
+			c := d.dying
+			c.words = t.fill(c.species, c.floor, c.gaspDir)
+			d.say("Your last words are carved: \"" + c.words + "\"")
+			d.dying = nil
+			rm.dirtyFloor(c.floor)
+			return
+		}
+		d.dying = nil
+	}
 	dx, dy := 0, 0
 	switch {
 	case in.Kind == kit.InputRune:
@@ -235,6 +260,11 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 		case 'q':
 			d.quaff()
 			return
+		case 'D':
+			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
+				d.devourBones(rm, c)
+			}
+			return
 		case '1', '2', '3':
 			f := rm.world.at(d.floor)
 			if d.floor == 1 && f.tiles[d.y][d.x] == tUp {
@@ -275,6 +305,7 @@ func (d *delver) step(rm *room, r kit.Room, dx, dy int) {
 		return
 	}
 	d.nextMoveAt = now.Add(d.moveCD())
+	d.lastDX, d.lastDY = dx, dy
 	if m := rm.monsterAt(d.floor, nx, ny); m != nil {
 		// Bump attack: the move becomes a swing.
 		d.burn(1)
@@ -387,3 +418,4 @@ func itoa(n int) string {
 	}
 	return string(b[i:])
 }
+
