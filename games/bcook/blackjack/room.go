@@ -214,6 +214,10 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	rm.render(r)
 }
 
+// OnLeave persists the leaver's wallet and frees the seat. Leaving with a live
+// hand forfeits the stake (it was deducted at deal and settle only credits
+// seats still in rm.order) — abandoning a dealt hand is a loss, as at a real
+// table. Chips are conserved; nothing is credited elsewhere.
 func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	active, _ := rm.firstUnresolved()
 	if s := rm.seats[p.AccountID]; s != nil {
@@ -386,7 +390,9 @@ func (rm *room) deal(r kit.Room) {
 	if rm.sh.needsReshuffle() {
 		rm.sh.shuffle(r.Rand())
 	}
-	rm.dealer = hand{rm.sh.draw(), rm.sh.draw()} // [up, hole]
+	rm.sh.beginRound() // everything dealt before this point is recyclable discards
+	rng := r.Rand()
+	rm.dealer = hand{rm.sh.draw(rng), rm.sh.draw(rng)} // [up, hole]
 	rm.dealerHole = true
 	// Range the join-ordered slice (not the map) so dealing order is
 	// deterministic — never depends on Go's map iteration order.
@@ -396,7 +402,7 @@ func (rm *room) deal(r kit.Room) {
 			continue
 		}
 		s.chips -= s.bet
-		h := &phand{cards: hand{rm.sh.draw(), rm.sh.draw()}, bet: s.bet}
+		h := &phand{cards: hand{rm.sh.draw(rng), rm.sh.draw(rng)}, bet: s.bet}
 		if h.cards.isBlackjack() {
 			h.resolved = true
 		}
@@ -624,9 +630,11 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 	}
 	hi := rm.handIndex(s, h)
 	first := len(h.cards) == 2 && !h.doubled // first decision on this hand
+	// A REJECTED action returns without beginTurn: re-arming there would reset
+	// the turn deadline, letting a player stall their own clock with no-ops.
 	switch a {
 	case 'h':
-		h.cards = append(h.cards, rm.sh.draw())
+		h.cards = append(h.cards, rm.sh.draw(r.Rand()))
 		rm.recordDraw(r, p, hi, len(h.cards)-1)
 		if h.cards.isBust() || h.cards.total() == 21 {
 			h.resolved = true
@@ -636,38 +644,45 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 		h.resolved = true
 		rm.beginTurn(r)
 	case 'd':
-		if first && s.chips >= h.bet {
-			s.chips -= h.bet
-			h.bet *= 2
-			h.doubled = true
-			h.cards = append(h.cards, rm.sh.draw())
-			rm.recordDraw(r, p, hi, len(h.cards)-1)
-			h.resolved = true
+		if !first || s.chips < h.bet {
+			return
 		}
+		s.chips -= h.bet
+		h.bet *= 2
+		h.doubled = true
+		h.cards = append(h.cards, rm.sh.draw(r.Rand()))
+		rm.recordDraw(r, p, hi, len(h.cards)-1)
+		h.resolved = true
 		rm.beginTurn(r)
 	case 'p':
-		rm.split(r, s, h)
+		if !rm.split(r, s, h) {
+			return
+		}
 		rm.beginTurn(r)
 	case 'r':
-		if first && len(s.hands) == 1 {
-			h.surrendered = true
-			h.resolved = true
-			s.chips += h.bet / 2 // return half; the bet was deducted at deal
+		if !first || len(s.hands) != 1 {
+			return
 		}
+		h.surrendered = true
+		h.resolved = true
+		// Return half; the bet was deducted at deal. An odd bet's half-chip
+		// rounds UP to the player (mirrors the 3:2 rounding in creditFor).
+		s.chips += (h.bet + 1) / 2
 		rm.beginTurn(r)
 	}
 }
 
-// split turns a two-card equal-rank pair into two hands, each taking a new card.
-// Split aces take one card and stand.
-func (rm *room) split(r kit.Room, s *seat, h *phand) {
+// split turns a two-card equal-rank pair into two hands, each taking a new card,
+// reporting whether the split happened. Split aces take one card and stand.
+func (rm *room) split(r kit.Room, s *seat, h *phand) bool {
 	if len(h.cards) != 2 || h.cards[0].r != h.cards[1].r || s.chips < h.bet || len(s.hands) >= maxHands {
-		return
+		return false
 	}
 	c0, c1 := h.cards[0], h.cards[1]
 	s.chips -= h.bet
-	nh := &phand{cards: hand{c1, rm.sh.draw()}, bet: h.bet, fromSplit: true}
-	h.cards = hand{c0, rm.sh.draw()}
+	rng := r.Rand()
+	nh := &phand{cards: hand{c1, rm.sh.draw(rng)}, bet: h.bet, fromSplit: true}
+	h.cards = hand{c0, rm.sh.draw(rng)}
 	h.fromSplit = true
 	if c0.r == rankAce {
 		h.resolved = true
@@ -696,6 +711,7 @@ func (rm *room) split(r kit.Room, s *seat, h *phand) {
 		})
 	}
 	rm.computeSchedEnd()
+	return true
 }
 
 // handIndex returns h's position within s.hands (0 if not found).
@@ -725,7 +741,7 @@ func (rm *room) enterDealer(r kit.Room) {
 	done := rm.recordHoleReveal(r)
 	if rm.anyLive() {
 		before := len(rm.dealer)
-		rm.dealer = dealerPlay(rm.dealer, rm.sh)
+		rm.dealer = dealerPlay(rm.dealer, rm.sh, r.Rand())
 		start := done.Add(holePause - flipDur) // a beat after the flip finishes
 		for i := before; i < len(rm.dealer); i++ {
 			rm.recordDealerDraw(start, i)
@@ -777,7 +793,7 @@ func (rm *room) settle(r kit.Room) {
 		net := 0
 		for _, h := range s.hands {
 			if h.surrendered {
-				net -= h.bet - h.bet/2 // lost half
+				net -= h.bet - (h.bet+1)/2 // lost half (half-chip rounded to the player, as credited in act)
 				continue
 			}
 			pbj := h.cards.isBlackjack() && !h.fromSplit

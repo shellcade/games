@@ -134,9 +134,11 @@ const (
 // deal (and survives hibernation, since the shoe lives entirely in guest
 // memory and the RNG is reconstructed from the room seed).
 type shoe struct {
-	cards []card
-	pos   int
-	cut   int
+	cards      []card
+	pos        int
+	cut        int
+	roundStart int  // pos when the current round began; cards before it are settled-round discards
+	recycled   bool // drained mid-round and refilled from discards; reshuffle at the next round boundary
 }
 
 func newShoe(rng *rand.Rand) *shoe {
@@ -160,18 +162,52 @@ func (s *shoe) shuffle(rng *rand.Rand) {
 		s.cards[i], s.cards[j] = s.cards[j], s.cards[i]
 	}
 	s.pos = 0
+	s.roundStart = 0
+	s.recycled = false
 }
 
-// draw deals the next card. A drained shoe is guarded by needsReshuffle at round
-// boundaries; draw clamps to the last card defensively.
-func (s *shoe) draw() card {
+// beginRound marks the draw cursor at a round boundary: everything before it
+// is a settled round's discards, available to recycle if this round drains
+// the shoe.
+func (s *shoe) beginRound() { s.roundStart = s.pos }
+
+// draw deals the next card. A shoe drained MID-round (an extreme run of splits
+// and hits at a full table can outrun the ~78 cards behind the cut) recycles
+// the settled rounds' discards rather than repeating the last card — the
+// casino procedure, so a card already in play this round is never duplicated.
+func (s *shoe) draw(rng *rand.Rand) card {
 	if s.pos >= len(s.cards) {
-		s.pos = len(s.cards) - 1
+		s.recycle(rng)
 	}
 	c := s.cards[s.pos]
 	s.pos++
 	return c
 }
 
-// needsReshuffle reports whether the cut card has been reached.
-func (s *shoe) needsReshuffle() bool { return s.pos >= s.cut }
+// recycle shuffles the settled-round discards (everything before roundStart)
+// back behind the cards already dealt this round and continues from them. The
+// whole shoe then reshuffles at the next round boundary. With nothing to
+// recycle (one round cannot hold all 312 cards) the old defensive clamp
+// remains.
+func (s *shoe) recycle(rng *rand.Rand) {
+	if s.roundStart == 0 {
+		s.pos = len(s.cards) - 1
+		return
+	}
+	discards := s.cards[:s.roundStart]
+	for i := len(discards) - 1; i > 0; i-- {
+		j := rng.Intn(i + 1)
+		discards[i], discards[j] = discards[j], discards[i]
+	}
+	rebuilt := make([]card, 0, len(s.cards))
+	rebuilt = append(rebuilt, s.cards[s.roundStart:]...) // this round's dealt cards
+	rebuilt = append(rebuilt, discards...)               // then the recycled discards
+	s.pos = len(s.cards) - s.roundStart
+	s.cards = rebuilt
+	s.roundStart = 0
+	s.recycled = true
+}
+
+// needsReshuffle reports whether the shoe must be reshuffled before the next
+// round: the cut card has been reached, or a drained round recycled discards.
+func (s *shoe) needsReshuffle() bool { return s.pos >= s.cut || s.recycled }

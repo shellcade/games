@@ -71,24 +71,60 @@ func TestShoeIsSixDecks(t *testing.T) {
 }
 
 func TestSeededShoeReproducesOrder(t *testing.T) {
-	a := newShoe(rand.New(rand.NewSource(42)))
-	b := newShoe(rand.New(rand.NewSource(42)))
+	ra := rand.New(rand.NewSource(42))
+	rb := rand.New(rand.NewSource(42))
+	a := newShoe(ra)
+	b := newShoe(rb)
 	for i := 0; i < 100; i++ {
-		if a.draw() != b.draw() {
+		if a.draw(ra) != b.draw(rb) {
 			t.Fatalf("same-seed shoes diverged at draw %d", i)
 		}
 	}
 }
 
 func TestShoeReshufflePastCut(t *testing.T) {
-	s := newShoe(rand.New(rand.NewSource(7)))
+	rng := rand.New(rand.NewSource(7))
+	s := newShoe(rng)
 	if s.needsReshuffle() {
 		t.Fatal("a fresh shoe should not need a reshuffle")
 	}
 	for !s.needsReshuffle() {
-		s.draw()
+		s.draw(rng)
 	}
 	if s.pos < s.cut {
 		t.Fatalf("needsReshuffle true at pos %d but cut is %d", s.pos, s.cut)
+	}
+}
+
+func TestShoeDrainMidRoundRecyclesDiscards(t *testing.T) {
+	rng := rand.New(rand.NewSource(9))
+	s := newShoe(rng)
+	// Burn most of the shoe as settled rounds, then start a round with only a
+	// few cards left: the round must outrun the shoe.
+	s.pos = len(s.cards) - 5
+	s.beginRound()
+	seen := map[card]int{}
+	// 40 draws in one round: a clamping shoe would repeat its last card ~36
+	// times; a recycling shoe deals from the reshuffled discards instead.
+	for i := 0; i < 40; i++ {
+		seen[s.draw(rng)]++
+	}
+	for c, n := range seen {
+		if n > numDecks {
+			t.Fatalf("card %v dealt %d times within one round; only %d exist in the shoe", c, n, numDecks)
+		}
+	}
+	if !s.recycled {
+		t.Fatal("draining the round should have recycled the discards")
+	}
+	if !s.needsReshuffle() {
+		t.Fatal("a recycled shoe must reshuffle at the next round boundary")
+	}
+	s.shuffle(rng)
+	if s.needsReshuffle() || s.recycled || s.roundStart != 0 {
+		t.Fatal("shuffle must clear the recycle state")
+	}
+	if len(s.cards) != numDecks*52 {
+		t.Fatalf("recycle changed the shoe size to %d, want %d", len(s.cards), numDecks*52)
 	}
 }
