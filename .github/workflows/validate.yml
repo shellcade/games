@@ -146,8 +146,8 @@ jobs:
             if [ "$slug" != "$name" ]; then
               echo "::error::$d: artifact meta slug '$slug' must equal the directory name '$name'"; exit 1
             fi
-            if [ "$minp" -lt 1 ] || [ "$maxp" -gt 8 ] || [ "$minp" -gt "$maxp" ]; then
-              echo "::error::$d: player bounds $minp-$maxp outside the platform's 1..8"; exit 1
+            if [ "$minp" -lt 1 ] || [ "$maxp" -gt 1024 ] || [ "$minp" -gt "$maxp" ]; then
+              echo "::error::$d: player bounds $minp-$maxp outside the platform's 1..1024"; exit 1
             fi
           done <<< "${{ steps.changed.outputs.dirs }}"
 
