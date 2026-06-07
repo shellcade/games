@@ -39,7 +39,8 @@ jobs:
               before="${{ github.sha }}^"   # first push / shallow: fall back to parent
             fi
             dirs=$(git diff --name-only "$before" "${{ github.sha }}" -- 'games/**' \
-                   | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u)
+                   | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u \
+                   | while read -r d; do [ -d "$d" ] && printf '%s\n' "$d"; done)
           fi
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
 
