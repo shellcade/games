@@ -269,7 +269,7 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 				d.lootBones(rm, c)
 			}
 			return
-		case 'R':
+		case 'F':
 			if c := rm.corpseAt(d.floor, d.x, d.y); c != nil {
 				d.respectBones(rm, r, c)
 			}
