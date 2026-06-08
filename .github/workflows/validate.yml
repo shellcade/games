@@ -24,7 +24,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           base="${{ github.event.pull_request.base.sha }}"
-          dirs=$(git diff --name-only "$base"...HEAD -- 'games/**' | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u)
+          # Keep only directories that still exist at HEAD: a PR that DELETES a
+          # game has its old path in the diff, but there is nothing left to
+          # validate or build there.
+          dirs=$(git diff --name-only "$base"...HEAD -- 'games/**' | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u \
+                 | while read -r d; do [ -d "$d" ] && printf '%s\n' "$d"; done)
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
           # Files outside games/ are maintainer-only plumbing. The maintainer
           # test is the author's REPO PERMISSION (admin/maintain/write), not

@@ -1,12 +1,13 @@
 # Tic-Tac-Toe (Rust)
 
-Classic two-player noughts and crosses on the 80×24 canvas: the first two
-joiners take X and O (roster order), play cells `1`–`9` on your turn, three in a
-row wins, a full board draws. Leaving mid-game forfeits to your opponent, and a
-turn left idle for 60s forfeits on the wake heartbeat.
+Classic noughts and crosses on the 80×24 canvas. Head-to-head, the first two
+joiners take X and O (roster order); in **solo mode** (the lobby's Solo option)
+the one player takes both seats and alternates marks against themself. Play
+cells `1`–`9` on your turn, three in a row wins, a full board draws. Leaving a
+head-to-head game forfeits to your opponent, and a turn left idle for 60s
+forfeits on the wake heartbeat (solo games carry no idle clock).
 
-This is a **Rust** catalog game — a behavioral port of the Go
-[`tic-tac-toe`](../tic-tac-toe) in this same catalog, built on the
+This is a **Rust** catalog game built on the
 [`shellcade-kit` Rust SDK crate](https://github.com/shellcade/kit/tree/main/rust).
 Its first incarnation hand-rolled the entire ABI v2 wire path (~800 lines of
 frame packing, codecs, raw host imports, delta encoding, and baseline/epoch
@@ -39,5 +40,5 @@ release tag in `Cargo.toml` (lockstep with the SDK the arcade runs).
 | File | Role |
 |---|---|
 | `src/lib.rs` | `Game` impl (meta) + `shellcade_game!` registration |
-| `src/game.rs` | Room logic: seating, turns, win/draw/forfeit, the 60s timer |
+| `src/game.rs` | Room logic: seating (head-to-head + solo), turns, win/draw/forfeit, the 60s timer |
 | `src/render.rs` | Board / players / status composition |

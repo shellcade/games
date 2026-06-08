@@ -131,12 +131,15 @@ const (
 
 // shoe is a multi-deck stack dealt from front to back, reshuffled past a cut
 // card. It draws from the room-seeded RNG so a seeded room reproduces every
-// deal (and survives hibernation, since the shoe lives entirely in guest
-// memory and the RNG is reconstructed from the room seed).
+// deal (and survives hibernation: the shoe AND the RNG's consumed state live
+// in guest memory, restored byte-for-byte by the snapshot — the RNG is never
+// re-seeded mid-room, which would diverge the post-thaw stream).
 type shoe struct {
-	cards []card
-	pos   int
-	cut   int
+	cards      []card
+	pos        int
+	cut        int
+	roundStart int  // pos when the current round began; cards before it are settled-round discards
+	recycled   bool // drained mid-round and refilled from discards; reshuffle at the next round boundary
 }
 
 func newShoe(rng *rand.Rand) *shoe {
@@ -153,25 +156,66 @@ func newShoe(rng *rand.Rand) *shoe {
 	return s
 }
 
-// shuffle Fisher–Yates shuffles the whole shoe and resets the draw cursor.
-func (s *shoe) shuffle(rng *rand.Rand) {
-	for i := len(s.cards) - 1; i > 0; i-- {
+// shuffleCards Fisher–Yates shuffles cards in place — the one shuffle
+// implementation, shared by the full-shoe reshuffle and the discard recycle.
+func shuffleCards(rng *rand.Rand, cards []card) {
+	for i := len(cards) - 1; i > 0; i-- {
 		j := rng.Intn(i + 1)
-		s.cards[i], s.cards[j] = s.cards[j], s.cards[i]
+		cards[i], cards[j] = cards[j], cards[i]
 	}
-	s.pos = 0
 }
 
-// draw deals the next card. A drained shoe is guarded by needsReshuffle at round
-// boundaries; draw clamps to the last card defensively.
-func (s *shoe) draw() card {
+// shuffle reshuffles the whole shoe and resets the draw cursor.
+func (s *shoe) shuffle(rng *rand.Rand) {
+	shuffleCards(rng, s.cards)
+	s.pos = 0
+	s.roundStart = 0
+	s.recycled = false
+}
+
+// beginRound marks the draw cursor at a round boundary: everything before it
+// is a settled round's discards, available to recycle if this round drains
+// the shoe.
+func (s *shoe) beginRound() { s.roundStart = s.pos }
+
+// draw deals the next card. A shoe drained MID-round (an extreme run of splits
+// and hits at a full table can outrun the ~78 cards behind the cut) recycles
+// the settled rounds' discards rather than repeating the last card — the
+// casino procedure, so a card already in play this round is never duplicated.
+func (s *shoe) draw(rng *rand.Rand) card {
 	if s.pos >= len(s.cards) {
-		s.pos = len(s.cards) - 1
+		s.recycle(rng)
 	}
 	c := s.cards[s.pos]
 	s.pos++
 	return c
 }
 
-// needsReshuffle reports whether the cut card has been reached.
-func (s *shoe) needsReshuffle() bool { return s.pos >= s.cut }
+// recycle shuffles the settled-round discards (everything before roundStart)
+// back behind the cards already dealt this round and continues from them. The
+// whole shoe then reshuffles at the next round boundary. With nothing to
+// recycle (one round cannot hold all 312 cards) the old defensive clamp
+// remains.
+func (s *shoe) recycle(rng *rand.Rand) {
+	if s.roundStart == 0 {
+		// Unreachable invariant breach (a round consumed the whole shoe):
+		// clamp, and force a full reshuffle at the next round boundary so the
+		// repetition cannot outlive the round.
+		s.pos = len(s.cards) - 1
+		s.recycled = true
+		return
+	}
+	discards := s.cards[:s.roundStart]
+	shuffleCards(rng, discards)
+	rebuilt := make([]card, 0, len(s.cards))
+	rebuilt = append(rebuilt, s.cards[s.roundStart:]...) // this round's dealt cards
+	rebuilt = append(rebuilt, discards...)               // then the recycled discards
+	s.pos = len(s.cards) - s.roundStart
+	s.cards = rebuilt
+	s.roundStart = 0
+	s.recycled = true
+}
+
+// needsReshuffle reports whether the shoe must be reshuffled before the next
+// round: the cut card has been reached, or a drained round recycled discards.
+func (s *shoe) needsReshuffle() bool { return s.pos >= s.cut || s.recycled }

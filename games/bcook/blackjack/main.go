@@ -2,8 +2,11 @@
 // shellcade canvas: one shared auto-dealer, up to five seats, and rounds that
 // loop while anyone is seated. Bet, hit, stand, double, split, surrender, and
 // take insurance; the dealer stands on all 17 (S17) and blackjack pays 3:2.
-// Each seat carries a durable wallet (start 1000, re-buy on bust) and the board
-// ranks your high-water mark.
+// Chips are integers: an odd bet's half-chip on the 3:2 payout and on a
+// surrender return rounds UP to the player; the insurance stake is half the
+// bet rounded down and pays exactly 2:1 on what was staked. Leaving with a
+// live hand forfeits its stake. Each seat carries a durable wallet (start
+// 1000, re-buy on bust) and the board ranks your high-water mark.
 //
 // The wasm ABI has no timers, ticks, or phases: every "later…" here is a
 // deadline held in guest memory and checked against r.Now() inside OnWake (the

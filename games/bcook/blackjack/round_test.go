@@ -6,16 +6,16 @@ import (
 )
 
 func TestDealerStandsOnSoft17(t *testing.T) {
-	s := newShoe(rand.New(rand.NewSource(1)))
-	d := dealerPlay(hand{{rankAce, suitSpade}, {6, suitHeart}}, s) // soft 17
+	rng := rand.New(rand.NewSource(1))
+	d := dealerPlay(hand{{rankAce, suitSpade}, {6, suitHeart}}, newShoe(rng), rng) // soft 17
 	if len(d) != 2 {
 		t.Fatalf("dealer drew on soft 17 (S17 should stand): %v", d)
 	}
 }
 
 func TestDealerDrawsTo17(t *testing.T) {
-	s := newShoe(rand.New(rand.NewSource(2)))
-	d := dealerPlay(hand{{10, suitSpade}, {6, suitHeart}}, s) // hard 16
+	rng := rand.New(rand.NewSource(2))
+	d := dealerPlay(hand{{10, suitSpade}, {6, suitHeart}}, newShoe(rng), rng) // hard 16
 	if total := d.total(); total < 17 && !d.isBust() {
 		t.Fatalf("dealer stopped at %d, must reach 17+ or bust", total)
 	}
@@ -70,6 +70,9 @@ func TestCreditFor(t *testing.T) {
 		{outPush, 100, 100},
 		{outWin, 100, 200},
 		{outBlackjack, 100, 250}, // stake 100 + 3:2 (150)
+		{outBlackjack, 10, 25},   // stake 10 + 3:2 (15)
+		{outBlackjack, 25, 63},   // stake 25 + 3:2 (37.5 -> 38, half-chip rounds UP to the player)
+		{outBlackjack, 50, 125},  // stake 50 + 3:2 (75)
 	}
 	for _, c := range cases {
 		if got := creditFor(c.o, c.bet); got != c.want {

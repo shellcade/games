@@ -1,8 +1,10 @@
-//! Tic-Tac-Toe room logic — a faithful behavioral port of the Go catalog game
-//! (../tic-tac-toe/game.go), on the shellcade-kit SDK. Seats are keyed by
+//! Tic-Tac-Toe room logic on the shellcade-kit SDK. Seats are keyed by
 //! ACCOUNT ID so the room survives hibernation (connection tokens change;
-//! account ids do not). Frame delivery (baselines, epochs, keyframes, retries)
-//! is the SDK's job — this file never touches the wire.
+//! account ids do not). Head-to-head seats the first two joiners as X and O;
+//! a SOLO room (the lobby's Solo option, capacity 1) seats the one player on
+//! BOTH marks and they alternate against themself. Frame delivery (baselines,
+//! epochs, keyframes, retries) is the SDK's job — this file never touches the
+//! wire.
 
 use std::collections::HashMap;
 
@@ -26,9 +28,10 @@ const WIN_LINES: [[usize; 3]; 8] = [
 ];
 
 /// The pure match state, separate from the reused render frame so rendering
-/// can borrow both disjointly. Mirrors the Go `room` struct.
+/// can borrow both disjointly.
 pub struct Match {
     pub players: HashMap<String, Player>, // account id -> last-seen player (names)
+    pub solo: bool, // one player holds both seats and alternates marks
     pub board: [u8; 9],
     pub x_id: String,
     pub o_id: String,
@@ -36,13 +39,15 @@ pub struct Match {
     pub moves: i32,
     pub over: bool,
     pub winner_id: String,     // "" on draw or while playing
+    pub winner_mark: u8,       // EMPTY on draw or while playing
     pub deadline: Option<i64>, // current turn's forfeit deadline (unix nanos)
 }
 
 impl Match {
-    fn new() -> Self {
+    fn new(solo: bool) -> Self {
         Match {
             players: HashMap::new(),
+            solo,
             board: [EMPTY; 9],
             x_id: String::new(),
             o_id: String::new(),
@@ -50,6 +55,7 @@ impl Match {
             moves: 0,
             over: false,
             winner_id: String::new(),
+            winner_mark: EMPTY,
             deadline: None,
         }
     }
@@ -62,8 +68,8 @@ pub struct TttRoom {
 }
 
 impl TttRoom {
-    pub fn new() -> Self {
-        TttRoom { m: Match::new(), frame: Frame::new() }
+    pub fn new(solo: bool) -> Self {
+        TttRoom { m: Match::new(solo), frame: Frame::new() }
     }
 
     fn render(&mut self, r: &mut Room) {
@@ -73,28 +79,22 @@ impl TttRoom {
 }
 
 impl Handler for TttRoom {
-    /// Set Nav input context, X moves first. The Go game does not render in
-    /// OnStart (it renders on join); match that.
+    /// Set Nav input context, X moves first. Render happens on join, not here.
     fn on_start(&mut self, r: &mut Room) {
         r.set_input_context(InputContext::Nav);
         self.m.turn = MARK_X;
     }
 
-    /// Seat the first two joiners as X then O. A re-join just re-renders.
-    /// (Roster-change keyframing is the SDK's job now — no invalidate here.)
+    /// Seat the joiner (head-to-head: first two take X then O; solo: the one
+    /// player takes both marks). A re-join just re-renders. (Roster-change
+    /// keyframing is the SDK's job now — no invalidate here.)
     fn on_join(&mut self, r: &mut Room, p: Player) {
         let id = p.account_id.clone();
         self.m.players.insert(id.clone(), p);
+        self.m.seat(&id);
 
-        if id != self.m.x_id && id != self.m.o_id {
-            if self.m.x_id.is_empty() {
-                self.m.x_id = id.clone();
-            } else if self.m.o_id.is_empty() {
-                self.m.o_id = id;
-            }
-        }
-
-        if !self.m.over && self.m.both_seated() && self.m.deadline.is_none() {
+        // No idle-forfeit clock in solo: there is no opponent to protect.
+        if !self.m.solo && !self.m.over && self.m.both_seated() && self.m.deadline.is_none() {
             self.m.deadline = Some(r.now_unix_nanos() + TURN_TIMEOUT_NANOS);
         }
         self.render(r);
@@ -108,6 +108,24 @@ impl Handler for TttRoom {
         let leaver = p.account_id;
         if leaver != self.m.x_id && leaver != self.m.o_id {
             return; // a non-seated viewer left.
+        }
+        if self.m.solo {
+            // The solo player walked out. Before any move: clear the seats so
+            // a peek-and-leave records nothing (mirrors the lone-seat cleanup
+            // below). Mid-game: record the abandonment. Render either way —
+            // a watching viewer should not keep a stale board.
+            if self.m.moves == 0 {
+                self.m.x_id.clear();
+                self.m.o_id.clear();
+                self.m.players.remove(&leaver);
+                self.render(r);
+                return;
+            }
+            self.m.over = true;
+            self.m.deadline = None;
+            self.render(r);
+            self.end(r, &[(leaver, 0, 1, Status::Dnf)]);
+            return;
         }
         let winner = if leaver == self.m.o_id {
             self.m.x_id.clone()
@@ -135,8 +153,8 @@ impl Handler for TttRoom {
         if self.m.over || !self.m.both_seated() {
             return;
         }
-        let mark = self.m.mark_for(&p.account_id);
-        if mark == 0 || mark != self.m.turn {
+        let mark = self.m.input_mark(&p.account_id);
+        if mark == EMPTY {
             return; // not seated, or not their turn.
         }
         let Input::Char(c @ '1'..='9') = input else {
@@ -151,8 +169,7 @@ impl Handler for TttRoom {
         self.m.moves += 1;
 
         if self.m.has_won(mark) {
-            let w = self.m.id_of(mark).to_string();
-            self.settle_win(r, &w);
+            self.settle_win(r, mark);
             return;
         }
         if self.m.moves == 9 {
@@ -160,7 +177,9 @@ impl Handler for TttRoom {
             return;
         }
         self.m.flip_turn();
-        self.m.deadline = Some(r.now_unix_nanos() + TURN_TIMEOUT_NANOS);
+        if !self.m.solo {
+            self.m.deadline = Some(r.now_unix_nanos() + TURN_TIMEOUT_NANOS);
+        }
         self.render(r);
     }
 
@@ -172,7 +191,7 @@ impl Handler for TttRoom {
         let Some(deadline) = self.m.deadline else {
             return;
         };
-        // Go uses r.Now().After(deadline): strictly greater-than.
+        // Strictly greater-than: the deadline instant itself is still in time.
         if r.now_unix_nanos() > deadline {
             let loser = self.m.id_of(self.m.turn).to_string();
             let winner = if loser == self.m.x_id {
@@ -188,11 +207,19 @@ impl Handler for TttRoom {
 impl TttRoom {
     // ---- settling ----------------------------------------------------------
 
-    fn settle_win(&mut self, r: &mut Room, winner_id: &str) {
+    fn settle_win(&mut self, r: &mut Room, mark: u8) {
+        let winner_id = self.m.id_of(mark).to_string();
         self.m.over = true;
-        self.m.winner_id = winner_id.to_string();
+        self.m.winner_id = winner_id.clone();
+        self.m.winner_mark = mark;
         self.m.deadline = None;
         self.render(r);
+        if self.m.solo {
+            // One person holds both seats: a single Finished row, not a
+            // duplicate winner/loser pair against the same account.
+            self.end(r, &[(winner_id, 1, 1, Status::Finished)]);
+            return;
+        }
         let loser_id = if self.m.x_id == winner_id {
             self.m.o_id.clone()
         } else {
@@ -201,7 +228,7 @@ impl TttRoom {
         self.end(
             r,
             &[
-                (winner_id.to_string(), 1, 1, Status::Finished),
+                (winner_id, 1, 1, Status::Finished),
                 (loser_id, 0, 2, Status::Finished),
             ],
         );
@@ -210,8 +237,13 @@ impl TttRoom {
     fn settle_draw(&mut self, r: &mut Room) {
         self.m.over = true;
         self.m.winner_id = String::new();
+        self.m.winner_mark = EMPTY;
         self.m.deadline = None;
         self.render(r);
+        if self.m.solo {
+            self.end(r, &[(self.m.x_id.clone(), 0, 1, Status::Finished)]);
+            return;
+        }
         self.end(
             r,
             &[
@@ -221,9 +253,12 @@ impl TttRoom {
         );
     }
 
+    /// Head-to-head only: solo rooms never arm the forfeit clock and a solo
+    /// leave settles in on_leave.
     fn settle_forfeit(&mut self, r: &mut Room, winner_id: &str, loser_id: &str) {
         self.m.over = true;
         self.m.winner_id = winner_id.to_string();
+        self.m.winner_mark = if winner_id == self.m.x_id { MARK_X } else { MARK_O };
         self.m.deadline = None;
         self.render(r);
         self.end(
@@ -257,13 +292,47 @@ impl Match {
         !self.x_id.is_empty() && !self.o_id.is_empty()
     }
 
+    /// seat assigns the joiner: in solo the one player takes BOTH seats and
+    /// alternates marks; head-to-head the first two joiners take X then O.
+    /// Already-seated ids (re-joins) are left alone.
+    fn seat(&mut self, id: &str) {
+        if id == self.x_id || id == self.o_id {
+            return;
+        }
+        if self.solo {
+            if self.x_id.is_empty() {
+                self.x_id = id.to_string();
+                self.o_id = id.to_string();
+            }
+        } else if self.x_id.is_empty() {
+            self.x_id = id.to_string();
+        } else if self.o_id.is_empty() {
+            self.o_id = id.to_string();
+        }
+    }
+
+    /// input_mark is the mark `id` may place RIGHT NOW: the current turn's
+    /// mark when it is their move (in solo the one seated player owns both
+    /// marks and alternates), EMPTY when not seated or out of turn.
+    fn input_mark(&self, id: &str) -> u8 {
+        if self.solo {
+            return if self.mark_for(id) != EMPTY { self.turn } else { EMPTY };
+        }
+        let m = self.mark_for(id);
+        if m == self.turn {
+            m
+        } else {
+            EMPTY
+        }
+    }
+
     fn mark_for(&self, id: &str) -> u8 {
         if id == self.x_id {
             MARK_X
         } else if id == self.o_id {
             MARK_O
         } else {
-            0
+            EMPTY
         }
     }
 
@@ -302,7 +371,7 @@ mod tests {
     fn win_detection_covers_rows_cols_diagonals() {
         let x = MARK_X;
         let won = |board: [u8; 9], mark: u8| {
-            let mut m = Match::new();
+            let mut m = Match::new(false);
             m.board = board;
             m.has_won(mark)
         };
@@ -316,7 +385,7 @@ mod tests {
 
     #[test]
     fn turn_flip_alternates_and_seating_reads() {
-        let mut m = Match::new();
+        let mut m = Match::new(false);
         assert_eq!(m.turn, MARK_X);
         m.flip_turn();
         assert_eq!(m.turn, MARK_O);
@@ -328,5 +397,42 @@ mod tests {
         assert_eq!(m.mark_for("b"), MARK_O);
         assert_eq!(m.mark_for("c"), 0);
         assert_eq!(m.id_of(MARK_O), "b");
+    }
+
+    #[test]
+    fn head_to_head_seating_and_turn_gating() {
+        let mut m = Match::new(false);
+        m.seat("a");
+        assert!(!m.both_seated());
+        m.seat("a"); // re-join is idempotent
+        assert!(m.o_id.is_empty());
+        m.seat("b");
+        assert!(m.both_seated());
+        m.seat("c"); // table full: a third joiner stays a viewer
+        assert_eq!(m.input_mark("a"), MARK_X);
+        assert_eq!(m.input_mark("b"), EMPTY); // not O's turn yet
+        assert_eq!(m.input_mark("c"), EMPTY);
+        m.flip_turn();
+        assert_eq!(m.input_mark("a"), EMPTY);
+        assert_eq!(m.input_mark("b"), MARK_O);
+    }
+
+    #[test]
+    fn solo_seats_one_player_on_both_marks() {
+        let mut m = Match::new(true);
+        m.seat("a");
+        assert!(m.both_seated());
+        assert_eq!(m.x_id, "a");
+        assert_eq!(m.o_id, "a");
+        // The solo player places whichever mark is to move; a viewer never may.
+        assert_eq!(m.input_mark("a"), MARK_X);
+        m.flip_turn();
+        assert_eq!(m.input_mark("a"), MARK_O);
+        assert_eq!(m.input_mark("viewer"), EMPTY);
+        // A later joiner can never displace the solo seats.
+        m.seat("b");
+        assert_eq!(m.x_id, "a");
+        assert_eq!(m.o_id, "a");
+        assert_eq!(m.input_mark("b"), EMPTY);
     }
 }
