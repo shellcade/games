@@ -85,17 +85,35 @@ func (rm *room) floorAt(depth int) *floor {
 
 func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	if d, ok := rm.delvers[p.AccountID]; ok {
-		// Rejoin (same seat, post-restore re-seat included): the run resumes
-		// where it stood; the viewer needs a frame (baselines were reset).
+		// Rejoin (a reconnect, or a post-restore re-seat): the run resumes
+		// where it stood. CRUCIAL: adopt the NEW connection. A reconnect is a
+		// fresh kit.Player (new Conn) and OnLeave for the old one removed the
+		// roster entry — without re-adding the current player, the wake loop
+		// sends frames to nobody (or the dead connection) and the screen stays
+		// blank. Replace d.p and the roster entry, then dirty for a keyframe.
+		d.p = p
 		d.online = true
 		d.dirty = true
+		rm.upsertRoster(p)
 		return
 	}
 	rm.floorAt(1) // first join generates + populates B1
 	d := newDelver(p, rm.world, r)
 	rm.delvers[p.AccountID] = d
-	rm.roster = append(rm.roster, p)
+	rm.upsertRoster(p)
 	rm.dirtyFloor(d.floor) // a new @ appeared on the floor
+}
+
+// upsertRoster ensures the current kit.Player (live connection) is the roster
+// entry for its account — replacing a stale one or appending a new seat.
+func (rm *room) upsertRoster(p kit.Player) {
+	for i := range rm.roster {
+		if rm.roster[i].AccountID == p.AccountID {
+			rm.roster[i] = p
+			return
+		}
+	}
+	rm.roster = append(rm.roster, p)
 }
 
 func (rm *room) OnLeave(r kit.Room, p kit.Player) {
