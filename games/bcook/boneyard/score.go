@@ -25,6 +25,7 @@ func (d *delver) bank(rm *room, r kit.Room) {
 		return
 	}
 	d.banked = d.floor
+	d.lastBankFloor, d.lastBankX, d.lastBankY = d.floor, d.x, d.y
 	if d.firstBankTurn == 0 {
 		d.firstBankTurn = d.turns
 	}

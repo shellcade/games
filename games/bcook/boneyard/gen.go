@@ -143,6 +143,22 @@ func genFloor(seed int64, depth int) *floor {
 	}
 	f.downX, f.downY = rooms[far].cx(), rooms[far].cy()
 	f.tiles[f.downY][f.downX] = tDown
+	// A sealed crypt on the belt and below: a tCrypt tile bordering the first
+	// room, holding a guaranteed prize behind a crypt key.
+	if depth >= 4 {
+		r0 := rooms[1%len(rooms)]
+		f.cryptX, f.cryptY = r0.cx(), r0.y-1
+		if f.cryptY < 1 {
+			f.cryptY = r0.y + r0.h
+		}
+		// Only seal a WALL tile — never a carved corridor (that could sever
+		// the path to the down-stairs).
+		if f.cryptY >= 1 && f.cryptY < floorH-1 && f.tiles[f.cryptY][f.cryptX] == tWall {
+			f.tiles[f.cryptY][f.cryptX] = tCrypt
+		} else {
+			f.cryptX, f.cryptY = 0, 0
+		}
+	}
 	if hasShrine(depth) {
 		f.shrineX, f.shrineY = f.downX+1, f.downY
 		if f.shrineX >= rooms[far].x+rooms[far].w {

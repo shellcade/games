@@ -31,6 +31,22 @@ func (d *delver) armorClass() int {
 	return 10 + ac + (d.dex-10)/2
 }
 
+// curseBite is the flat combat penalty per equipped cursed piece (the greed
+// tax until cleansed).
+func curseBite(d *delver) int {
+	n := 0
+	if d.cursedW {
+		n++
+	}
+	if d.cursedA {
+		n++
+	}
+	if d.cursedR {
+		n++
+	}
+	return 2 * n
+}
+
 // luckHit is the combat slice of the luck table (cap +3 each way).
 func luckHit(d *delver) int {
 	if d.luck > 3 {
@@ -43,7 +59,7 @@ func luckHit(d *delver) int {
 // item catalog lands.
 func (d *delver) attackMonster(rm *room, r kit.Room, m *monster) {
 	dieRoll := roll(&d.rng, 20)
-	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+strMod(d.str)+luckHit(d)-darkPenalty(d) >= m.sp.armor)
+	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+strMod(d.str)+luckHit(d)-darkPenalty(d)-curseBite(d) >= m.sp.armor)
 	if !hit {
 		d.say("You miss the " + m.sp.name + ".")
 		return

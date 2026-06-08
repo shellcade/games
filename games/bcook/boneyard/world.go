@@ -23,6 +23,7 @@ const (
 	tUp     = '<'
 	tShrine = '_' // stairwell shrine (banking + shop), B3/B6/B9...
 	tWater  = '~' // flavor hazard tiles (the Sunken Ossuary is damp)
+	tCrypt  = 'C' // a sealed crypt (rendered ▒): opens with a crypt key, guards good loot
 )
 
 type floor struct {
@@ -32,6 +33,7 @@ type floor struct {
 	upX, upY     int // arrival stairs (B1's up-stairs is the Gate)
 	downX, downY int
 	shrineX, shrineY int // 0,0 = no shrine on this floor
+	cryptX, cryptY   int // 0,0 = no sealed crypt
 }
 
 type world struct {
@@ -60,7 +62,7 @@ func (f *floor) open(x, y int) bool {
 		return false
 	}
 	switch f.tiles[y][x] {
-	case tWall:
+	case tWall, tCrypt:
 		return false
 	}
 	return true

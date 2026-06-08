@@ -30,6 +30,8 @@ type corpse struct {
 	looted   bool // gold taken
 	devoured bool // marrow taken (blocked once respects >= 3)
 	avenged  int  // kills credited against these bones
+
+	weapon, armor, relic *itemDef // the dead's gear — the prize and the risk
 }
 
 const bonesRenderCap = 12 // per floor (design: render cap with eviction)
@@ -64,6 +66,7 @@ func (rm *room) die(r kit.Room, d *delver, killer string) {
 		at:      r.Now(),
 		gaspDir: gasp,
 		words:   panicScrawl(killer, gasp),
+		weapon:  d.weapon, armor: d.armor, relic: d.relic,
 	}
 	// The dying breath: an 8-wake window to pick last words ([1-5]).
 	d.dying = c
@@ -210,18 +213,48 @@ func (d *delver) creditAvenge(rm *room, speciesName string) {
 	}
 	c.avenged++
 	d.avenges++
+	d.tokens++
 	d.vow = nil
-	d.say("You avenge " + c.name() + ".")
+	d.say("You avenge " + c.name() + ". (+1 bone token)")
 }
 
 // lootBones takes the corpse's gold (the graverobber's path).
 func (d *delver) lootBones(rm *room, c *corpse) {
-	if c.looted || c.gold == 0 {
+	if c.looted {
 		d.say("The bones have already been picked clean.")
 		return
 	}
-	d.gold += c.gold
-	d.say("You take " + itoa(c.gold) + " gold off " + c.name() + "'s bones.")
+	if c.gold > 0 {
+		d.gold += c.gold
+	}
+	took := "gold"
+	// The dead's gear is the prize — and bones-loot (only bones-loot) carries
+	// the 1-in-3 curse: a cursed piece forces itself onto you, equip-locked
+	// and biting, until you cleanse it at an altar. Greed has a price.
+	if c.weapon != nil && (d.weapon == nil || c.weapon.power > d.weapon.power || roll(&d.rng, 3) == 1) {
+		cursed := roll(&d.rng, 3) == 1
+		d.weapon, d.cursedW = c.weapon, cursed
+		took = c.weapon.name
+		if cursed {
+			d.say("The " + c.weapon.name + " CLINGS to your hand — cursed. (cleanse at an altar)")
+		}
+	}
+	if c.armor != nil && (d.armor == nil || c.armor.power > d.armor.power || roll(&d.rng, 3) == 1) {
+		cursed := roll(&d.rng, 3) == 1
+		d.armor, d.cursedA = c.armor, cursed
+		if cursed {
+			d.say("The " + c.armor.name + " will not come off — cursed.")
+		}
+	}
+	if c.relic != nil && d.relic == nil {
+		cursed := roll(&d.rng, 3) == 1
+		d.relic, d.cursedR = c.relic, cursed
+	}
+	if c.gold > 0 && took == "gold" {
+		d.say("You take " + itoa(c.gold) + " gold off " + c.name() + "'s bones.")
+	} else {
+		d.say("You loot " + c.name() + "'s bones: the " + took + ".")
+	}
 	c.gold, c.looted = 0, true
 	d.looted++
 }

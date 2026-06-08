@@ -45,6 +45,8 @@ func tileStyle(t byte, lit bool) (rune, kit.Style) {
 		return '_', stShrine
 	case tWater:
 		return '~', stWater
+	case tCrypt:
+		return '▒', kit.Style{FG: kit.RGB(0xa0, 0x90, 0x60), Attr: kit.AttrBold}
 	default:
 		if lit {
 			return '.', stFloorLit
@@ -104,9 +106,12 @@ func (rm *room) compose(d *delver) {
 	}
 	for _, m := range rm.monsters {
 		if m.hp > 0 && m.floor == d.floor {
-			if m.hidden {
+			switch {
+			case m.hidden:
 				rm.plot(d, m.x, m.y, '%', kit.Style{FG: kit.Gray(0xb8)}, false)
-			} else {
+			case m.ally:
+				rm.plot(d, m.x, m.y, m.sp.glyph, kit.Style{FG: kit.Green, Attr: kit.AttrBold}, true)
+			default:
 				rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style, true)
 			}
 		}

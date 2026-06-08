@@ -58,6 +58,8 @@ type monster struct {
 	nextAt time.Time
 	fuse   int  // bloat: consecutive acts adjacent to a delver (bursts at 2)
 	hidden bool // tomb mimic: disguised until sprung
+	ally   bool // raised by the necromancer scroll
+	allyUntil time.Time
 }
 
 // spawnFloor populates a freshly generated floor with its band's species —
@@ -125,6 +127,11 @@ func (rm *room) tickMonsters(r kit.Room, now time.Time) {
 		if m.hp <= 0 || m.hidden || !active[m.floor] {
 			continue
 		}
+		if m.ally && now.After(m.allyUntil) {
+			m.hp = 0 // the raised dead crumble when their minute is up
+			rm.dirtyWitnesses(m.floor, m.x, m.y, nil)
+			continue
+		}
 		// Catch-up loop (spec): act on the actor's OWN cadence, stepping
 		// nextAt by actPeriod — capped at 4 per wake, snapping after a long
 		// gap (hibernation resume, floor reactivation).
@@ -143,6 +150,10 @@ func (rm *room) tickMonsters(r kit.Room, now time.Time) {
 
 // actMonster is one action on the monster's own clock.
 func (rm *room) actMonster(r kit.Room, m *monster) {
+	if m.ally {
+		rm.actAlly(r, m)
+		return
+	}
 	target := rm.nearestDelver(m)
 
 	if m.sp.burst {
@@ -194,6 +205,7 @@ func (rm *room) nearestDelver(m *monster) *delver {
 		if d.floor != m.floor || d.hp <= 0 || !d.online {
 			continue // an offline run persists but is never a target
 		}
+		_ = d
 		if c := cheb(m.x-d.x, m.y-d.y); c < bd {
 			bd, best = c, d
 		}
@@ -269,4 +281,29 @@ func speciesByName(n string) *species {
 		}
 	}
 	return &bestiary[0]
+}
+
+// actAlly: a raised skeleton hunts the nearest enemy monster on its floor.
+func (rm *room) actAlly(r kit.Room, m *monster) {
+	var tgt *monster
+	bd := 1 << 30
+	for _, o := range rm.monsters {
+		if o == m || o.ally || o.hp <= 0 || o.hidden || o.floor != m.floor {
+			continue
+		}
+		if dd := cheb(o.x-m.x, o.y-m.y); dd < bd {
+			bd, tgt = dd, o
+		}
+	}
+	if tgt == nil {
+		return
+	}
+	if cheb(tgt.x-m.x, tgt.y-m.y) == 1 {
+		tgt.hp -= roll(&m.rng, 6) + 2 // the dead hit back
+		if tgt.hp <= 0 {
+			rm.dirtyWitnesses(tgt.floor, tgt.x, tgt.y, nil)
+		}
+		return
+	}
+	rm.moveMonster(m, m.x+sign(tgt.x-m.x), m.y+sign(tgt.y-m.y))
 }
