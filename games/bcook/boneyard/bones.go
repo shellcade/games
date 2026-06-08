@@ -75,9 +75,21 @@ func (rm *room) die(r kit.Room, d *delver, killer string) {
 	rm.evictBones(deathFloor)
 	rm.dirtyFloor(deathFloor)
 
+	// The YOU DIED card: freeze this run's tale before the slate wipes.
+	deep, who := 0, ""
+	for _, bc := range rm.bones {
+		if bc.floor > deep {
+			deep, who = bc.floor, bc.handle
+		}
+	}
+	card := &deathSummary{killer: killer, floor: deathFloor, banked: d.banked,
+		kills: d.kills, gold: d.gold, respects: d.respects, avenges: d.avenges,
+		deepestThisWeek: deep, deepestHandle: who}
+
 	// A fresh run from the Gate, IN the same delver (allocation-free death:
 	// the world keeps the old run's bones, the heap keeps nothing else).
 	d.resetRun(rm, r, killer, deathFloor)
+	d.deathCard = card
 	rm.dirtyFloor(1)
 }
 

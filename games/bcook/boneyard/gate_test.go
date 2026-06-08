@@ -1,9 +1,11 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	kit "github.com/shellcade/kit/v2"
 	"github.com/shellcade/kit/v2/kittest"
 )
 
@@ -45,4 +47,61 @@ func TestCollapseEndsTheWeek(t *testing.T) {
 	if string(tr.KV[a.AccountID]["deepest_ever_banked"]) != "5" {
 		t.Fatalf("prestige KV = %q", tr.KV[a.AccountID]["deepest_ever_banked"])
 	}
+}
+
+// The three overlays render: the Gate hub on spawn, the YOU DIED card on
+// death, and the lineage badge on the memorial.
+func TestUIScreens(t *testing.T) {
+	a := bp("ada")
+	tr := kittest.NewRoom(a)
+	rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
+	rm.OnStart(tr)
+	rm.OnJoin(tr, a)
+	d := rm.delvers[a.AccountID]
+
+	// Spawned on the Gate: the hub renders (the title band is present).
+	rm.OnWake(tr)
+	gate := tr.LastFrame(a)
+	if gate == nil || !frameContains(gate, "Sunken Ossuary") {
+		t.Fatal("Gate hub did not render on spawn")
+	}
+
+	// Step off, descend, die — the YOU DIED card renders with the killer.
+	f := rm.world.at(1)
+	d.x, d.y = f.downX, f.downY
+	d.floor = 2
+	rm.floorAt(2)
+	rm.die(tr, d, "a tomb mimic")
+	if d.deathCard == nil {
+		t.Fatal("no death card after dying")
+	}
+	rm.compose(d) // sanity: card path is reached via dispatch in OnWake
+	rm.deathCardScreen(d)
+	if !frameContains(rm.frame, "slain by a tomb mimic") {
+		t.Fatal("YOU DIED card missing")
+	}
+
+	// The memorial carries the delver's lineage badge.
+	d.banked = 12
+	rm.memorial(d)
+	if !frameContains(rm.frame, "Brutalist") {
+		t.Fatal("memorial badge missing for a B12 delver")
+	}
+}
+
+func frameContains(f *kit.Frame, want string) bool {
+	for r := 0; r < kit.Rows; r++ {
+		var row []rune
+		for c := 0; c < kit.Cols; c++ {
+			if f.Cells[r][c].Rune == 0 {
+				row = append(row, ' ')
+			} else {
+				row = append(row, f.Cells[r][c].Rune)
+			}
+		}
+		if strings.Contains(string(row), want) {
+			return true
+		}
+	}
+	return false
 }

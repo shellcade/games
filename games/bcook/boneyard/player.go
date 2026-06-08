@@ -60,7 +60,8 @@ type delver struct {
 	heldUntil   time.Time // gelatinous engulf: movement locked
 	rotUntilFloor int     // plague rot active while deepest <= this
 	knownHeal   bool      // identification: draughts are murky until first quaff
-	viewingWall bool // the memorial overlay ([m])
+	viewingWall bool      // the memorial overlay ([m])
+	deathCard   *deathSummary // shown briefly after a death
 
 	online bool // connected (offline delvers persist but are not targets)
 	rng    uint64 // per-actor combat PRNG (week-seed derived; never wall-clock)
@@ -241,6 +242,11 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			return
 		}
 		d.dying = nil
+	}
+	if d.deathCard != nil {
+		d.deathCard = nil // any key dismisses the YOU DIED card
+		d.dirty = true
+		return
 	}
 	dx, dy := 0, 0
 	switch {
@@ -498,4 +504,13 @@ func (d *delver) openCrypt(rm *room, f *floor) {
 	rm.drops = append(rm.drops, &drop{floor: f.depth, x: f.cryptX, y: f.cryptY - 1, gold: 200 + f.depth*40})
 	d.say("The crypt grinds open. Treasure, and the smell of the long dead.")
 	rm.dirtyFloor(f.depth)
+}
+
+// onGate reports whether the delver stands at the Gate (B1's up-stairs).
+func (d *delver) onGate(rm *room) bool {
+	if d.floor != 1 {
+		return false
+	}
+	f := rm.world.at(1)
+	return d.x == f.upX && d.y == f.upY
 }

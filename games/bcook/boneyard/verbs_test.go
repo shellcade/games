@@ -23,6 +23,7 @@ func TestVerbsOnTheFallen(t *testing.T) {
 	ada.floor, ada.x, ada.y = 2, f2.upX+1, f2.upY
 	ada.lastDX, ada.lastDY = 1, 0 // fled east
 	rm.die(tr, ada, "kobold")
+	ada.deathCard = nil // the YOU DIED card is dismissed; carry on testing verbs
 
 	var c *corpse
 	for _, bc := range rm.bones {
