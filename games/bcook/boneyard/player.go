@@ -40,8 +40,12 @@ type delver struct {
 	// explored is the fog-of-war memory, per visited floor.
 	explored map[int]*[floorH][floorW]bool
 
-	weapon, armor, relic *itemDef
-	heals                int
+	weapon, armor, relic       *itemDef
+	cursedW, cursedA, cursedR  bool // looted-cursed slots, equip-locked till cleansed
+	heals                      int
+	recalls, necros, tokens    int  // scrolls of recall/necromancer; avenge bone-tokens
+	keys                       int  // crypt keys
+	lastBankX, lastBankY, lastBankFloor int // recall anchor (last banked shrine)
 	torchMul             int // percent of baseline burn (LANTERN 60)
 	kit                  *kitDef
 
@@ -54,8 +58,10 @@ type delver struct {
 	dyingUntil time.Time // modal window
 
 	heldUntil   time.Time // gelatinous engulf: movement locked
+	rotUntilFloor int     // plague rot active while deepest <= this
 	knownHeal   bool      // identification: draughts are murky until first quaff
-	viewingWall bool // the memorial overlay ([m])
+	viewingWall bool      // the memorial overlay ([m])
+	deathCard   *deathSummary // shown briefly after a death
 
 	online bool // connected (offline delvers persist but are not targets)
 	rng    uint64 // per-actor combat PRNG (week-seed derived; never wall-clock)
@@ -98,6 +104,10 @@ func (d *delver) resetRun(rm *room, r kit.Room, killer string, restFloor int) {
 	d.gold, d.kills, d.luck, d.respects, d.looted = 0, 0, 0, 0, 0
 	d.devours, d.avenges, d.vow = 0, 0, nil
 	d.lastDX, d.lastDY = 0, 0
+	d.recalls, d.necros, d.tokens, d.keys = 0, 0, 0, 0
+	d.rotUntilFloor = 0
+	d.cursedW, d.cursedA, d.cursedR = false, false, false
+	d.lastBankFloor = 0
 	d.turns, d.firstBankTurn = 0, 0
 	d.banked, d.deepest = 0, 1
 	d.applyKit(d.kit) // same kit, fresh loadout (swap with [1-3] at the Gate)
@@ -233,6 +243,11 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 		}
 		d.dying = nil
 	}
+	if d.deathCard != nil {
+		d.deathCard = nil // any key dismisses the YOU DIED card
+		d.dirty = true
+		return
+	}
 	dx, dy := 0, 0
 	switch {
 	case in.Kind == kit.InputRune:
@@ -272,6 +287,15 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			return
 		case 'q':
 			d.quaff()
+			return
+		case 'r':
+			d.readRecall(rm, r)
+			return
+		case 'g':
+			d.readNecro(rm, r)
+			return
+		case 'c':
+			d.cleanse(rm)
 			return
 		case 'm':
 			d.viewingWall = !d.viewingWall
@@ -324,6 +348,10 @@ func (d *delver) step(rm *room, r kit.Room, dx, dy int) {
 	}
 	f := rm.world.at(d.floor)
 	nx, ny := d.x+dx, d.y+dy
+	if nx == f.cryptX && ny == f.cryptY && f.tiles[ny][nx] == tCrypt {
+		d.openCrypt(rm, f)
+		return
+	}
 	if !f.open(nx, ny) {
 		return
 	}
@@ -458,3 +486,31 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
+
+// openCrypt spends a key to break a sealed crypt, spilling a guaranteed prize.
+func (d *delver) openCrypt(rm *room, f *floor) {
+	if d.keys == 0 {
+		d.say("A sealed crypt. You need a crypt key.")
+		return
+	}
+	d.keys--
+	f.tiles[f.cryptY][f.cryptX] = tFloor
+	// A guaranteed good drop spills onto the crypt tile.
+	def := pick(newGenRNG(rm.world.seed, f.depth+0x600), iWeapon, iArmor, f.depth)
+	if def == nil {
+		def = &catalog[2] // bone cleaver fallback
+	}
+	rm.drops = append(rm.drops, &drop{def: def, floor: f.depth, x: f.cryptX, y: f.cryptY})
+	rm.drops = append(rm.drops, &drop{floor: f.depth, x: f.cryptX, y: f.cryptY - 1, gold: 200 + f.depth*40})
+	d.say("The crypt grinds open. Treasure, and the smell of the long dead.")
+	rm.dirtyFloor(f.depth)
+}
+
+// onGate reports whether the delver stands at the Gate (B1's up-stairs).
+func (d *delver) onGate(rm *room) bool {
+	if d.floor != 1 {
+		return false
+	}
+	f := rm.world.at(1)
+	return d.x == f.upX && d.y == f.upY
+}

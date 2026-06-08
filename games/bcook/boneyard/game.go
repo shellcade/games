@@ -151,9 +151,14 @@ func (rm *room) OnWake(r kit.Room) {
 			continue
 		}
 		d.dirty = false
-		if d.viewingWall {
+		switch {
+		case d.deathCard != nil:
+			rm.deathCardScreen(d)
+		case d.viewingWall:
 			rm.memorial(d)
-		} else {
+		case d.onGate(rm):
+			rm.gateScreen(d)
+		default:
 			rm.compose(d)
 		}
 		r.Send(p, rm.frame)

@@ -23,6 +23,7 @@ func TestVerbsOnTheFallen(t *testing.T) {
 	ada.floor, ada.x, ada.y = 2, f2.upX+1, f2.upY
 	ada.lastDX, ada.lastDY = 1, 0 // fled east
 	rm.die(tr, ada, "kobold")
+	ada.deathCard = nil // the YOU DIED card is dismissed; carry on testing verbs
 
 	var c *corpse
 	for _, bc := range rm.bones {
@@ -87,5 +88,59 @@ func TestRespectIsOncePerAccount(t *testing.T) {
 	ada.respectBones(rm, tr, own)
 	if own.respects != 0 {
 		t.Fatal("self-mourning counted")
+	}
+}
+
+// Bones now carry the dead's gear, and bones-loot can curse it — the greed tax.
+func TestBonesLootGearAndCurse(t *testing.T) {
+	a := bp("ada")
+	tr := kittest.NewRoom(a)
+	rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
+	rm.OnStart(tr)
+	rm.OnJoin(tr, a)
+	d := rm.delvers[a.AccountID]
+	d.weapon = nil
+	c := &corpse{handle: "bob", floor: 1, x: 1, y: 1, gold: 50, weapon: &catalog[2]} // bone cleaver
+	d.lootBones(rm, c)
+	if d.weapon == nil || d.gold != 50 || !c.looted {
+		t.Fatalf("loot: weapon=%v gold=%d", d.weapon, d.gold)
+	}
+	// Cleanse only works on a shrine and clears curses + spends tokens/gold.
+	d.cursedW, d.tokens = true, 3
+	f3 := rm.floorAt(3)
+	d.floor, d.x, d.y = 3, f3.shrineX, f3.shrineY
+	d.cleanse(rm)
+	if d.cursedW || d.tokens != 0 {
+		t.Fatalf("cleanse: cursed=%v tokens=%d", d.cursedW, d.tokens)
+	}
+}
+
+// Recall returns you to the last banked shrine; necromancer raises an ally.
+func TestScrolls(t *testing.T) {
+	a := bp("ada")
+	tr := kittest.NewRoom(a)
+	rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
+	rm.OnStart(tr)
+	rm.OnJoin(tr, a)
+	d := rm.delvers[a.AccountID]
+
+	f3 := rm.floorAt(3)
+	d.floor, d.x, d.y = 3, f3.shrineX, f3.shrineY
+	d.bank(rm, tr)              // sets the recall anchor
+	f6 := rm.floorAt(6)
+	d.floor, d.x, d.y = 6, f6.upX, f6.upY
+	d.recalls = 1
+	d.readRecall(rm, tr)
+	if d.floor != 3 || d.recalls != 0 {
+		t.Fatalf("recall: floor=B%d recalls=%d", d.floor, d.recalls)
+	}
+
+	// Necromancer raises the nearest bones as an ally.
+	rm.bones = append(rm.bones, &corpse{handle: "x", floor: 3, x: d.x + 1, y: d.y})
+	d.necros = 1
+	before := len(rm.monsters)
+	d.readNecro(rm, tr)
+	if len(rm.monsters) != before+1 || !rm.monsters[len(rm.monsters)-1].ally {
+		t.Fatal("necromancer raised no ally")
 	}
 }

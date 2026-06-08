@@ -27,6 +27,9 @@ type species struct {
 	burst  bool          // bloat: explodes on death, 2d4 to all 8 neighbors
 }
 
+// stealthy reports the crypt stalker's invisible-until-near behavior.
+func (sp *species) stealthy() bool { return sp.name == "crypt stalker" }
+
 var bestiary = []species{
 	{"cave rat", 'r', kit.Style{FG: kit.DimGray}, 1, 3, 3, 1, 2, 0, 10, 400 * time.Millisecond, true, false},
 	{"kobold", 'd', kit.Style{FG: kit.Red, Attr: kit.AttrBold}, 1, 5, 6, 1, 4, 3, 12, 400 * time.Millisecond, false, false},
@@ -43,6 +46,10 @@ var bestiary = []species{
 	{"crypt stalker", 'S', kit.Style{FG: kit.DimGray, Attr: kit.AttrBold}, 7, 13, 18, 2, 4, 6, 17, 280 * time.Millisecond, false, false},
 	{"plague ghoul", 'z', kit.Style{FG: kit.Green, Attr: kit.AttrBold}, 8, 14, 22, 1, 8, 0, 16, 400 * time.Millisecond, false, false},
 	{"bone golem", 'G', kit.Style{FG: kit.White, Attr: kit.AttrBold}, 10, 18, 55, 2, 8, 7, 18, 650 * time.Millisecond, false, false},
+	{"marrow fiend", 'M', kit.Style{FG: kit.Red, Attr: kit.AttrBold}, 11, 17, 28, 2, 6, 0, 17, 400 * time.Millisecond, false, false},
+	{"lich acolyte", 'L', kit.Style{FG: kit.RGB(0xc0, 0x60, 0xc0), Attr: kit.AttrBold}, 13, 19, 30, 1, 8, 0, 18, 400 * time.Millisecond, false, false},
+	{"ossuary tyrant", 'T', kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}, 16, 25, 80, 3, 6, 9, 20, 650 * time.Millisecond, false, false},
+	{"hollow king", 'K', kit.Style{FG: kit.White, Attr: kit.AttrBold}, 20, 25, 60, 2, 10, 0, 19, 400 * time.Millisecond, false, false},
 	// The tomb mimic renders EXACTLY like a fresh corpse (the one sanctioned
 	// glyph+color overlap) and springs when looted.
 	{"tomb mimic", '%', kit.Style{FG: kit.Gray(0xb8)}, 4, 9, 8, 1, 8, 0, 14, 400 * time.Millisecond, false, false},
@@ -58,6 +65,8 @@ type monster struct {
 	nextAt time.Time
 	fuse   int  // bloat: consecutive acts adjacent to a delver (bursts at 2)
 	hidden bool // tomb mimic: disguised until sprung
+	ally   bool // raised by the necromancer scroll
+	allyUntil time.Time
 }
 
 // spawnFloor populates a freshly generated floor with its band's species —
@@ -125,6 +134,11 @@ func (rm *room) tickMonsters(r kit.Room, now time.Time) {
 		if m.hp <= 0 || m.hidden || !active[m.floor] {
 			continue
 		}
+		if m.ally && now.After(m.allyUntil) {
+			m.hp = 0 // the raised dead crumble when their minute is up
+			rm.dirtyWitnesses(m.floor, m.x, m.y, nil)
+			continue
+		}
 		// Catch-up loop (spec): act on the actor's OWN cadence, stepping
 		// nextAt by actPeriod — capped at 4 per wake, snapping after a long
 		// gap (hibernation resume, floor reactivation).
@@ -143,6 +157,10 @@ func (rm *room) tickMonsters(r kit.Room, now time.Time) {
 
 // actMonster is one action on the monster's own clock.
 func (rm *room) actMonster(r kit.Room, m *monster) {
+	if m.ally {
+		rm.actAlly(r, m)
+		return
+	}
 	target := rm.nearestDelver(m)
 
 	if m.sp.burst {
@@ -157,6 +175,40 @@ func (rm *room) actMonster(r kit.Room, m *monster) {
 			}
 		} else {
 			m.fuse = 0
+		}
+	}
+
+	// Signature behaviors of the deep.
+	switch m.sp.name {
+	case "bone golem":
+		if m.hp > 0 && m.hp <= 10 {
+			if c := rm.nearestCorpse(m); c != nil {
+				m.hp += 15
+				c.x, c.y = -1, -1
+				rm.dirtyWitnesses(m.floor, m.x, m.y, nil)
+			}
+		}
+	case "marrow fiend":
+		if c := rm.nearestCorpse(m); c != nil && cheb(c.x-m.x, c.y-m.y) <= 1 {
+			m.hp += 4
+			c.x, c.y = -1, -1 // it eats the dead and grows
+			rm.dirtyWitnesses(m.floor, m.x, m.y, nil)
+		}
+	case "lich acolyte":
+		if roll(&m.rng, 40) == 1 {
+			if c := rm.nearestCorpse(m); c != nil {
+				rm.monsters = append(rm.monsters, &monster{sp: speciesByName("skeleton"),
+					floor: m.floor, x: c.x, y: c.y, hp: scaled(14, hpScalar(m.floor)),
+					rng: actorSeed(rm.world.seed, uint64(m.floor), uint64(len(rm.monsters)))})
+				c.x, c.y = -1, -1
+				rm.dirtyWitnesses(m.floor, c.x, c.y, nil)
+			}
+		}
+	case "ossuary tyrant":
+		if target != nil && roll(&m.rng, 30) == 1 {
+			rm.monsters = append(rm.monsters, &monster{sp: speciesByName("jackal"),
+				floor: m.floor, x: m.x, y: m.y, hp: scaled(5, hpScalar(m.floor)),
+				rng: actorSeed(rm.world.seed, uint64(m.floor), uint64(len(rm.monsters)))})
 		}
 	}
 
@@ -194,6 +246,7 @@ func (rm *room) nearestDelver(m *monster) *delver {
 		if d.floor != m.floor || d.hp <= 0 || !d.online {
 			continue // an offline run persists but is never a target
 		}
+		_ = d
 		if c := cheb(m.x-d.x, m.y-d.y); c < bd {
 			bd, best = c, d
 		}
@@ -269,4 +322,43 @@ func speciesByName(n string) *species {
 		}
 	}
 	return &bestiary[0]
+}
+
+// actAlly: a raised skeleton hunts the nearest enemy monster on its floor.
+func (rm *room) actAlly(r kit.Room, m *monster) {
+	var tgt *monster
+	bd := 1 << 30
+	for _, o := range rm.monsters {
+		if o == m || o.ally || o.hp <= 0 || o.hidden || o.floor != m.floor {
+			continue
+		}
+		if dd := cheb(o.x-m.x, o.y-m.y); dd < bd {
+			bd, tgt = dd, o
+		}
+	}
+	if tgt == nil {
+		return
+	}
+	if cheb(tgt.x-m.x, tgt.y-m.y) == 1 {
+		tgt.hp -= roll(&m.rng, 6) + 2 // the dead hit back
+		if tgt.hp <= 0 {
+			rm.dirtyWitnesses(tgt.floor, tgt.x, tgt.y, nil)
+		}
+		return
+	}
+	rm.moveMonster(m, m.x+sign(tgt.x-m.x), m.y+sign(tgt.y-m.y))
+}
+
+// nearestCorpse finds the closest rendered corpse on m's floor.
+func (rm *room) nearestCorpse(m *monster) *corpse {
+	var best *corpse
+	bd := 1 << 30
+	for _, c := range rm.bones {
+		if c.floor == m.floor && !c.dust() {
+			if dd := cheb(c.x-m.x, c.y-m.y); dd < bd {
+				bd, best = dd, c
+			}
+		}
+	}
+	return best
 }

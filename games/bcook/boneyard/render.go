@@ -45,6 +45,8 @@ func tileStyle(t byte, lit bool) (rune, kit.Style) {
 		return '_', stShrine
 	case tWater:
 		return '~', stWater
+	case tCrypt:
+		return '▒', kit.Style{FG: kit.RGB(0xa0, 0x90, 0x60), Attr: kit.AttrBold}
 	default:
 		if lit {
 			return '.', stFloorLit
@@ -104,9 +106,18 @@ func (rm *room) compose(d *delver) {
 	}
 	for _, m := range rm.monsters {
 		if m.hp > 0 && m.floor == d.floor {
-			if m.hidden {
+			switch {
+			case m.hidden:
 				rm.plot(d, m.x, m.y, '%', kit.Style{FG: kit.Gray(0xb8)}, false)
-			} else {
+			case m.ally:
+				rm.plot(d, m.x, m.y, m.sp.glyph, kit.Style{FG: kit.Green, Attr: kit.AttrBold}, true)
+			case m.sp.stealthy():
+				if cheb(m.x-d.x, m.y-d.y) <= 3 {
+					rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style, true)
+				} else if cheb(m.x-d.x, m.y-d.y) <= 6 {
+					rm.plot(d, m.x, m.y, '?', kit.Style{FG: kit.DimGray}, true) // a faint wrongness
+				}
+			default:
 				rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style, true)
 			}
 		}
@@ -244,5 +255,91 @@ func (rm *room) memorial(d *delver) {
 	line("DEEPEST DEATH", deepest)
 	n := len(rm.bones)
 	fr.Text(row+1, 2, itoa(n)+" souls rest in this week's Ossuary.", stMsg)
+	fr.Text(kit.Rows-3, 2, "YOUR LINEAGE", stShrine)
+	fr.Text(kit.Rows-2, 2, "this week: banked B"+itoa(d.banked)+"   "+delverBadge(d.banked), stHUD)
 	fr.Text(kit.Rows-1, 2, "[m] back to the dark", stHUDDim)
+}
+
+// deathSummary is the YOU DIED card's frozen run stats.
+type deathSummary struct {
+	killer            string
+	floor, banked     int
+	kills, gold       int
+	respects, avenges int
+	deepestThisWeek   int
+	deepestHandle     string
+}
+
+// deathCardScreen renders the artboard's YOU DIED card.
+func (rm *room) deathCardScreen(d *delver) {
+	fr := rm.frame
+	clearFrame(fr)
+	c := d.deathCard
+	center := func(row int, s string, st kit.Style) {
+		col := (kit.Cols - len([]rune(s))) / 2
+		if col < 0 {
+			col = 0
+		}
+		fr.Text(row, col, s, st)
+	}
+	center(4, "Y O U   D I E D", kit.Style{FG: kit.Red, Attr: kit.AttrBold})
+	center(6, "on B"+itoa(c.floor)+", slain by "+c.killer, stHUD)
+	center(9, "banked B"+itoa(c.banked)+"   "+itoa(c.kills)+" kills   "+itoa(c.gold)+" gold", stMsg)
+	center(10, itoa(c.respects)+" mourned   "+itoa(c.avenges)+" avenged", stMsg)
+	if c.deepestHandle != "" {
+		center(13, "deepest this week: B"+itoa(c.deepestThisWeek)+" by "+clampCols(c.deepestHandle, 20), stShrine)
+	}
+	center(16, "the Gate calls you back", stHUDDim)
+	center(kit.Rows-2, "press any key", stHUDDim)
+}
+
+// gateScreen renders the surface hub (artboard: THE GATE).
+func (rm *room) gateScreen(d *delver) {
+	fr := rm.frame
+	clearFrame(fr)
+	center := func(row int, s string, st kit.Style) {
+		col := (kit.Cols - len([]rune(s))) / 2
+		if col < 0 {
+			col = 0
+		}
+		fr.Text(row, col, s, st)
+	}
+	center(2, "T H E   G A T E", stTitle)
+	center(3, "The Sunken Ossuary  —  collapses in "+rm.cdCache, stHUDDim)
+	deep, who := 0, ""
+	for _, c := range rm.bones {
+		if c.floor > deep {
+			deep, who = c.floor, c.name()
+		}
+	}
+	center(6, "deepest descent:  B"+itoa(deep)+"  ("+who+")", stShrine)
+	center(7, itoa(len(rm.bones))+" bones rest below.  Your best: B"+itoa(d.banked), stMsg)
+	center(10, "[1] BLADE    [2] LANTERN    [3] FLASK", stHUD)
+	center(11, "choose your kit, then step off the stairs to descend", stHUDDim)
+	center(14, "[m] the Roll of the Dead", stHUDDim)
+	center(kit.Rows-2, "wasd to move   >  to descend", stHUDDim)
+}
+
+func clearFrame(fr *kit.Frame) {
+	for r := 0; r < kit.Rows; r++ {
+		for c := 0; c < kit.Cols; c++ {
+			fr.Cells[r][c] = kit.Cell{}
+		}
+	}
+}
+
+// delverBadge names the DELVER band a banked depth earns (design §11).
+func delverBadge(banked int) string {
+	switch {
+	case banked >= 21:
+		return "Of The Deep"
+	case banked >= 16:
+		return "Legend"
+	case banked >= 10:
+		return "Brutalist"
+	case banked >= 4:
+		return "Belt-Walker"
+	default:
+		return "(unproven)"
+	}
 }

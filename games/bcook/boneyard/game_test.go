@@ -36,9 +36,21 @@ func TestWalkAndDescend(t *testing.T) {
 
 	tr.Advance(100 * time.Millisecond)
 	rm.OnWake(tr)
+	// Spawning ON B1's up-stairs shows the Gate hub, not the map — step off.
+	d0 := rm.delvers[a.AccountID]
+	f0 := rm.world.at(1)
+	for _, try := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+		if f0.open(f0.upX+try[0], f0.upY+try[1]) {
+			rm.OnInput(tr, a, kit.Input{Kind: kit.InputRune, Rune: dirRune(try[0], try[1])})
+			break
+		}
+	}
+	_ = d0
+	tr.Advance(100 * time.Millisecond)
+	rm.OnWake(tr)
 	fa := tr.LastFrame(a)
 	if fa == nil || !findGlyph(fa, '@') {
-		t.Fatal("no rendered @ after join+wake")
+		t.Fatal("no rendered @ after stepping off the Gate")
 	}
 
 	// Both spawn on B1's up-stairs: each sees the OTHER delver too (cyan @ —
@@ -49,6 +61,7 @@ func TestWalkAndDescend(t *testing.T) {
 	}
 
 	// Movement honors the cooldown: two instant steps move only once.
+	tr.Advance(d.moveCD() + time.Millisecond) // clear the step-off cooldown
 	sx, sy := d.x, d.y
 	var dir kit.Input
 	f := rm.world.at(1)
