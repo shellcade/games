@@ -58,6 +58,7 @@ type delver struct {
 	dyingUntil time.Time // modal window
 
 	heldUntil   time.Time // gelatinous engulf: movement locked
+	rotUntilFloor int     // plague rot active while deepest <= this
 	knownHeal   bool      // identification: draughts are murky until first quaff
 	viewingWall bool // the memorial overlay ([m])
 
@@ -103,6 +104,7 @@ func (d *delver) resetRun(rm *room, r kit.Room, killer string, restFloor int) {
 	d.devours, d.avenges, d.vow = 0, 0, nil
 	d.lastDX, d.lastDY = 0, 0
 	d.recalls, d.necros, d.tokens, d.keys = 0, 0, 0, 0
+	d.rotUntilFloor = 0
 	d.cursedW, d.cursedA, d.cursedR = false, false, false
 	d.lastBankFloor = 0
 	d.turns, d.firstBankTurn = 0, 0

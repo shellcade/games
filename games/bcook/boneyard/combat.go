@@ -33,6 +33,13 @@ func (d *delver) armorClass() int {
 
 // curseBite is the flat combat penalty per equipped cursed piece (the greed
 // tax until cleansed).
+func rotPenalty(d *delver) int {
+	if d.rotUntilFloor > 0 && d.deepest <= d.rotUntilFloor {
+		return 1
+	}
+	return 0
+}
+
 func curseBite(d *delver) int {
 	n := 0
 	if d.cursedW {
@@ -59,7 +66,7 @@ func luckHit(d *delver) int {
 // item catalog lands.
 func (d *delver) attackMonster(rm *room, r kit.Room, m *monster) {
 	dieRoll := roll(&d.rng, 20)
-	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+strMod(d.str)+luckHit(d)-darkPenalty(d)-curseBite(d) >= m.sp.armor)
+	hit := dieRoll == 20 || (dieRoll != 1 && dieRoll+strMod(d.str)+luckHit(d)-darkPenalty(d)-curseBite(d)-rotPenalty(d) >= m.sp.armor)
 	if !hit {
 		d.say("You miss the " + m.sp.name + ".")
 		return
@@ -117,10 +124,24 @@ func (rm *room) monsterAttack(r kit.Room, m *monster, d *delver) {
 		dmg = 1
 	}
 	d.hp -= dmg
-	if m.sp.name == "gelatinous cube" {
+	switch m.sp.name {
+	case "gelatinous cube":
 		d.heldUntil = r.Now().Add(2 * time.Second) // ENGULFED: held fast
 		d.say("The cube ENGULFS you — " + itoa(dmg) + ". You cannot move.")
-	} else {
+	case "cursed wraith":
+		d.torch -= 60 // drains the flame...
+		if d.torch < 0 {
+			d.torch = 0
+		}
+		d.maxHP-- // ...and a sliver of your vitality, forever this run
+		if d.hp > d.maxHP {
+			d.hp = d.maxHP
+		}
+		d.say("The wraith drains you — " + itoa(dmg) + ", your torch, your strength.")
+	case "plague ghoul":
+		d.rotUntilFloor = d.deepest + 3 // rot: -1 to hit until cleansed by marrow
+		d.say("The ghoul's rot sets in — " + itoa(dmg) + ". (devour marrow to cleanse)")
+	default:
 		d.say("The " + m.sp.name + " hits you for " + itoa(dmg) + ".")
 	}
 	if d.hp <= 0 {

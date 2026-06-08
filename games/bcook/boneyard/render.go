@@ -111,6 +111,12 @@ func (rm *room) compose(d *delver) {
 				rm.plot(d, m.x, m.y, '%', kit.Style{FG: kit.Gray(0xb8)}, false)
 			case m.ally:
 				rm.plot(d, m.x, m.y, m.sp.glyph, kit.Style{FG: kit.Green, Attr: kit.AttrBold}, true)
+			case m.sp.stealthy():
+				if cheb(m.x-d.x, m.y-d.y) <= 3 {
+					rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style, true)
+				} else if cheb(m.x-d.x, m.y-d.y) <= 6 {
+					rm.plot(d, m.x, m.y, '?', kit.Style{FG: kit.DimGray}, true) // a faint wrongness
+				}
 			default:
 				rm.plot(d, m.x, m.y, m.sp.glyph, m.sp.style, true)
 			}

@@ -201,7 +201,12 @@ func (d *delver) devourBones(rm *room, c *corpse) {
 		d.hp = d.maxHP
 	}
 	d.devours++
-	d.say("You crack the bones and take the marrow. +" + itoa(heal) + " HP. The dark approves.")
+	if d.rotUntilFloor > 0 {
+		d.rotUntilFloor = 0
+		d.say("The marrow burns the rot away. +" + itoa(heal) + " HP.")
+	} else {
+		d.say("You crack the bones and take the marrow. +" + itoa(heal) + " HP. The dark approves.")
+	}
 }
 
 // creditAvenge is called when d kills a monster: an armed vow against that

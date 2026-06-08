@@ -7,7 +7,7 @@ package main
 const (
 	floorW = 140 // floor width  (design §1: ~140x40 scrolling floors)
 	floorH = 40  // floor height
-	maxMVP = 18  // the Drowned Reliquary opens: B10-B18 (design bands 1-4)
+	maxMVP = 25  // through the Sunken Heart to the Undertow tail (boss tier)
 
 	mapRows = 21 // viewport rows 0..20; 21 HUD, 22 status, 23 hints/log
 )
