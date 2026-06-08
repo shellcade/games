@@ -136,3 +136,63 @@ func dist(v int) int {
 	}
 	return v
 }
+
+// Reconnect (DC then rejoin with a fresh connection) must resume rendering —
+// the blank-screen bug: OnLeave dropped the roster entry and rejoin never
+// re-added the live connection, so the wake loop sent frames to nobody.
+func TestReconnectResumesRendering(t *testing.T) {
+	a := bp("ada")
+	tr := kittest.NewRoom(a)
+	rm := Game{}.NewRoom(tr.Cfg, tr.Services()).(*room)
+	rm.OnStart(tr)
+	rm.OnJoin(tr, a)
+
+	// Move off the Gate so a real map renders, and verify a frame lands.
+	d := rm.delvers[a.AccountID]
+	f := rm.world.at(1)
+	for _, try := range [4][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+		if f.open(f.upX+try[0], f.upY+try[1]) {
+			rm.OnInput(tr, a, kit.Input{Kind: kit.InputRune, Rune: dirRune(try[0], try[1])})
+			break
+		}
+	}
+	tr.Advance(100 * time.Millisecond)
+	rm.OnWake(tr)
+	if tr.LastFrame(a) == nil {
+		t.Fatal("no frame before DC")
+	}
+	floorWas := d.floor
+
+	// Disconnect: OnLeave removes the roster entry, the run persists.
+	rm.OnLeave(tr, a)
+	if d.online {
+		t.Fatal("delver still online after leave")
+	}
+
+	// Reconnect with a FRESH connection (same account, new Conn).
+	a2 := kit.Player{AccountID: "ada", Handle: "ada", Kind: kit.KindMember, Conn: "reconnect-2"}
+	rm.OnJoin(tr, a2)
+	if !rm.delvers["ada"].online {
+		t.Fatal("delver not back online after reconnect")
+	}
+	if rm.delvers["ada"].floor != floorWas {
+		t.Fatal("the run did not resume where it stood")
+	}
+
+	// The wake loop must now send a frame to the NEW connection.
+	tr.Advance(100 * time.Millisecond)
+	rm.OnWake(tr)
+	if tr.LastFrame(a2) == nil {
+		t.Fatal("BLANK SCREEN: no frame sent to the reconnected player")
+	}
+	// And the roster carries the live connection, not the stale one.
+	inRoster := false
+	for _, p := range rm.roster {
+		if p.AccountID == "ada" && p.Conn == "reconnect-2" {
+			inRoster = true
+		}
+	}
+	if !inRoster {
+		t.Fatal("roster still holds the stale connection")
+	}
+}
