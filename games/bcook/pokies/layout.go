@@ -211,15 +211,13 @@ func (rm *room) drawPaytable(f *kit.Frame, row int) {
 	if v == nil {
 		return
 	}
-	rows := v.payRows()
+	rows, labels := v.payRowsCache, v.payLabels // precomputed at variant compile
 	if len(rows) == 0 {
 		return
 	}
 	const glyphsW, gap = 3 * 2, 3 // three width-2 faces; gap between entries
-	labels := make([]string, len(rows))
 	width := (len(rows) - 1) * gap
-	for i, pr := range rows {
-		labels[i] = fmt.Sprintf(" x%d", pr.mult)
+	for i := range rows {
 		width += glyphsW + len(labels[i])
 	}
 	col := (kit.Cols - width) / 2

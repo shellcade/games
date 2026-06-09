@@ -139,14 +139,20 @@ func (rm *room) drawBoard(f *kit.Frame, v kit.Player, orient engine.Color) {
 		kingInCheck = kingSquareOf(rm.pos, side)
 	}
 
-	// Precompute legal-target squares for the viewer's current selection.
-	type tgt struct{ cap bool }
-	targets := map[engine.Square]tgt{}
+	// Legal-target squares for the viewer's selection, into a stack-local array
+	// (64 bytes, no escape) instead of a fresh heap map every render — under
+	// -gc=leaking a per-render map leaks for the room's life. 0=none, 1=quiet
+	// move, 2=capture.
+	var targets [64]uint8
 	if sel != nil && sel.from != engine.NoSquare {
 		for _, m := range sel.targets {
 			isCap := rm.pos.Board[m.To].Type != engine.Empty ||
 				(rm.pos.Board[m.From].Type == engine.Pawn && m.From.File() != m.To.File())
-			targets[m.To] = tgt{cap: isCap}
+			if isCap {
+				targets[m.To] = 2
+			} else {
+				targets[m.To] = 1
+			}
 		}
 	}
 
@@ -159,8 +165,8 @@ func (rm *room) drawBoard(f *kit.Frame, v kit.Player, orient engine.Color) {
 		}
 
 		// Highlight precedence: check > cursor > selected > last-move > target.
-		_, isTarget := targets[sq]
-		isCap := isTarget && targets[sq].cap
+		isTarget := targets[sq] != 0
+		isCap := targets[sq] == 2
 		switch {
 		case sq == kingInCheck:
 			bg = bgCheck
@@ -430,26 +436,22 @@ func offerName(rm *room) string {
 // drawMoveList shows the most recent moves as "N. white  black" rows.
 func (rm *room) drawMoveList(f *kit.Frame, top int) {
 	const rows = 11 // rows top..top+rows-1, leaving room for the promo picker
-	type line struct {
-		num          int
-		white, black string
-	}
-	var lines []line
-	for i := 0; i < len(rm.moves); i += 2 {
-		ln := line{num: i/2 + 1, white: rm.moves[i]}
-		if i+1 < len(rm.moves) {
-			ln.black = rm.moves[i+1]
-		}
-		lines = append(lines, ln)
-	}
-	// Show the last `rows` lines.
-	start := len(lines) - rows
+	// Index rm.moves directly for the visible window instead of building a
+	// growing []line every render (which grew with game length and leaked under
+	// -gc=leaking).
+	totalLines := (len(rm.moves) + 1) / 2
+	start := totalLines - rows
 	if start < 0 {
 		start = 0
 	}
-	for r := 0; r < rows && start+r < len(lines); r++ {
-		ln := lines[start+r]
-		f.Text(top+r, panelCol, moveListLine(ln.num, ln.white, ln.black), stMoveList)
+	for r := 0; r < rows && start+r < totalLines; r++ {
+		li := start + r
+		white := rm.moves[2*li]
+		black := ""
+		if 2*li+1 < len(rm.moves) {
+			black = rm.moves[2*li+1]
+		}
+		f.Text(top+r, panelCol, moveListLine(li+1, white, black), stMoveList)
 	}
 }
 
