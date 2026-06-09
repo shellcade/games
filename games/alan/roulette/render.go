@@ -340,7 +340,8 @@ func chipPos(mi int) (row, col int) {
 	sp := spots[mi]
 	switch {
 	case sp.fc < 0:
-		return rowOfRR(1), zeroCol
+		// Straight up on 0: sit the chip beside the "0", not on top of it.
+		return rowOfRR(1), zeroCol + 1
 	case sp.fr%2 == 1 && sp.fc%2 == 1:
 		rr, c := gridRC(b.nums[0])
 		return rowOfRR(rr), colInterior(c)
