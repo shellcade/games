@@ -20,7 +20,7 @@ func main() { kit.Main(Game{}) }
 type Game struct{}
 
 // Meta returns the static game metadata shown in the arcade. The bare slug
-// "voidrunners" is namespaced to "SKUNK420LITEM/voidrunners" by the platform
+// "voidrunners" is namespaced to "matt/voidrunners" by the platform
 // from the catalog path; this Meta carries the bare name only.
 func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
