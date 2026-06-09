@@ -1,0 +1,45 @@
+seed: 7
+seats: 2
+heartbeat: 50ms
+# One shared wheel. The cursor moves over the felt landing on numbers, the lines
+# between them (splits), and the intersections (corners) — so a chip drops
+# exactly where you steer. Both seats bet, ready up (which closes the window
+# after a short grace beat), then the screen switches to the spinning wheel
+# before settling. The outcome is rolled from the seeded RNG at spin start, so
+# this script reproduces the same winning number every run.
+steps:
+  - shot: table          # the empty felt, betting window counting down
+
+  # --- seat 0 places a number, a split, and a corner ------------------------
+  - seat: 0
+  - key: enter           # straight up on 17 (cursor starts dead centre)
+  - key: right           # step onto the line between 17 and 20…
+  - key: enter           # …a split
+  - key: up              # step onto the intersection above…
+  - key: enter           # …a corner
+  - rune: "+"            # raise the chip to 25
+  - key: down
+  - key: down
+  - key: down
+  - key: down
+  - key: down
+  - key: down            # walk down to the outside boxes
+  - key: enter           # drop a chip on the box under the cursor
+  - shot: bets           # seat 0's view: chips on number/line/corner + readout
+
+  # --- seat 1 bets and readies ----------------------------------------------
+  - seat: 1
+  - key: left
+  - key: enter           # a straight up
+  - rune: "r"            # seat 1 ready
+
+  # --- both ready -> the window closes -> the wheel spins -------------------
+  - seat: 0
+  - rune: "r"            # all ready: a short grace beat, then the spin
+  - advance: 2.05s       # grace elapses, the wheel starts
+  - advance: 1.5s        # mid-spin — the dedicated wheel screen
+  - shot: spinning
+  - advance: 4s          # ~5.5s in: the wheel has come to rest, holding
+  - shot: landed
+  - advance: 3s          # past the 8s spin: settle + pay out, back to the felt
+  - shot: result
