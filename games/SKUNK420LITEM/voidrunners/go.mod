@@ -1,4 +1,4 @@
-module shellcade.games/matt-lewandowski/voidrunners
+module shellcade.games/skunk420litem/voidrunners
 
 go 1.25.0
 
