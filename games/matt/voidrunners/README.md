@@ -29,23 +29,25 @@ can find yourself instantly.
 
 ## Controls
 
-| Key            | Action                                   |
-|----------------|------------------------------------------|
-| `←` / `→` (or `h`/`l`) | Rotate your ship left / right    |
-| `↑` (or `k`)   | Thrust forward (momentum carries you)    |
-| `↓` (or `j`)   | Air-brake (bleed off speed)              |
-| `Space`        | Fire                                     |
-| `Q` / `Esc`    | Leave the arena                          |
+| Key            | Action                                       |
+|----------------|----------------------------------------------|
+| `↑ ↓ ← →` (or `k j h l`) | Steer that way — the nose snaps over and you thrust |
+| `Space`        | Fire                                         |
+| `Q` / `Esc`    | Leave the arena                              |
 
-Flight is **asteroids-style**: thrust adds velocity in the direction you're
-facing and you keep drifting until drag (or a brake) slows you down. You shoot
-in the direction your nose points.
+Flight is **directional with momentum**: press an arrow and your ship points
+that way instantly and starts moving — but you keep drifting, so you don't stop
+on a dime. Press two perpendicular arrows in quick succession (e.g. `↑` then
+`←`) to head the diagonal between them. There's no brake key: to slow down, tap
+the direction opposite your drift. You shoot in the direction your nose points.
 
 ## Gameplay
 
 - **Craters** drift around the arena. Shoot a large one and it breaks into two
   smaller fragments; the smallest shatter for good. Each fragment destroyed is
-  worth **1 kill**. *Ramming* a crater destroys you — dodge or shoot.
+  worth **1 kill**. *Ramming* a crater destroys you — dodge or shoot. Solo, the
+  arena is full of them for target practice; once a second pilot joins it drops
+  to a single crater so the focus is the dogfight.
 - **Rival pilots** are fair game. A direct hit destroys them and scores you
   **5 kills**.
 - **Death & respawn**: when you're hit you explode, then respawn a couple of

@@ -62,9 +62,19 @@ func (rm *room) OnStart(r kit.Room) {
 	r.SetInputContext(kit.CtxNav)
 	rm.now = r.Now()
 	rm.buildStarfield(r)
-	for i := 0; i < initialRocks; i++ {
+	for i := 0; i < rm.craterTarget(); i++ {
 		rm.spawnCrater(r, 3)
 	}
+}
+
+// craterTarget is how many craters the arena keeps floating: a busy solo field
+// for target practice, but just one once a second pilot shows up so the arena
+// is a dogfight, not an obstacle course.
+func (rm *room) craterTarget() int {
+	if len(rm.ships) >= 2 {
+		return pvpCraters
+	}
+	return soloCraters
 }
 
 func (rm *room) OnJoin(r kit.Room, p kit.Player) {
@@ -105,8 +115,10 @@ func (rm *room) OnClose(r kit.Room) {
 }
 
 // OnInput applies discrete control impulses. A terminal has no key-up events,
-// so flight is impulse-based: each press nudges the ship and momentum carries
-// it — which is exactly the asteroids drift we want.
+// so flight is directional-impulse: each arrow points the ship that way and
+// thrusts; momentum carries it (you keep drifting). Two perpendicular arrows
+// within chordWindow head the diagonal between them. There is no brake — tap
+// the direction opposite your drift to bleed speed.
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	rm.now = r.Now()
 	s := rm.ships[p.AccountID]
@@ -114,20 +126,40 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 		return
 	}
 	switch kit.Resolve(in, kit.CtxNav) {
-	case kit.ActLeft:
-		s.heading -= rotStep
-	case kit.ActRight:
-		s.heading += rotStep
 	case kit.ActUp:
-		s.vx += math.Cos(s.heading) * thrustDV
-		s.vy += math.Sin(s.heading) * thrustDV * aspect
+		rm.steer(s, dirN)
+	case kit.ActRight:
+		rm.steer(s, dirE)
 	case kit.ActDown:
-		s.vx *= brakeFactor
-		s.vy *= brakeFactor
+		rm.steer(s, dirS)
+	case kit.ActLeft:
+		rm.steer(s, dirW)
 	case kit.ActConfirm:
 		rm.fire(r, p, s)
 	}
 	rm.render(r)
+}
+
+// steer points the ship in cardinal direction d (or the diagonal, if a
+// perpendicular direction was pressed within chordWindow), snaps the heading
+// there immediately, and thrusts that way. Velocity is never zeroed, so the
+// ship keeps its existing drift.
+func (rm *room) steer(s *ship, d int) {
+	hx, hy := dirVec[d][0], dirVec[d][1]
+	heading := dirHeading[d]
+	if !s.lastDirAt.IsZero() && rm.now.Sub(s.lastDirAt) <= chordWindow && perpendicular(s.lastDir, d) {
+		// Combine with the recent perpendicular press into a diagonal.
+		px, py := dirVec[s.lastDir][0], dirVec[s.lastDir][1]
+		hx, hy = hx+px, hy+py
+		heading = math.Atan2(hy, hx)
+	}
+	s.heading = heading
+	s.lastDir = d
+	s.lastDirAt = rm.now
+	// Thrust along the (aspect-corrected) travel direction.
+	mag := math.Hypot(hx, hy)
+	s.vx += (hx / mag) * thrustDV
+	s.vy += (hy / mag) * thrustDV * aspect
 }
 
 // OnWake is the heartbeat: advance everything against elapsed time, resolve
@@ -143,10 +175,28 @@ func (rm *room) OnWake(r kit.Room) {
 	rm.respawnDead(r)
 	rm.pruneExplosions()
 
-	for len(rm.craters) < craterTarget {
+	target := rm.craterTarget()
+	for len(rm.craters) < target {
 		rm.spawnCrater(r, 3)
 	}
+	// Trim down when the population should shrink (e.g. a second pilot joined a
+	// crater-heavy solo arena): drop the smallest fragments first.
+	for len(rm.craters) > target {
+		rm.removeSmallestCrater()
+	}
 	rm.render(r)
+}
+
+// removeSmallestCrater drops one crater, preferring the smallest (least
+// disruptive to remove mid-flight).
+func (rm *room) removeSmallestCrater() {
+	idx := 0
+	for i, c := range rm.craters {
+		if c.size < rm.craters[idx].size {
+			idx = i
+		}
+	}
+	rm.craters = append(rm.craters[:idx], rm.craters[idx+1:]...)
 }
 
 // step returns the seconds elapsed since the last wake, clamped so a pause or
@@ -337,9 +387,11 @@ func (rm *room) spawnShip(r kit.Room, s *ship) {
 	rng := r.Rand()
 	s.x, s.y = rm.safeSpot(rng, 9)
 	s.vx, s.vy = 0, 0
-	s.heading = rng.Float64() * 2 * math.Pi
+	s.heading = dirHeading[rng.Intn(4)] // face a cardinal direction at spawn
 	s.alive = true
 	s.invulnUntil = rm.now.Add(invulnDur)
+	s.lastDir = -1 // no recent direction press to chord with
+	s.lastDirAt = time.Time{}
 }
 
 func (rm *room) spawnCrater(r kit.Room, size int) {
