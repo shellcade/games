@@ -23,13 +23,13 @@ const (
 // Flight model (units are horizontal cells / second unless noted).
 const (
 	rotStep      = math.Pi / 8 // turn per left/right press (16 facings)
-	thrustDV     = 3.2         // velocity added per thrust press
+	thrustDV     = 2.6         // velocity added per thrust press
 	brakeFactor  = 0.55        // velocity retained per brake press
-	maxSpeed     = 24.0        // speed cap
+	maxSpeed     = 19.0        // speed cap
 	dragPerSec   = 0.55        // gentle space drag so drift eventually settles
 	bulletSpeed  = 46.0
-	bulletLife   = 1100 * time.Millisecond
-	fireCooldown = 160 * time.Millisecond
+	bulletLife   = 750 * time.Millisecond // range = bulletSpeed * bulletLife (~34 cells)
+	fireCooldown = 260 * time.Millisecond
 	shipHit      = 1.5 // ship hit radius (horizontal cells) — covers the 2-cell craft
 )
 

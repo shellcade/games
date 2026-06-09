@@ -29,7 +29,8 @@ func TestSnapshot(t *testing.T) {
 	rm.fire(tr, a, rm.ships[a.AccountID])
 	rm.addExplosion(48, 10, kit.Red)
 
-	f := rm.composeFor(a)
+	f := kit.NewFrame()
+	rm.composeFor(f, a)
 	var sb strings.Builder
 	sb.WriteString("+" + strings.Repeat("-", kit.Cols) + "+\n")
 	for row := 0; row < kit.Rows; row++ {

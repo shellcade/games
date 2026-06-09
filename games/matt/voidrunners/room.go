@@ -42,6 +42,8 @@ type room struct {
 
 	now     time.Time
 	lastNow time.Time
+
+	frame *kit.Frame // long-lived render buffer, reused every frame (Send copies)
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -50,6 +52,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		svc:   svc,
 		ships: map[string]*ship{},
 		names: map[string]kit.Player{},
+		frame: kit.NewFrame(),
 	}
 }
 
