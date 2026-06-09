@@ -73,6 +73,40 @@ func reachable(f *floor) bool {
 	return false
 }
 
+// openTile must ALWAYS terminate — even on a starved or fully-walled floor.
+// The old rejection sampler looped forever when a floor had no (reachable)
+// floor tiles, burning a full core into the 100ms callback deadline, which
+// tripped the platform fault watchdog and quarantined the game. If this test
+// ever hangs instead of failing, that regression is back.
+func TestOpenTileTerminates(t *testing.T) {
+	rm := &room{}
+
+	// One lone floor tile: the sampler almost surely misses it for all 256
+	// draws and must fall through to the deterministic scan to find it.
+	sparse := &floor{depth: 1}
+	for y := 0; y < floorH; y++ {
+		for x := 0; x < floorW; x++ {
+			sparse.tiles[y][x] = tWall
+		}
+	}
+	sparse.tiles[7][11] = tFloor
+	if x, y := rm.openTile(newGenRNG(1, 1), sparse); x != 11 || y != 7 {
+		t.Fatalf("sparse floor: openTile = (%d,%d), want the only floor tile (11,7)", x, y)
+	}
+
+	// No floor tile at all: must not spin; falls back to the generator's
+	// always-carved up-stairs.
+	walled := &floor{depth: 1, upX: 3, upY: 4}
+	for y := 0; y < floorH; y++ {
+		for x := 0; x < floorW; x++ {
+			walled.tiles[y][x] = tWall
+		}
+	}
+	if x, y := rm.openTile(newGenRNG(1, 1), walled); x != walled.upX || y != walled.upY {
+		t.Fatalf("walled floor: openTile = (%d,%d), want up-stairs (3,4)", x, y)
+	}
+}
+
 // The canonical scaling operator (design §1) — determinism-critical, so the
 // worked examples from the design are pinned as tests.
 func TestScalingRounding(t *testing.T) {
