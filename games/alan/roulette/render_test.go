@@ -7,10 +7,10 @@ func TestRoundSummary(t *testing.T) {
 		won, staked int
 		want        string
 	}{
-		{600, 400, "won 600, gained 200"},
-		{100, 400, "won 100, lost 300"},
-		{0, 600, "lost 600"},
-		{400, 400, "won 400, broke even"},
+		{600, 400, "up 200  (bet 400, back 600)"},
+		{170, 200, "down 30  (bet 200, back 170)"},
+		{0, 600, "down 600  (bet 600, back 0)"},
+		{400, 400, "even  (bet 400, back 400)"},
 		{0, 0, ""}, // sat the round out
 	}
 	for _, c := range cases {

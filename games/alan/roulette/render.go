@@ -525,22 +525,23 @@ func (rm *room) roundNet(pl *player) (won, staked int) {
 	return won, staked
 }
 
-// roundSummary phrases a round's outcome: gross chips returned plus the net
-// after subtracting the stake. Empty when the player sat the round out.
+// roundSummary phrases a round's outcome. It leads with the bottom line — how
+// many chips up or down you are this round — then the breakdown (what you bet
+// and what came back), so a net loss is obvious even when some bets paid out.
+// Empty when the player sat the round out.
 func roundSummary(won, staked int) string {
 	if staked == 0 {
 		return ""
 	}
+	breakdown := "  (bet " + strconv.Itoa(staked) + ", back " + strconv.Itoa(won) + ")"
 	net := won - staked
 	switch {
-	case won == 0:
-		return "lost " + strconv.Itoa(staked)
 	case net > 0:
-		return "won " + strconv.Itoa(won) + ", gained " + strconv.Itoa(net)
+		return "up " + strconv.Itoa(net) + breakdown
 	case net < 0:
-		return "won " + strconv.Itoa(won) + ", lost " + strconv.Itoa(-net)
+		return "down " + strconv.Itoa(-net) + breakdown
 	default:
-		return "won " + strconv.Itoa(won) + ", broke even"
+		return "even" + breakdown
 	}
 }
 
