@@ -102,14 +102,39 @@ func (rm *room) spawnFloor(f *floor) {
 	}
 }
 
-// openTile finds a random walkable, non-stairs tile.
+// openTile finds a random walkable floor tile. Rejection-sampling the interior
+// is near-instant on a normal floor (rooms leave it ~30%+ open), but a
+// pathologically sparse floor — or one whose open tiles were nearly all
+// flooded into water pools — would starve the sampler and spin FOREVER,
+// burning a full core into the 100ms per-callback deadline (and tripping the
+// platform's fault watchdog, which quarantines the game). So bound the sampler
+// and fall back to a deterministic wrap-around scan that always terminates.
 func (rm *room) openTile(g *genRNG, f *floor) (int, int) {
-	for {
+	// A generous cap: a normal floor wins on the first few draws, so the cap is
+	// never reached and byte-for-byte determinism with the old sampler holds.
+	// Only a starved floor (which used to hang) reaches the scan below.
+	const maxSample = 256
+	for i := 0; i < maxSample; i++ {
 		x, y := 1+g.intn(floorW-2), 1+g.intn(floorH-2)
 		if f.tiles[y][x] == tFloor {
 			return x, y
 		}
 	}
+	// Sampler starved: scan the interior from a seed-derived offset for the
+	// first floor tile. Deterministic (one g draw), O(area), guaranteed to find
+	// any floor tile that exists.
+	interior := (floorW - 2) * (floorH - 2)
+	start := g.intn(interior)
+	for k := 0; k < interior; k++ {
+		idx := (start + k) % interior
+		x, y := 1+idx%(floorW-2), 1+idx/(floorW-2)
+		if f.tiles[y][x] == tFloor {
+			return x, y
+		}
+	}
+	// Degenerate floor with no floor tile at all: land on the up-stairs, which
+	// genFloor always carves. Never spin.
+	return f.upX, f.upY
 }
 
 // tickMonsters advances every live monster whose actPeriod elapsed: chase the
