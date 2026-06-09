@@ -56,7 +56,7 @@ func latticeOf(b bet) (fr, fc int) {
 	if b.outside {
 		return outsideLattice(b)
 	}
-	if containsN(b.nums, 0) {
+	if involvesZero(b) {
 		return zeroLattice(b)
 	}
 	switch b.kind {
@@ -83,22 +83,34 @@ func latticeOf(b bet) (fr, fc int) {
 	return 3, 1
 }
 
-// zeroLattice places the zero and the bets that touch it down the left boundary.
+// involvesZero reports whether a bet covers either green pocket.
+func involvesZero(b bet) bool {
+	return containsN(b.nums, 0) || containsN(b.nums, doubleZero)
+}
+
+// zeroLattice places the zeros and the bets that touch them down the left
+// margin. The zero column (fc -1) is a clean vertical lane — 0 (fr 1), the 0-00
+// split (fr 3), 00 (fr 5) — so up/down steps 0 → split → 00. The trios and the
+// top line sit one column right (fc 0), on the same rows, so left/right reaches
+// them on the way to the grid.
 func zeroLattice(b bet) (fr, fc int) {
 	switch b.kind {
 	case kStraight:
-		return 3, -1
-	case kSplit: // 0-1, 0-2, 0-3 along the boundary at fc 0
-		return 7 - 2*b.nums[1], 0
-	case kTrio:
-		if containsN(b.nums, 1) { // 0-1-2
-			return 4, 0
+		if b.nums[0] == doubleZero {
+			return 5, -1
 		}
-		return 2, 0 // 0-2-3
-	case kBasket:
-		return 0, 0
+		return 1, -1
+	case kSplit: // 0-00
+		return 3, -1
+	case kTopLine: // 0-00-1-2-3, level with 0
+		return 1, 0
+	case kTrio:
+		if containsN(b.nums, 1) { // 0-1-2, level with the split
+			return 3, 0
+		}
+		return 5, 0 // 00-2-3, level with 00
 	}
-	return 3, -1
+	return 1, -1
 }
 
 // outsideLattice places the dozen, column, and even-money boxes around the grid.
@@ -165,6 +177,25 @@ func containsN(ns []int, x int) bool {
 // travelled along the axis.
 func nextSpot(from, dr, dc int) int {
 	cur := spots[from]
+	// A vertical move first tries to stay in the exact same column, so a number
+	// column — and the zero lane (0 → 0-00 split → 00) — descends cleanly. Only
+	// when nothing lies further down this column do we fall back below (e.g.
+	// stepping off the bottom row into the dozen strip).
+	if dr != 0 {
+		best, bestDist := from, 1<<30
+		for i, s := range spots {
+			if i == from || s.fc != cur.fc || (s.fr-cur.fr)*dr <= 0 {
+				continue
+			}
+			if d := abs(s.fr - cur.fr); d < bestDist {
+				best, bestDist = i, d
+			}
+		}
+		if best != from {
+			return best
+		}
+	}
+
 	best, bestP, bestS := from, 1<<30, 1<<30
 	for i, s := range spots {
 		if i == from {

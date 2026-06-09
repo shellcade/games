@@ -2,10 +2,9 @@ package main
 
 import "strconv"
 
-// The full European betting layout, generated once into a master list. Every
+// The full American betting layout, generated once into a master list. Every
 // chip a player places references a master bet by index, so settlement is a
-// single coverage test and the per-cell bet menu (board.go) is just a filter of
-// this list.
+// single coverage test.
 //
 // The number felt is the standard 3x12 grid: column index c = 0..11 runs along
 // the table, row rr = 0 (top) holds the "3,6,9,…" line, rr = 1 the "2,5,8,…"
@@ -13,28 +12,28 @@ import "strconv"
 //
 //	num(rr, c) = 3*c + (3 - rr)
 //
-// with 0 sitting to the left, adjacent to 1/2/3.
+// with the two green zeros (0 and 00) sitting to the left.
 func num(rr, c int) int { return 3*c + (3 - rr) }
 
 // betKind is the wager family; it fixes the payout and names the bet.
 type betKind uint8
 
 const (
-	kStraight betKind = iota // 1 number   35:1
-	kSplit                   // 2 numbers  17:1
-	kStreet                  // 3 (a row)  11:1
-	kTrio                    // 3 with 0   11:1
-	kCorner                  // 4 numbers   8:1
-	kBasket                  // 0,1,2,3     8:1
-	kLine                    // 6 numbers   5:1
-	kDozen                   // 12 numbers  2:1
-	kColumn                  // 12 numbers  2:1
-	kRed                     // 18 numbers  1:1
-	kBlack                   // 18 numbers  1:1
-	kOdd                     // 18 numbers  1:1
-	kEven                    // 18 numbers  1:1
-	kLow                     // 1..18       1:1
-	kHigh                    // 19..36      1:1
+	kStraight betKind = iota // 1 number       35:1
+	kSplit                   // 2 numbers       17:1
+	kStreet                  // 3 (a row)       11:1
+	kTrio                    // 3 incl. a zero  11:1
+	kCorner                  // 4 numbers        8:1
+	kLine                    // 6 numbers        5:1
+	kTopLine                 // 0,00,1,2,3       6:1 (American five-number bet)
+	kDozen                   // 12 numbers       2:1
+	kColumn                  // 12 numbers       2:1
+	kRed                     // 18 numbers       1:1
+	kBlack                   // 18 numbers       1:1
+	kOdd                     // 18 numbers       1:1
+	kEven                    // 18 numbers       1:1
+	kLow                     // 1..18            1:1
+	kHigh                    // 19..36           1:1
 )
 
 // payout is the winnings paid per unit staked (a winning bet returns the stake
@@ -47,8 +46,10 @@ func (k betKind) payout() int {
 		return 17
 	case kStreet, kTrio:
 		return 11
-	case kCorner, kBasket:
+	case kCorner:
 		return 8
+	case kTopLine:
+		return 6
 	case kLine:
 		return 5
 	case kDozen, kColumn:
@@ -71,10 +72,10 @@ func (k betKind) name() string {
 		return "TRIO"
 	case kCorner:
 		return "CORNER"
-	case kBasket:
-		return "BASKET"
 	case kLine:
 		return "LINE"
+	case kTopLine:
+		return "TOP LINE"
 	case kDozen:
 		return "DOZEN"
 	case kColumn:
@@ -116,8 +117,8 @@ func (b bet) covers(result int) bool {
 
 // settleReturn is the chips returned for staking `stake` on bet b when `result`
 // is the spun pocket: the stake back plus stake*payout on a win, nothing on a
-// loss. (European single-zero has no en-prison / la-partage rule, so a green 0
-// simply loses every outside bet.)
+// loss. (The American wheel has no en-prison / la-partage rule, so either green
+// pocket — 0 or 00 — simply loses every outside bet.)
 func settleReturn(b bet, stake, result int) int {
 	if b.covers(result) {
 		return stake * (b.kind.payout() + 1)
@@ -127,13 +128,6 @@ func settleReturn(b bet, stake, result int) int {
 
 // masterBets is the immutable full layout, built once.
 var masterBets = buildBets()
-
-// betsByAnchor[n] lists master indices of the INSIDE bets anchored at number n
-// (their lowest covered number is n), in a stable straight→split→street→corner→
-// line→trio/basket order. outsideBets lists the master indices of the twelve
-// outside bets. Both are derived from masterBets in its generation order, so
-// every ordering here is deterministic.
-var betsByAnchor, outsideBets = indexBets()
 
 func buildBets() []bet {
 	var bs []bet
@@ -151,16 +145,16 @@ func buildBets() []bet {
 		bs = append(bs, bet{kind: k, nums: nums, anchor: anchor, outside: outside, label: label})
 	}
 
-	// 1. Straights 0..36.
+	// 1. Straights: 0, then 1..36, then 00 (so master i == straight i for the
+	// numbered pockets, and 00 is the last straight, master doubleZero).
 	for n := 0; n <= 36; n++ {
 		add(kStraight, strconv.Itoa(n), n)
 	}
+	add(kStraight, "00", doubleZero)
 
-	// 2. Splits. Zero is adjacent to 1/2/3; inside the grid, horizontal
-	// neighbours differ by 3 and vertical neighbours by 1.
-	for _, n := range []int{1, 2, 3} {
-		add(kSplit, "0-"+strconv.Itoa(n), 0, n)
-	}
+	// 2. Splits. Inside the grid, horizontal neighbours differ by 3 and vertical
+	// neighbours by 1; the only zero split on an American felt is 0-00.
+	add(kSplit, "0-00", 0, doubleZero)
 	for rr := 0; rr <= 2; rr++ { // horizontal: same row, adjacent columns
 		for c := 0; c < 11; c++ {
 			a, b := num(rr, c), num(rr, c+1)
@@ -196,10 +190,12 @@ func buildBets() []bet {
 		add(kLine, "Line "+strconv.Itoa(a)+"-"+strconv.Itoa(a+5), ns...)
 	}
 
-	// 6. The zero trios and the basket (all anchored at 0).
+	// 6. The American zero-area bets: the two corner trios and the five-number
+	// top line (0-00-1-2-3, the worst bet on the table at 6:1). Numbers stay
+	// ascending, so the 00 pocket (doubleZero) sorts last.
 	add(kTrio, "Trio 0-1-2", 0, 1, 2)
-	add(kTrio, "Trio 0-2-3", 0, 2, 3)
-	add(kBasket, "Basket 0-3", 0, 1, 2, 3)
+	add(kTrio, "Trio 00-2-3", 2, 3, doubleZero)
+	add(kTopLine, "Top line", 0, 1, 2, 3, doubleZero)
 
 	// 7. Outside bets.
 	add(kDozen, "1st 12", seq(1, 12)...)
@@ -216,19 +212,6 @@ func buildBets() []bet {
 	add(kHigh, "19-36", seq(19, 36)...)
 
 	return bs
-}
-
-func indexBets() (map[int][]int, []int) {
-	byAnchor := map[int][]int{}
-	var outside []int
-	for i, b := range masterBets {
-		if b.outside {
-			outside = append(outside, i)
-			continue
-		}
-		byAnchor[b.anchor] = append(byAnchor[b.anchor], i)
-	}
-	return byAnchor, outside
 }
 
 // --- small helpers -----------------------------------------------------------

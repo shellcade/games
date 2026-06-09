@@ -21,9 +21,13 @@ func TestChipPositions(t *testing.T) {
 	if row, col := chipPos(17); row != rowOfRR(1) || col != colInterior(5) {
 		t.Errorf("straight 17 chip at (%d,%d), want (%d,%d)", row, col, rowOfRR(1), colInterior(5))
 	}
-	// Straight on 0 (master 0): beside the "0", never on top of it.
-	if row, col := chipPos(0); row != rowOfRR(1) || col == zeroCol {
-		t.Errorf("zero chip at (%d,%d) collides with the 0 at col %d", row, col, zeroCol)
+	// Straight on 0 / 00: in the chip slot left of the digit, never on it.
+	if row, col := chipPos(0); row != zeroRow(0) || col >= zeroTextCol(0) {
+		t.Errorf("0 chip at (%d,%d) not left of its digit at col %d", row, col, zeroTextCol(0))
+	}
+	dz := masterOf(t, kStraight, "00")
+	if row, col := chipPos(dz); row != zeroRow(doubleZero) || col >= zeroTextCol(doubleZero) {
+		t.Errorf("00 chip at (%d,%d) not left of its digits at col %d", row, col, zeroTextCol(doubleZero))
 	}
 	// Street 16-18 sits on the outer (bottom) edge of column 5, centred in the
 	// cell's line segment — not on the left grid line.

@@ -28,7 +28,7 @@ func TestSpotsDistinct(t *testing.T) {
 // intersection.
 func TestLatticeParity(t *testing.T) {
 	for i, b := range masterBets {
-		if b.outside || containsN(b.nums, 0) {
+		if b.outside || involvesZero(b) {
 			continue // zero region + outside boxes have their own placement
 		}
 		s := spots[i]
@@ -124,6 +124,26 @@ func TestConcreteSpots(t *testing.T) {
 	to := masterBets[nextSpot(17, 0, 1)]
 	if to.kind != kSplit || !containsN(to.nums, 17) || !containsN(to.nums, 20) {
 		t.Errorf("right of 17 = %s %q, want SPLIT 17-20", to.kind.name(), to.label)
+	}
+}
+
+// TestZeroColumnNavigation checks the left-margin zero lane: down steps
+// 0 → 0-00 split → 00, and up reverses it.
+func TestZeroColumnNavigation(t *testing.T) {
+	zero := 0                            // master 0 = straight 0
+	split := masterOf(t, kSplit, "0-00") // the 0-00 split
+	dz := masterOf(t, kStraight, "00")   // straight on 00
+	if got := nextSpot(zero, 1, 0); got != split {
+		t.Errorf("down from 0 = %q, want the 0-00 split", masterBets[got].label)
+	}
+	if got := nextSpot(split, 1, 0); got != dz {
+		t.Errorf("down from the split = %q, want 00", masterBets[got].label)
+	}
+	if got := nextSpot(dz, -1, 0); got != split {
+		t.Errorf("up from 00 = %q, want the 0-00 split", masterBets[got].label)
+	}
+	if got := nextSpot(split, -1, 0); got != zero {
+		t.Errorf("up from the split = %q, want 0", masterBets[got].label)
 	}
 }
 

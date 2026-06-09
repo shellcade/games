@@ -27,12 +27,21 @@ steps:
   - key: enter           # drop a chip on the box under the cursor
   - shot: bets           # seat 0's view: chips on number/line/corner + readout
 
-  # --- seat 1 bets a street (its own colour) and readies --------------------
+  # --- seat 1 walks left to the two zeros and backs the 0-00 split ----------
   - seat: 1
-  - key: down
-  - key: down
-  - key: down            # step down to the street at the foot of the column
-  - key: enter           # a street (3 numbers)
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left            # 12 steps: 17 -> … -> the line between 0 and 00
+  - key: enter           # the American 0-00 split (its own colour)
   - rune: "r"            # seat 1 ready
 
   # --- both ready -> the window closes -> the wheel spins -------------------
