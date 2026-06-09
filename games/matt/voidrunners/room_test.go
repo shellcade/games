@@ -168,11 +168,60 @@ func TestComposeRendersFrame(t *testing.T) {
 	rm, tr := newTestRoom(t, "alice")
 	a := tr.Players[0]
 	rm.OnJoin(tr, a)
-	f := rm.composeFor(a)
-	if f == nil {
-		t.Fatal("composeFor returned nil frame")
-	}
+	f := kit.NewFrame()
+	rm.composeFor(f, a)
 	if len(f.Cells) != kit.Rows || len(f.Cells[0]) != kit.Cols {
 		t.Fatal("frame is not 24x80")
+	}
+}
+
+// TestSteadyStateWakeAllocs guards the OOM that quarantined v1. Production runs
+// -gc=leaking: every byte allocated is permanent for the room's life, so a
+// per-tick allocation grows without bound until the guest OOMs. The original
+// bug allocated a fresh 24x80 frame PER VIEWER PER WAKE (~2KB each), so it grew
+// with player count — which is exactly why it only crashed in multiplayer. The
+// fix reuses one long-lived rm.frame. The bound here is well below one frame
+// allocation, so any regression to per-tick framing trips it, while tolerating
+// the HUD's handful of small strings (the same budget shape shipped games use).
+func TestSteadyStateWakeAllocs(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice", "bob", "cleo")
+	for _, p := range tr.Players {
+		rm.OnJoin(tr, p)
+	}
+	// Settle, with the busy paths live (bullets in flight, an explosion).
+	for _, p := range tr.Players {
+		rm.fire(tr, p, rm.ships[p.AccountID])
+	}
+	rm.addExplosion(40, 11, kit.Red)
+	for i := 0; i < 10; i++ {
+		tr.Advance(50 * time.Millisecond)
+		rm.OnWake(tr)
+	}
+
+	allocs := testing.AllocsPerRun(50, func() {
+		tr.Advance(50 * time.Millisecond)
+		rm.OnWake(tr)
+	})
+	t.Logf("3-player wake allocs/op: %.1f", allocs)
+	// kittest's Send copies each frame into a growing per-player history (~3
+	// allocs/tick, a harness artifact the real host doesn't have); the budget
+	// rides above that but far below the ~3 frame allocations the old code did.
+	if allocs > 40 {
+		t.Fatalf("3-player wake allocates %.1f/op — permanent growth under -gc=leaking (budget 40); did render() stop reusing rm.frame?", allocs)
+	}
+}
+
+// TestRenderReusesFrame asserts render keeps using the one long-lived buffer
+// rather than allocating a fresh frame per tick.
+func TestRenderReusesFrame(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice", "bob")
+	for _, p := range tr.Players {
+		rm.OnJoin(tr, p)
+	}
+	before := rm.frame
+	rm.render(tr)
+	rm.render(tr)
+	if rm.frame != before {
+		t.Fatal("render replaced rm.frame — it must reuse the single long-lived buffer")
 	}
 }

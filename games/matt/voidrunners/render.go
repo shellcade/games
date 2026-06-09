@@ -26,16 +26,18 @@ func headingSector(heading float64) int {
 
 func shipGlyph(heading float64) rune { return shipGlyphs[headingSector(heading)] }
 
-// render composes and sends a tailored frame to every connected pilot.
+// render composes and sends a tailored frame to every connected pilot, reusing
+// one long-lived frame buffer (Send copies immediately, so per-tick rendering
+// is allocation-free regardless of player count).
 func (rm *room) render(r kit.Room) {
 	for _, p := range r.Members() {
-		r.Send(p, rm.composeFor(p))
+		rm.frame.Clear()
+		rm.composeFor(rm.frame, p)
+		r.Send(p, rm.frame)
 	}
 }
 
-func (rm *room) composeFor(viewer kit.Player) *kit.Frame {
-	f := kit.NewFrame()
-
+func (rm *room) composeFor(f *kit.Frame, viewer kit.Player) {
 	// Background starfield.
 	for _, st := range rm.stars {
 		fg := kit.DimGray
@@ -52,7 +54,6 @@ func (rm *room) composeFor(viewer kit.Player) *kit.Frame {
 	rm.drawShips(f, viewer)
 	rm.drawExplosions(f)
 	rm.drawHUD(f, viewer)
-	return f
 }
 
 func (rm *room) drawCraters(f *kit.Frame) {
