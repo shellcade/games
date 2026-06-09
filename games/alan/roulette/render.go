@@ -534,13 +534,13 @@ func roundSummary(won, staked int) string {
 	net := won - staked
 	switch {
 	case won == 0:
-		return "Lost " + strconv.Itoa(staked)
+		return "lost " + strconv.Itoa(staked)
 	case net > 0:
-		return "Won " + strconv.Itoa(won) + ", gained " + strconv.Itoa(net)
+		return "won " + strconv.Itoa(won) + ", gained " + strconv.Itoa(net)
 	case net < 0:
-		return "Won " + strconv.Itoa(won) + ", lost " + strconv.Itoa(-net)
+		return "won " + strconv.Itoa(won) + ", lost " + strconv.Itoa(-net)
 	default:
-		return "Won " + strconv.Itoa(won) + ", broke even"
+		return "won " + strconv.Itoa(won) + ", broke even"
 	}
 }
 
