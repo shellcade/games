@@ -152,10 +152,10 @@ func (rm *room) tickMonsters(r kit.Room, now time.Time) {
 			any = true
 		}
 	}
-	if !any {
-		return
-	}
 	for _, m := range rm.monsters {
+		if !any {
+			break // no active floor: skip the AI pass, but still reap below
+		}
 		if m.hp <= 0 || m.hidden || !active[m.floor] {
 			continue
 		}
@@ -178,6 +178,46 @@ func (rm *room) tickMonsters(r kit.Room, now time.Time) {
 			m.nextAt = now.Add(m.sp.period) // still behind after the cap: snap
 		}
 	}
+	rm.reapDead()
+}
+
+// reapDead drops 0-HP monsters from the live slice. A dead monster is already
+// inert everywhere (every rm.monsters reader skips hp<=0), so this changes no
+// behavior — but the Boneyard is a RESIDENT world that runs for a WEEK, and
+// spawners (lich acolytes raise skeletons, ossuary tyrants whistle up jackals)
+// append without bound. Without reaping, rm.monsters grows monotonically and
+// every wake's O(monsters) pass (here AND in render) creeps upward until it
+// starves the 100ms tick on the shared vCPU. Compact in place, order-preserving,
+// niling the dropped tail so dead monsters can be GC'd.
+func (rm *room) reapDead() {
+	live := rm.monsters[:0]
+	for _, m := range rm.monsters {
+		if m.hp > 0 {
+			live = append(live, m)
+		}
+	}
+	for i := len(live); i < len(rm.monsters); i++ {
+		rm.monsters[i] = nil
+	}
+	rm.monsters = live
+}
+
+// maxFloorMonsters caps a single floor's LIVE monster population, the upper
+// bound spawners (lich acolyte, ossuary tyrant) respect. Far above a floor's
+// natural spawn density (~6–14), so ordinary play never hits it — it exists
+// solely to keep an indefinitely-camped resident floor from growing rm.monsters
+// without bound.
+const maxFloorMonsters = 48
+
+// floorMonsters counts the live monsters on a floor (the spawn-cap probe).
+func (rm *room) floorMonsters(floor int) int {
+	n := 0
+	for _, m := range rm.monsters {
+		if m.hp > 0 && m.floor == floor {
+			n++
+		}
+	}
+	return n
 }
 
 // actMonster is one action on the monster's own clock.
@@ -220,7 +260,12 @@ func (rm *room) actMonster(r kit.Room, m *monster) {
 			rm.dirtyWitnesses(m.floor, m.x, m.y, nil)
 		}
 	case "lich acolyte":
-		if roll(&m.rng, 40) == 1 {
+		// Spawners are gated on a per-floor live-population cap: in a week-long
+		// resident world a delver can keep a floor "active" indefinitely, and an
+		// ungated raise/whistle grows rm.monsters without bound until the wake
+		// loop starves the tick. The cap is well above natural density, so it
+		// only ever bites a runaway.
+		if roll(&m.rng, 40) == 1 && rm.floorMonsters(m.floor) < maxFloorMonsters {
 			if c := rm.nearestCorpse(m); c != nil {
 				rm.monsters = append(rm.monsters, &monster{sp: speciesByName("skeleton"),
 					floor: m.floor, x: c.x, y: c.y, hp: scaled(14, hpScalar(m.floor)),
@@ -230,7 +275,7 @@ func (rm *room) actMonster(r kit.Room, m *monster) {
 			}
 		}
 	case "ossuary tyrant":
-		if target != nil && roll(&m.rng, 30) == 1 {
+		if target != nil && roll(&m.rng, 30) == 1 && rm.floorMonsters(m.floor) < maxFloorMonsters {
 			rm.monsters = append(rm.monsters, &monster{sp: speciesByName("jackal"),
 				floor: m.floor, x: m.x, y: m.y, hp: scaled(5, hpScalar(m.floor)),
 				rng: actorSeed(rm.world.seed, uint64(m.floor), uint64(len(rm.monsters)))})
