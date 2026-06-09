@@ -7,7 +7,7 @@ over SSH at [shellcade.com](https://shellcade.com).
 Fly an asteroids-style fighter around an 80×24 arena, weave through drifting
 craters, and blast every other pilot you can line up. Get destroyed, explode,
 respawn, and keep hunting — it's an endless arena and your all-time best kill
-count rides the leaderboard.
+count rides the leaderboard. No rounds, no waiting: jump in and start flying.
 
 ```
 +--------------------------------------------------------------------------------+
