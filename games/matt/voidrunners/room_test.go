@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func TestStartAndSmokeNoPanic(t *testing.T) {
 		tr.Advance(50 * time.Millisecond)
 		rm.OnWake(tr)
 
-		if len(rm.craters) < craterTarget {
+		if len(rm.craters) < rm.craterTarget() {
 			t.Fatalf("craters not topped up: %d", len(rm.craters))
 		}
 		for id, s := range rm.ships {
@@ -58,6 +59,82 @@ func TestStartAndSmokeNoPanic(t *testing.T) {
 				t.Fatalf("ship %s rounds off-field to (row %d,col %d) from (%.2f,%.2f)", id, row, col, s.x, s.y)
 			}
 		}
+	}
+}
+
+func TestDirectionalSteerSetsHeadingAndThrust(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0]
+	rm.OnJoin(tr, a)
+	s := rm.ships[a.AccountID]
+	s.vx, s.vy = 0, 0
+
+	// Pressing Up must immediately face north and start moving up (-y).
+	rm.OnInput(tr, a, keyNamed(kit.KeyUp))
+	if s.heading != dirHeading[dirN] {
+		t.Fatalf("Up: heading %.3f, want north %.3f", s.heading, dirHeading[dirN])
+	}
+	if s.vy >= 0 {
+		t.Fatalf("Up: vy %.3f, want negative (upward)", s.vy)
+	}
+	if math.Abs(s.vx) > 1e-9 {
+		t.Fatalf("Up: vx %.3f, want ~0 (no sideways drift from a pure-up press)", s.vx)
+	}
+}
+
+func TestDiagonalChord(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0]
+	rm.OnJoin(tr, a)
+	s := rm.ships[a.AccountID]
+
+	// Up then Left within the chord window -> heads up-left.
+	rm.OnInput(tr, a, keyNamed(kit.KeyUp))
+	tr.Advance(chordWindow / 2)
+	rm.OnInput(tr, a, keyNamed(kit.KeyLeft))
+
+	wantHeading := math.Atan2(-1, -1) // up-left
+	if math.Abs(s.heading-wantHeading) > 1e-6 {
+		t.Fatalf("chord up+left: heading %.3f, want %.3f", s.heading, wantHeading)
+	}
+	if s.vx >= 0 || s.vy >= 0 {
+		t.Fatalf("chord up+left: velocity (%.3f,%.3f), want both negative", s.vx, s.vy)
+	}
+}
+
+func TestNoChordOutsideWindow(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0]
+	rm.OnJoin(tr, a)
+	s := rm.ships[a.AccountID]
+
+	// Two perpendicular presses too far apart stay cardinal (the later wins).
+	rm.OnInput(tr, a, keyNamed(kit.KeyUp))
+	tr.Advance(chordWindow + 50*time.Millisecond)
+	rm.OnInput(tr, a, keyNamed(kit.KeyLeft))
+
+	if s.heading != dirHeading[dirW] {
+		t.Fatalf("stale presses: heading %.3f, want due west %.3f", s.heading, dirHeading[dirW])
+	}
+}
+
+func TestCraterCountDropsInMultiplayer(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice", "bob")
+	rm.OnJoin(tr, tr.Players[0]) // solo arena seeds soloCraters
+	if got := rm.craterTarget(); got != soloCraters {
+		t.Fatalf("1 player: target %d, want %d", got, soloCraters)
+	}
+	rm.OnJoin(tr, tr.Players[1]) // second pilot -> dogfight
+	if got := rm.craterTarget(); got != pvpCraters {
+		t.Fatalf("2 players: target %d, want %d", got, pvpCraters)
+	}
+	// A few wakes must trim the field down to the PvP target.
+	for i := 0; i < 5; i++ {
+		tr.Advance(50 * time.Millisecond)
+		rm.OnWake(tr)
+	}
+	if len(rm.craters) != pvpCraters {
+		t.Fatalf("after trim: %d craters, want %d", len(rm.craters), pvpCraters)
 	}
 }
 

@@ -20,23 +20,43 @@ const (
 	aspect = 0.5 // vertical cells per horizontal cell of "real" distance
 )
 
-// Flight model (units are horizontal cells / second unless noted).
+// Flight model (units are horizontal cells / second unless noted). Steering is
+// directional: an arrow points the ship that way and thrusts; pressing a second
+// perpendicular arrow within chordWindow heads the diagonal between them. There
+// is no brake key — tap the direction opposite your drift to slow down.
 const (
-	rotStep      = math.Pi / 8 // turn per left/right press (16 facings)
-	thrustDV     = 2.6         // velocity added per thrust press
-	brakeFactor  = 0.55        // velocity retained per brake press
-	maxSpeed     = 19.0        // speed cap
-	dragPerSec   = 0.55        // gentle space drag so drift eventually settles
+	thrustDV     = 2.6 // velocity added per direction press
+	maxSpeed     = 19.0
+	dragPerSec   = 0.55 // gentle space drag so drift eventually settles
 	bulletSpeed  = 46.0
 	bulletLife   = 750 * time.Millisecond // range = bulletSpeed * bulletLife (~34 cells)
 	fireCooldown = 260 * time.Millisecond
-	shipHit      = 1.5 // ship hit radius (horizontal cells) — covers the 2-cell craft
+	chordWindow  = 250 * time.Millisecond // two arrows within this window -> diagonal
+	shipHit      = 1.5                    // ship hit radius (horizontal cells) — covers the 2-cell craft
 )
+
+// Cardinal directions, indexed N,E,S,W. dirHeading is the heading in radians
+// (0 = east, clockwise, y-down); dirVec is the unit travel vector.
+const (
+	dirN = iota
+	dirE
+	dirS
+	dirW
+)
+
+var (
+	dirHeading = [4]float64{-math.Pi / 2, 0, math.Pi / 2, math.Pi}
+	dirVec     = [4][2]float64{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
+)
+
+// perpendicular reports whether two cardinal indices are at right angles (a
+// valid diagonal pairing); opposite or equal cardinals are not.
+func perpendicular(a, b int) bool { return (a % 2) != (b % 2) }
 
 // Arena rules.
 const (
-	craterTarget = 7               // crater entities kept floating around
-	initialRocks = 5               // large craters spawned at start
+	soloCraters  = 7               // craters kept floating in a 1-player arena
+	pvpCraters   = 1               // craters once it's a 2+ player dogfight
 	respawnDelay = 2 * time.Second // dead -> respawn wait
 	invulnDur    = 2 * time.Second // post-respawn safety
 	explodeDur   = 650 * time.Millisecond
@@ -56,6 +76,8 @@ type ship struct {
 	respawnAt   time.Time
 	invulnUntil time.Time
 	lastShot    time.Time
+	lastDir     int       // cardinal index of the last direction press (-1 = none)
+	lastDirAt   time.Time // when it was pressed (for the diagonal chord window)
 	kills       int
 	deaths      int
 	best        int // all-time best kills (seeded from durable KV)

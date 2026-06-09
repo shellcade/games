@@ -1,5 +1,18 @@
 # Changelog
 
+## Directional flight and a calmer multiplayer arena
+
+Reworked the controls. Arrows are now directional: press one and your ship
+points that way instantly and starts moving — you still keep your drift, so
+momentum carries. Press two perpendicular arrows in quick succession (e.g. up
+then left) to head the diagonal between them. The old rotate-and-thrust scheme
+and the dedicated brake are gone; to slow down, tap the direction opposite your
+drift.
+
+Also: once a second pilot joins, the arena drops from a field of craters to a
+single one, so multiplayer is a dogfight rather than an obstacle course (solo
+play keeps the full field for target practice).
+
 ## Fix multiplayer out-of-memory crash
 
 Fixed a crash that quarantined v1: the renderer allocated a fresh frame buffer
