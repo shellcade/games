@@ -1,0 +1,36 @@
+seed: 7
+seats: 2
+heartbeat: 50ms
+steps:
+  # (a) Arena at start: two pilots just spawned, the first wave of craters
+  # drifting, starfield behind. Let one heartbeat settle the opening frame.
+  - advance: 50ms
+  - shot: arena
+
+  # Seat 0 turns to line up a crater and thrusts in — momentum carries the ship.
+  - seat: 0
+  - key: right
+  - key: right
+  - key: up
+  - key: up
+  - advance: 300ms
+  - shot: thrust
+
+  # Seat 0 opens fire; bullets streak out along the nose heading. A short sweep
+  # lets a shot reach a crater and shatter it (the explosion ring shows).
+  - key: space
+  - key: space
+  - advance: 200ms
+  - shot: fire
+
+  # (b) Seat 1's own view: reverse-video own ship, distinct color, the same
+  # arena from the other pilot's seat.
+  - seat: 1
+  - advance: 50ms
+  - shot: rival-view
+
+  # Let the arena run a beat so craters drift, fragments fly, and craters top
+  # back up to the target count — the steady-state endless arena.
+  - advance: 500ms
+  - advance: 500ms
+  - shot: steady
