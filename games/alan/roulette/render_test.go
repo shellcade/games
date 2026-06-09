@@ -2,6 +2,24 @@ package main
 
 import "testing"
 
+func TestRoundSummary(t *testing.T) {
+	cases := []struct {
+		won, staked int
+		want        string
+	}{
+		{600, 400, "Won 600, gained 200"},
+		{100, 400, "Won 100, lost 300"},
+		{0, 600, "Lost 600"},
+		{400, 400, "Won 400, broke even"},
+		{0, 0, ""}, // sat the round out
+	}
+	for _, c := range cases {
+		if got := roundSummary(c.won, c.staked); got != c.want {
+			t.Errorf("roundSummary(%d,%d) = %q, want %q", c.won, c.staked, got, c.want)
+		}
+	}
+}
+
 func masterOf(t *testing.T, k betKind, label string) int {
 	t.Helper()
 	for i, b := range masterBets {

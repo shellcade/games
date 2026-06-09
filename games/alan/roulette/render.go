@@ -101,7 +101,7 @@ func (rm *room) compose(v kit.Player) *kit.Frame {
 
 	// The wheel takes over the whole screen while it spins.
 	if rm.phase == phSpinning {
-		rm.drawSpinScreen(f, now)
+		rm.drawSpinScreen(f, now, pl)
 		return f
 	}
 
@@ -458,7 +458,7 @@ func (rm *room) highlightWinner(f *kit.Frame) {
 
 // --- the spinning screen ----------------------------------------------------
 
-func (rm *room) drawSpinScreen(f *kit.Frame, now time.Time) {
+func (rm *room) drawSpinScreen(f *kit.Frame, now time.Time, pl *player) {
 	title := "* * *   S P I N N I N G   * * *"
 	f.Text(4, (kit.Cols-len(title))/2, title, stTitle)
 
@@ -497,13 +497,50 @@ func (rm *room) drawSpinScreen(f *kit.Frame, now time.Time) {
 		f.Text(top+1, x+(slotW-1-len(s))/2, s, st)
 	}
 
-	// Once the wheel has come to rest, hold on the result for a beat.
+	// Once the wheel has come to rest, hold on the result for a beat and tell the
+	// viewer how they did this round.
 	if now.Sub(rm.spinStart) >= spinAnimDur {
 		msg := "rests on " + numLabel(rm.result)
 		f.Text(top+6, (kit.Cols-len(msg))/2, msg, colorStyle(rm.result))
+		if pl != nil {
+			won, staked := rm.roundNet(pl)
+			if s := roundSummary(won, staked); s != "" {
+				f.Text(top+8, (kit.Cols-len(s))/2, s, netStyle(won-staked))
+			}
+		}
 	} else {
 		msg := "the ball is rolling..."
 		f.Text(top+6, (kit.Cols-len(msg))/2, msg, stDim)
+	}
+}
+
+// roundNet sums a player's gross returns and total stake against the spun
+// result (computed from the chips on the felt, which persist through the spin
+// and results screens, so it reads the same before and after settlement).
+func (rm *room) roundNet(pl *player) (won, staked int) {
+	for _, b := range pl.bets {
+		won += settleReturn(masterBets[b.master], b.stake, rm.result)
+		staked += b.stake
+	}
+	return won, staked
+}
+
+// roundSummary phrases a round's outcome: gross chips returned plus the net
+// after subtracting the stake. Empty when the player sat the round out.
+func roundSummary(won, staked int) string {
+	if staked == 0 {
+		return ""
+	}
+	net := won - staked
+	switch {
+	case won == 0:
+		return "Lost " + strconv.Itoa(staked)
+	case net > 0:
+		return "Won " + strconv.Itoa(won) + ", gained " + strconv.Itoa(net)
+	case net < 0:
+		return "Won " + strconv.Itoa(won) + ", lost " + strconv.Itoa(-net)
+	default:
+		return "Won " + strconv.Itoa(won) + ", broke even"
 	}
 }
 
@@ -598,6 +635,11 @@ func (rm *room) drawSidebar(f *kit.Frame, pl *player) {
 		}
 		f.Text(14, 2, "> "+desc+"   pays "+strconv.Itoa(b.kind.payout())+":1", stArmed)
 		f.TextRight(14, kit.Cols-2, "chip "+strconv.Itoa(stakeTiers[pl.stakeIdx]), stHead)
+	} else if rm.phase == phResults {
+		won, staked := rm.roundNet(pl)
+		if s := roundSummary(won, staked); s != "" {
+			f.Text(14, 2, s, netStyle(won-staked))
+		}
 	}
 
 	header := "your chips (" + strconv.Itoa(pl.staked()) + " down):"
