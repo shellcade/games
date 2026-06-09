@@ -27,10 +27,12 @@ steps:
   - key: enter           # drop a chip on the box under the cursor
   - shot: bets           # seat 0's view: chips on number/line/corner + readout
 
-  # --- seat 1 bets and readies ----------------------------------------------
+  # --- seat 1 bets a street (its own colour) and readies --------------------
   - seat: 1
-  - key: left
-  - key: enter           # a straight up
+  - key: down
+  - key: down
+  - key: down            # step down to the street at the foot of the column
+  - key: enter           # a street (3 numbers)
   - rune: "r"            # seat 1 ready
 
   # --- both ready -> the window closes -> the wheel spins -------------------

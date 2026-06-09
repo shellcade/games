@@ -59,6 +59,7 @@ type player struct {
 	bets       []placedBet
 	ready      bool
 	joinOrder  int
+	colorIdx   int // index into the chip-colour palette (stable while seated)
 
 	lastNet    int  // net chips from the last settled round (for the results panel)
 	lastPlayed bool // had at least one bet in the last settled round
@@ -115,6 +116,7 @@ type room struct {
 	lastNow  time.Time
 	frame    *kit.Frame
 	groupBuf []betGroup // reused per-render scratch for the "your chips" summary
+	chipBits []uint8    // per master bet: bitmask of player colours with a chip there (reused)
 
 	// viewer is the player a frame is currently being composed for, set
 	// transiently by compose so the outside-box drawer can read this viewer's
@@ -124,11 +126,30 @@ type room struct {
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 	return &room{
-		cfg:     cfg,
-		svc:     svc,
-		players: map[string]*player{},
-		frame:   kit.NewFrame(),
+		cfg:      cfg,
+		svc:      svc,
+		players:  map[string]*player{},
+		frame:    kit.NewFrame(),
+		chipBits: make([]uint8, len(masterBets)),
 	}
+}
+
+// freeColorIdx returns the lowest chip-colour index not currently held by a
+// seated player, so each player at the table has a distinct colour.
+func (rm *room) freeColorIdx() int {
+	for i := 0; i < numChipColors; i++ {
+		taken := false
+		for _, id := range rm.order {
+			if p := rm.players[id]; p != nil && p.colorIdx == i {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			return i
+		}
+	}
+	return 0 // more players than colours (capacity keeps this from happening)
 }
 
 func (rm *room) OnStart(r kit.Room) {
@@ -217,7 +238,7 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	bal, peak := rm.seedWallet(r, p)
 	rm.players[p.AccountID] = &player{
 		p: p, balance: bal, peak: peak, postedPeak: peak,
-		sel: newSelection(), joinOrder: rm.joinSeq,
+		sel: newSelection(), joinOrder: rm.joinSeq, colorIdx: rm.freeColorIdx(),
 	}
 	rm.joinSeq++
 	rm.order = append(rm.order, p.AccountID)

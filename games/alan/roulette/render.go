@@ -52,11 +52,32 @@ var (
 	stWin     = kit.Style{FG: kit.Green, Attr: kit.AttrBold}
 	stLose    = kit.Style{FG: kit.Red, Attr: kit.AttrBold}
 	stReady   = kit.Style{FG: kit.Green, Attr: kit.AttrBold}
-	stYou     = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}
 	stArmed   = kit.Style{FG: kit.Cyan, Attr: kit.AttrBold}
 	stCursor  = kit.Style{FG: kit.Yellow, BG: kit.Gray(0x44), Attr: kit.AttrBold | kit.AttrReverse}
 	stCover   = kit.Style{Attr: kit.AttrBold | kit.AttrUnderline}
+	stShared  = kit.Style{FG: kit.White, Attr: kit.AttrBold} // a spot held by 2+ players
 )
+
+// chipColors is the per-player chip palette: each seated player gets a distinct
+// colour (assigned in room.freeColorIdx), drawn on the felt so everyone sees
+// everyone's chips. The roster doubles as the legend.
+var chipColors = []kit.Color{
+	kit.RGB(0x4f, 0xc3, 0xf7), // sky blue
+	kit.RGB(0xff, 0xa7, 0x26), // amber
+	kit.RGB(0xba, 0x68, 0xc8), // violet
+	kit.RGB(0x4d, 0xd0, 0xb1), // teal
+	kit.RGB(0xf0, 0x6e, 0x8e), // pink
+	kit.RGB(0xc5, 0xe1, 0x7a), // lime
+}
+
+const numChipColors = 6
+
+func chipStyle(idx int) kit.Style {
+	if idx < 0 || idx >= len(chipColors) {
+		idx = 0
+	}
+	return kit.Style{FG: chipColors[idx], Attr: kit.AttrBold}
+}
 
 // render composes and sends a per-viewer frame to every member.
 func (rm *room) render(r kit.Room) {
@@ -129,15 +150,11 @@ func (rm *room) drawFelt(f *kit.Frame, pl *player) {
 	}
 	rm.drawOutsideBoxes(f)
 
-	// Overlays: this viewer's chips, then the bet under the cursor, then (at
-	// results) the winning number.
-	if pl != nil {
-		for _, b := range pl.bets {
-			rm.markChip(f, b.master)
-		}
-		if rm.phase == phBetting {
-			rm.drawCursor(f, pl)
-		}
+	// Overlays: every player's chips (each in their colour), then this viewer's
+	// cursor, then (at results) the winning number.
+	rm.drawAllChips(f)
+	if pl != nil && rm.phase == phBetting {
+		rm.drawCursor(f, pl)
 	}
 	if rm.phase == phResults {
 		rm.highlightWinner(f)
@@ -311,25 +328,72 @@ func (rm *room) shadeOutside(f *kit.Frame, b bet, overlay kit.Style) {
 	f.Text(row, col+centerPad(w, len(outsideLabel(b))), outsideLabel(b), st)
 }
 
-// markChip drops this viewer's chip marker at a placed bet's spot.
-func (rm *room) markChip(f *kit.Frame, mi int) {
+// chipPos returns the screen cell where a bet's chip marker sits — a number's
+// left slot, the centre of a street/split line, the line/cross of a split or
+// corner, or the corner of an outside box.
+func chipPos(mi int) (row, col int) {
 	b := masterBets[mi]
 	if b.outside {
 		row, col, _ := outsideRect(b)
-		f.SetRune(row, col, '*', stChip)
-		return
+		return row, col
 	}
 	sp := spots[mi]
-	row := gridTop + sp.fr
 	switch {
 	case sp.fc < 0:
-		f.SetRune(rowOfRR(1), zeroCol, '*', stChip)
+		return rowOfRR(1), zeroCol
 	case sp.fr%2 == 1 && sp.fc%2 == 1:
 		rr, c := gridRC(b.nums[0])
-		f.SetRune(rowOfRR(rr), colInterior(c), '*', stChip)
+		return rowOfRR(rr), colInterior(c)
+	case sp.fr%2 == 0 && sp.fc%2 == 1:
+		// A horizontal line (a vertical split, or a street on the bottom edge):
+		// centre the chip in the cell's line segment, not on the left grid line.
+		return gridTop + sp.fr, colInterior(sp.fc/2) + iw/2
 	default:
-		f.SetRune(row, lineCol(sp.fc/2), '*', stChip)
+		// A vertical line (a horizontal split) or an intersection (corner /
+		// six-line): the chip sits on the line/cross itself.
+		return gridTop + sp.fr, lineCol(sp.fc / 2)
 	}
+}
+
+// drawAllChips marks every player's chips on the felt: a spot held by one
+// player shows a '*' in that player's colour; a spot shared by two or more
+// shows a white '+'. The chipBits scratch (a per-bet bitmask of player colours)
+// is reused and reset here, so no allocation leaks per render.
+func (rm *room) drawAllChips(f *kit.Frame) {
+	for i := range rm.chipBits {
+		rm.chipBits[i] = 0
+	}
+	for _, id := range rm.order {
+		p := rm.players[id]
+		if p == nil {
+			continue
+		}
+		for _, b := range p.bets {
+			rm.chipBits[b.master] |= 1 << uint(p.colorIdx)
+		}
+	}
+	for mi, bits := range rm.chipBits {
+		if bits == 0 {
+			continue
+		}
+		row, col := chipPos(mi)
+		if onlyOneBit(bits) {
+			f.SetRune(row, col, '*', chipStyle(lowestBit(bits)))
+		} else {
+			f.SetRune(row, col, '+', stShared)
+		}
+	}
+}
+
+func onlyOneBit(b uint8) bool { return b != 0 && b&(b-1) == 0 }
+
+func lowestBit(b uint8) int {
+	for i := 0; i < 8; i++ {
+		if b&(1<<uint(i)) != 0 {
+			return i
+		}
+	}
+	return 0
 }
 
 func (rm *room) highlightWinner(f *kit.Frame) {
@@ -429,27 +493,30 @@ func (rm *room) drawRoster(f *kit.Frame, v kit.Player) {
 			continue
 		}
 		name := pl.p.Handle
-		if len(name) > 8 {
-			name = name[:8]
+		if len(name) > 7 {
+			name = name[:7]
 		}
-		nameSt := stDim
+		// Chip-colour swatch + name (the roster is the legend): the viewer's own
+		// row is bold so they can spot their colour.
+		f.SetRune(row, panelLeft, '*', chipStyle(pl.colorIdx))
+		nameSt := kit.Style{FG: chipColors[pl.colorIdx]}
 		if id == v.AccountID {
-			nameSt = stYou
+			nameSt.Attr |= kit.AttrBold
 		}
-		f.Text(row, panelLeft, pad(name, 8), nameSt)
+		f.Text(row, panelLeft+2, name, nameSt)
 		f.TextRight(row, kit.Cols-1, pad2r(pl.balance, 5), stHead)
 		switch rm.phase {
 		case phResults:
 			if pl.lastPlayed {
-				f.Text(row, panelLeft+9, signed(pl.lastNet), netStyle(pl.lastNet))
+				f.Text(row, panelLeft+10, signed(pl.lastNet), netStyle(pl.lastNet))
 			} else {
-				f.Text(row, panelLeft+9, ".", stDim)
+				f.Text(row, panelLeft+10, ".", stDim)
 			}
 		default:
 			if pl.ready {
-				f.Text(row, panelLeft+9, "rdy", stReady)
+				f.Text(row, panelLeft+10, "rdy", stReady)
 			} else if s := pl.staked(); s > 0 {
-				f.Text(row, panelLeft+9, "@"+strconv.Itoa(s), stChip)
+				f.Text(row, panelLeft+10, "@"+strconv.Itoa(s), stChip)
 			}
 		}
 		row++
@@ -482,6 +549,7 @@ func (rm *room) drawSidebar(f *kit.Frame, pl *player) {
 		f.Text(16, 4, "none yet", stDim)
 		return
 	}
+	yourSt := chipStyle(pl.colorIdx)
 	col, row := 4, 16
 	for i, g := range groups {
 		seg := masterBets[g.master].label + " x" + strconv.Itoa(g.stake)
@@ -493,7 +561,7 @@ func (rm *room) drawSidebar(f *kit.Frame, pl *player) {
 			f.Text(21, col, "+"+strconv.Itoa(len(groups)-i)+" more", stDim)
 			break
 		}
-		col = f.Text(row, col, seg, stChip)
+		col = f.Text(row, col, seg, yourSt)
 		col = f.Text(row, col, "   ", stDim)
 	}
 }
