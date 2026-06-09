@@ -66,8 +66,12 @@ func (rm *room) composePassage(f *kit.Frame, v kit.Player) {
 		cursor = ps.cursor
 		outstanding = ps.outstanding
 	}
-	const w = 76
-	lines := wrap(rm.passage, w)
+	// Wrap is fixed for the room (passage + width constant); computed once in
+	// OnStart. Guard for a resumed room whose snapshot predates the cache.
+	if rm.plines == nil {
+		rm.plines = wrap(rm.passage, passageWidth)
+	}
+	lines := rm.plines
 	// which wrapped line holds the cursor
 	curLine := 0
 	for i, ln := range lines {

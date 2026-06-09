@@ -20,6 +20,10 @@ const (
 	echoCap      = 240
 
 	configRefresh = 30 * time.Second
+
+	// passageWidth is the typing-panel wrap width. The passage is fixed for the
+	// room, so its wrap is computed once (OnStart) rather than per render.
+	passageWidth = 76
 )
 
 // phases — internal state only. The native game published these to the host via
@@ -68,6 +72,7 @@ type room struct {
 	passage []rune
 	ptext   string
 	pdiff   string
+	plines  [][2]int // passage wrapped to passageWidth, computed once (fixed for the room)
 
 	phase   string
 	st      map[string]*pstate // account id -> state (hibernation-safe key)
@@ -112,10 +117,18 @@ func (rm *room) OnStart(r kit.Room) {
 	p := pickPassage(r.Rand())
 	rm.ptext = p.Text
 	rm.pdiff = p.Difficulty
-	rm.passage = []rune(p.Text)
+	rm.setPassage([]rune(p.Text))
 	rm.loadConfig(r)
 	rm.nextCfg = r.Now().Add(configRefresh)
 	r.SetInputContext(kit.CtxNav) // pre-race lobby/countdown: q/Esc backs out
+}
+
+// setPassage sets the passage and (re)computes its wrap in lockstep, so the
+// render path can read the cached rm.plines without re-wrapping every frame.
+// The wrap is fixed for a passage, so this runs once per room (OnStart).
+func (rm *room) setPassage(p []rune) {
+	rm.passage = p
+	rm.plines = wrap(p, passageWidth)
 }
 
 // loadConfig reads the anti-cheat flag threshold from per-game config. A

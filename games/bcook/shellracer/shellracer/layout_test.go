@@ -221,7 +221,7 @@ func TestPassageAutoScroll(t *testing.T) {
 			sb = append(sb, 'a'+rune(i%26))
 		}
 	}
-	d.rm.passage = sb
+	d.rm.setPassage(sb)
 	lines := wrap(d.rm.passage, 76)
 	const panelRows = 15
 	if len(lines) <= panelRows {

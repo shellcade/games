@@ -69,6 +69,13 @@ type variant struct {
 	name    string
 	strip   []symbol
 	triples map[symbol]int // three-of-a-kind multiplier per symbol (absent = pays 0)
+
+	// Paytable display, computed ONCE at compile time (compilePayTable). The
+	// paytable is static for a variant's life, but drawPaytable runs every render
+	// per viewer — recomputing the sorted rows + " x%d" labels there leaked a
+	// slice and a sort.SliceStable on every wake under -gc=leaking. Cache them.
+	payRowsCache []payRow
+	payLabels    []string
 }
 
 // payout returns the bet multiplier for three settled center faces under this
@@ -166,6 +173,7 @@ func compileVariant(doc oddsVariant) (*variant, error) {
 	}
 
 	v := &variant{name: doc.Name, strip: strip, triples: triples}
+	v.payRowsCache, v.payLabels = compilePayTable(triples)
 	rtp, _ := v.stats()
 	if rtp < minRTP-rtpEpsilon || rtp > maxRTP+rtpEpsilon {
 		return nil, fmt.Errorf("theoretical RTP %.1f%% is outside the allowed [%.0f%%, %.0f%%]",
@@ -240,16 +248,22 @@ type payRow struct {
 // order, feeding the paytable strip under the cabinets. Stable sort keeps
 // equal multipliers in stripOrder so the output never depends on map
 // iteration order.
-func (v *variant) payRows() []payRow {
-	var rows []payRow
+// compilePayTable builds the descending-by-multiplier pay rows and their
+// " x%d" labels ONCE per variant (called from compileVariant). drawPaytable
+// then reads the cached slices, allocating nothing per render.
+func compilePayTable(triples map[symbol]int) (rows []payRow, labels []string) {
 	// Range stripOrder (not the triples map) so iteration order is deterministic.
 	for _, s := range stripOrder {
-		if m := v.triples[s]; m > 0 {
+		if m := triples[s]; m > 0 {
 			rows = append(rows, payRow{s, m})
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].mult > rows[j].mult })
-	return rows
+	labels = make([]string, len(rows))
+	for i, pr := range rows {
+		labels[i] = fmt.Sprintf(" x%d", pr.mult)
+	}
+	return rows, labels
 }
 
 // windowAt returns the three visible faces (top, center, bottom) when the strip
