@@ -1,12 +1,17 @@
 package shellracer
 
 import (
-	"fmt"
-	"sort"
 	"time"
 
 	kit "github.com/shellcade/kit/v2"
 )
+
+// resultsHeader reproduces the old fmt.Sprintf("%-4s %-20s %-6s %-6s %s",
+// "#", "Player", "WPM", "ACC", "Status"): "#" left-justified in 4, a space,
+// "Player" left in 20, a space, "WPM" left in 6, a space, "ACC" left in 6, a
+// space, then "Status". Precomputed once so the results header costs no
+// per-render allocation.
+const resultsHeader = "#    Player               WPM    ACC    Status"
 
 var (
 	stHeader = kit.Style{FG: kit.White, Attr: kit.AttrBold}
@@ -34,13 +39,24 @@ func (rm *room) compose(f *kit.Frame, r kit.Room, v kit.Player) {
 	members := r.Members()
 
 	// Row 0: header
-	f.Text(0, 1, fmt.Sprintf("Shell Racer  [%s]", rm.pdiff), stHeader)
-	f.TextRight(0, kit.Cols-1, fmt.Sprintf("(%d/%d)", len(members), rm.cfg.Capacity), stHeader)
+	c := f.Text(0, 1, "Shell Racer  [", stHeader)
+	c = f.Text(0, c, rm.pdiff, stHeader)
+	f.Text(0, c, "]", stHeader)
+	// "(%d/%d)" right-justified ending at kit.Cols-1, drawn alloc-free.
+	n, capacity := len(members), rm.cfg.Capacity
+	rw := 3 + intWidth(n) + intWidth(capacity) // '(' + n + '/' + cap + ')'
+	hc := kit.Cols - 1 - rw + 1
+	hc = f.Text(0, hc, "(", stHeader)
+	hc = putInt(f, 0, hc, n, stHeader)
+	hc = f.Text(0, hc, "/", stHeader)
+	hc = putInt(f, 0, hc, capacity, stHeader)
+	f.Text(0, hc, ")", stHeader)
 
 	switch rm.phase {
 	case phLobby:
 		f.Text(10, 1, "Waiting for opponents...", stAccent)
-		f.Text(11, 1, fmt.Sprintf("%d player(s) in the room.", len(members)), stDim)
+		lc := putInt(f, 11, 1, len(members), stDim)
+		f.Text(11, lc, " player(s) in the room.", stDim)
 	case phResults:
 		rm.composeResults(f, v)
 	default: // countdown, racing
@@ -129,26 +145,25 @@ func (rm *room) composeRacers(f *kit.Frame, r kit.Room, v kit.Player) {
 	const stripTop = 18
 	row := stripTop
 	if ps := rm.st[v.AccountID]; ps != nil {
-		rm.racerRow(f, row, "You ("+v.DisplayName()+")", ps, stAccent, stAccent)
+		rm.racerRowYou(f, row, v.DisplayName(), ps, stAccent, stAccent)
 		row++
 	}
 
-	var opps []kit.Player
+	// Build the opponent list into a reusable buffer (no per-render alloc) and
+	// stable-sort it by join order then account id with an in-place insertion
+	// sort (sort.SliceStable's closure would allocate, leaking under -gc=leaking).
+	opps := rm.oppBuf[:0]
 	for _, p := range r.Members() {
 		if p.AccountID != v.AccountID {
 			opps = append(opps, p)
 		}
 	}
-	sort.SliceStable(opps, func(i, j int) bool {
-		oi, oj := rm.st[opps[i].AccountID], rm.st[opps[j].AccountID]
-		if oi == nil || oj == nil {
-			return false
+	rm.oppBuf = opps
+	for i := 1; i < len(opps); i++ {
+		for j := i; j > 0 && rm.oppLess(opps[j], opps[j-1]); j-- {
+			opps[j], opps[j-1] = opps[j-1], opps[j]
 		}
-		if oi.joinOrder != oj.joinOrder {
-			return oi.joinOrder < oj.joinOrder
-		}
-		return opps[i].AccountID < opps[j].AccountID
-	})
+	}
 	for _, p := range opps {
 		if row > 22 {
 			break
@@ -162,14 +177,57 @@ func (rm *room) composeRacers(f *kit.Frame, r kit.Room, v kit.Player) {
 	}
 }
 
+// oppLess is the stable opponent ordering: by join order, then account id.
+// Matches the previous sort.SliceStable comparator (nil states sort as equal).
+func (rm *room) oppLess(a, b kit.Player) bool {
+	oa, ob := rm.st[a.AccountID], rm.st[b.AccountID]
+	if oa == nil || ob == nil {
+		return false
+	}
+	if oa.joinOrder != ob.joinOrder {
+		return oa.joinOrder < ob.joinOrder
+	}
+	return a.AccountID < b.AccountID
+}
+
 // racerRow draws one strip line: padded name, progress bar, WPM and accuracy.
 func (rm *room) racerRow(f *kit.Frame, row int, name string, ps *pstate, nameSt, statSt kit.Style) {
-	if len(name) > 18 {
-		name = name[:18]
+	putTextLeft(f, row, 1, name, 18, nameSt)
+	rm.racerRowTail(f, row, ps, statSt)
+}
+
+// racerRowYou draws the viewer's own strip line, where the name field holds
+// "You (NAME)" left-justified in 18 columns (truncated to fit). Drawn without
+// allocating the concatenated label.
+func (rm *room) racerRowYou(f *kit.Frame, row int, name string, ps *pstate, nameSt, statSt kit.Style) {
+	const end = 1 + 18 // exclusive column of the 18-wide name field at col 1
+	col := f.Text(row, 1, "You (", nameSt)
+	for _, r := range name {
+		if col >= end {
+			break
+		}
+		f.SetRune(row, col, r, nameSt)
+		col++
 	}
-	f.Text(row, 1, fmt.Sprintf("%-18s", name), nameSt)
-	f.Text(row, 20, progressBar(ps.cursor, len(rm.passage), 20), stDone)
-	f.Text(row, 43, fmt.Sprintf("WPM:%3d  ACC:%s", ps.wpmSnapOrLive(rm), accuracyStr(ps)), statSt)
+	if col < end {
+		f.SetRune(row, col, ')', nameSt)
+		col++
+	}
+	for col < end {
+		f.SetRune(row, col, ' ', nameSt)
+		col++
+	}
+	rm.racerRowTail(f, row, ps, statSt)
+}
+
+// racerRowTail draws the progress bar and the "WPM:nnn  ACC:nn%" stats that
+// follow the name field, alloc-free.
+func (rm *room) racerRowTail(f *kit.Frame, row int, ps *pstate, statSt kit.Style) {
+	putProgressBar(f, row, 20, ps.cursor, len(rm.passage), 20)
+	c := f.Text(row, 43, "WPM:", statSt)
+	c = putIntRight(f, row, c, ps.wpmSnapOrLive(rm), 3, statSt)
+	c = f.Text(row, c, "  ACC:", statSt)
+	putAccuracy(f, row, c, ps, statSt)
 }
 
 func (rm *room) composeCountdown(f *kit.Frame) {
@@ -184,33 +242,39 @@ func (rm *room) composeCountdown(f *kit.Frame) {
 	if secs > 99 {
 		secs = 99
 	}
-	msg := fmt.Sprintf("Starting in %d...", secs)
-	// a centered band over the passage panel
-	f.Text(9, (kit.Cols-len(msg))/2, msg, stAccent)
+	// "Starting in %d..." centered over the passage panel, drawn alloc-free.
+	const prefix, suffix = "Starting in ", "..."
+	msgLen := len(prefix) + intWidth(secs) + len(suffix)
+	col := (kit.Cols - msgLen) / 2
+	col = f.Text(9, col, prefix, stAccent)
+	col = putInt(f, 9, col, secs, stAccent)
+	f.Text(9, col, suffix, stAccent)
 }
 
 func (rm *room) composeResults(f *kit.Frame, v kit.Player) {
 	f.Text(2, 1, "RESULTS", stHeader)
-	f.Text(4, 2, fmt.Sprintf("%-4s %-20s %-6s %-6s %s", "#", "Player", "WPM", "ACC", "Status"), stDim)
+	f.Text(4, 2, resultsHeader, stDim)
 	row := 5
 	for _, pr := range rm.result.Rankings {
 		if row > 20 {
 			break
 		}
 		ps := rm.st[pr.Player.AccountID]
-		acc := "--"
-		if ps != nil {
-			acc = accuracyStr(ps)
-		}
-		name := pr.Player.DisplayName()
-		if len(name) > 20 {
-			name = name[:20]
-		}
 		st := stPlain
 		if pr.Player.AccountID == v.AccountID {
 			st = stAccent
 		}
-		f.Text(row, 2, fmt.Sprintf("%-4d %-20s %-6d %-6s %s", pr.Rank, name, pr.Metric, acc, statusLabel(pr.Status)), st)
+		// "%-4d %-20s %-6d %-6s %s": rank(4) sp name(20) sp metric(6) sp acc(6)
+		// sp status — each field left-justified, a single space between them.
+		col := putIntLeft(f, row, 2, pr.Rank, 4, st)
+		col = f.Text(row, col, " ", st)
+		col = putTextLeft(f, row, col, pr.Player.DisplayName(), 20, st)
+		col = f.Text(row, col, " ", st)
+		col = putIntLeft(f, row, col, pr.Metric, 6, st)
+		col = f.Text(row, col, " ", st)
+		col = putAccuracyField(f, row, col, ps, 6, st)
+		col = f.Text(row, col, " ", st)
+		f.Text(row, col, statusLabel(pr.Status), st)
 		row++
 	}
 }
@@ -238,15 +302,33 @@ func (ps *pstate) wpmSnapOrLive(rm *room) int {
 	return rm.netWPM(ps, rm.lastNow)
 }
 
-func accuracyStr(ps *pstate) string {
+// putAccuracy writes the accuracy ("--" or "NN%") at (row,col), returning the
+// next column. Mirrors the old accuracyStr but draws inline without allocating.
+func putAccuracy(f *kit.Frame, row, col int, ps *pstate, st kit.Style) int {
 	denom := ps.cursor + ps.errorsTotal
 	if denom == 0 {
-		return "--"
+		return f.Text(row, col, "--", st)
 	}
-	return fmt.Sprintf("%d%%", ps.cursor*100/denom)
+	col = putInt(f, row, col, ps.cursor*100/denom, st)
+	f.SetRune(row, col, '%', st)
+	return col + 1
 }
 
-func progressBar(done, total, width int) string {
+// putAccuracyField writes the accuracy left-justified in a field of `width`
+// columns, space-padded. Returns col+width. Alloc-free.
+func putAccuracyField(f *kit.Frame, row, col int, ps *pstate, width int, st kit.Style) int {
+	end := col + width
+	col = putAccuracy(f, row, col, ps, st)
+	for col < end {
+		f.SetRune(row, col, ' ', st)
+		col++
+	}
+	return end
+}
+
+// putProgressBar draws "[####....]" of `width` body cells at (row,col),
+// alloc-free, matching the old progressBar output.
+func putProgressBar(f *kit.Frame, row, col, done, total, width int) {
 	if total <= 0 {
 		total = 1
 	}
@@ -254,17 +336,17 @@ func progressBar(done, total, width int) string {
 	if filled > width {
 		filled = width
 	}
-	b := make([]byte, 0, width+2)
-	b = append(b, '[')
+	f.SetRune(row, col, '[', stDone)
+	col++
 	for i := 0; i < width; i++ {
 		if i < filled {
-			b = append(b, '#')
+			f.SetRune(row, col, '#', stDone)
 		} else {
-			b = append(b, '.')
+			f.SetRune(row, col, '.', stDone)
 		}
+		col++
 	}
-	b = append(b, ']')
-	return string(b)
+	f.SetRune(row, col, ']', stDone)
 }
 
 // wrap greedily word-wraps runes to width w, returning [start,end) ranges.

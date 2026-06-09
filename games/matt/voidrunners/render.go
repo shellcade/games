@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math"
 
 	kit "github.com/shellcade/kit/v2"
@@ -151,22 +150,29 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player) {
 			continue
 		}
 		name := p.Handle
-		if len([]rune(name)) > 8 {
-			name = string([]rune(name)[:8])
-		}
 		col = f.Text(0, col, "● ", kit.Style{FG: s.color, Attr: kit.AttrBold})
-		seg := fmt.Sprintf("%s %d", name, s.kills)
+		st := kit.Style{FG: s.color}
+		col = putTextTrunc(f, 0, col, name, 8, st)
+		col = f.Text(0, col, " ", st)
+		col = putInt(f, 0, col, s.kills, st)
 		if id == viewer.AccountID {
-			seg += "*"
+			col = f.Text(0, col, "*", st)
 		}
-		col = f.Text(0, col, seg+"  ", kit.Style{FG: s.color})
+		col = f.Text(0, col, "  ", st)
 		if col > 58 {
 			break
 		}
 	}
 	if vs := rm.ships[viewer.AccountID]; vs != nil {
-		f.TextRight(0, cols-1, fmt.Sprintf("K %d  D %d  BEST %d", vs.kills, vs.deaths, vs.best),
-			kit.Style{FG: kit.White, Attr: kit.AttrBold})
+		st := kit.Style{FG: kit.White, Attr: kit.AttrBold}
+		w := 2 + intWidth(vs.kills) + 4 + intWidth(vs.deaths) + 7 + intWidth(vs.best)
+		c := cols - w
+		c = f.Text(0, c, "K ", st)
+		c = putInt(f, 0, c, vs.kills, st)
+		c = f.Text(0, c, "  D ", st)
+		c = putInt(f, 0, c, vs.deaths, st)
+		c = f.Text(0, c, "  BEST ", st)
+		putInt(f, 0, c, vs.best, st)
 	}
 
 	// Bottom: controls + status.
@@ -178,8 +184,13 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player) {
 		if secs < 0 {
 			secs = 0
 		}
-		f.TextRight(bottom+1, cols-1, fmt.Sprintf("DESTROYED — respawn in %ds", secs),
-			kit.Style{FG: kit.Red, Attr: kit.AttrBold})
+		st := kit.Style{FG: kit.Red, Attr: kit.AttrBold}
+		const prefix = "DESTROYED — respawn in "
+		w := runeLen(prefix) + intWidth(secs) + 1
+		c := cols - w
+		c = f.Text(bottom+1, c, prefix, st)
+		c = putInt(f, bottom+1, c, secs, st)
+		f.SetRune(bottom+1, c, 's', st)
 		banner := "✦  YOU WERE DESTROYED  ✦"
 		f.Text(11, (cols-len([]rune(banner)))/2, banner, kit.Style{FG: kit.Red, Attr: kit.AttrBold})
 	}

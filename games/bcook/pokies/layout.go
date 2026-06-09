@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	kit "github.com/shellcade/kit/v2"
 )
 
@@ -107,7 +105,13 @@ func (rm *room) compose(v kit.Player) *kit.Frame {
 
 	f.Text(kit.Rows-1, 2, "Up/Down bet   SPACE spin   Esc leave", stDim)
 	if m := rm.machines[v.AccountID]; m != nil {
-		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.balance, m.highScore), stDim)
+		// "BAL <balance>   HI <highScore>" right-aligned so it ends at kit.Cols-2.
+		w := runeLen("BAL ") + intWidth(m.balance) + runeLen("   HI ") + intWidth(m.highScore)
+		c := kit.Cols - 2 - w + 1
+		c = f.Text(kit.Rows-1, c, "BAL ", stDim)
+		c = putInt(f, kit.Rows-1, c, m.balance, stDim)
+		c = f.Text(kit.Rows-1, c, "   HI ", stDim)
+		putInt(f, kit.Rows-1, c, m.highScore, stDim)
 	}
 	return f
 }
@@ -247,7 +251,9 @@ func (rm *room) border(f *kit.Frame, row, col int, lc, rc rune, st kit.Style) {
 // body draws a "LABEL    value" interior line (label left, number right).
 func (rm *room) body(f *kit.Frame, row, col int, label string, val int) {
 	f.Text(row, col+2, label, stLabel)
-	f.TextRight(row, col+cardW-2, fmt.Sprintf("%d", val), stTitle)
+	// value right-aligned so it ends at col+cardW-2.
+	end := col + cardW - 2
+	putInt(f, row, end-intWidth(val)+1, val, stTitle)
 }
 
 func (rm *room) status(f *kit.Frame, row, col int, m *machine) {

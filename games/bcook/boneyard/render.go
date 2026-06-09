@@ -164,16 +164,22 @@ func (rm *room) hud(d *delver) {
 
 	// Row 21: HP, depth, torch gauge, gold.
 	col := fr.Text(21, 0, "HP ", stHUDDim)
-	col += fr.Text(21, col, itoa(d.hp)+"/"+itoa(d.maxHP), stHUD)
+	col = putInt(fr, 21, col, d.hp, stHUD)
+	fr.SetRune(21, col, '/', stHUD)
+	putInt(fr, 21, col+1, d.maxHP, stHUD)
 	col = 14
-	col += fr.Text(21, col, "B"+itoa(d.floor), kit.Style{FG: kit.Yellow, Attr: kit.AttrBold})
+	col = fr.Text(21, col, "B", kit.Style{FG: kit.Yellow, Attr: kit.AttrBold})
+	putInt(fr, 21, col, d.floor, kit.Style{FG: kit.Yellow, Attr: kit.AttrBold})
 	col = 22
-	col += fr.Text(21, col, "Torch ", stHUDDim)
-	col = rm.torchGauge(d, 28)
+	fr.Text(21, col, "Torch ", stHUDDim)
+	rm.torchGauge(d, 28)
 	col = 42
-	col += fr.Text(21, col, "$ ", stHUDDim)
-	col += fr.Text(21, col, itoa(d.gold), stTorch)
-	fr.TextRight(21, kit.Cols-1, "banked B"+itoa(d.banked), stHUDDim)
+	col = fr.Text(21, col, "$ ", stHUDDim)
+	putInt(fr, 21, col, d.gold, stTorch)
+	// "banked B<n>" right-aligned to kit.Cols-1.
+	bw := runeLen("banked B") + intWidth(d.banked)
+	bc := fr.Text(21, kit.Cols-bw, "banked B", stHUDDim)
+	putInt(fr, 21, bc, d.banked, stHUDDim)
 
 	// Row 22: the world line — who else is down here.
 	others := 0
@@ -183,9 +189,15 @@ func (rm *room) hud(d *delver) {
 		}
 	}
 	fr.Text(22, 0, "BONEYARD", stTitle)
-	fr.TextRight(22, kit.Cols-1, "collapses in "+rm.cdCache, stHUDDim)
+	// "collapses in <cdCache>" right-aligned to kit.Cols-1, written as two
+	// alloc-free frame writes (the literal+cdCache concat would allocate per
+	// render under -gc=leaking).
+	cdw := runeLen("collapses in ") + runeLen(rm.cdCache)
+	cdc := fr.Text(22, kit.Cols-cdw, "collapses in ", stHUDDim)
+	fr.Text(22, cdc, rm.cdCache, stHUDDim)
 	if others > 0 {
-		fr.Text(22, 10, itoa(others)+" other delver(s) on this floor", stMsg)
+		oc := putInt(fr, 22, 10, others, stMsg)
+		fr.Text(22, oc, " other delver(s) on this floor", stMsg)
 	} else {
 		fr.Text(22, 10, "alone down here (you think)", stHUDDim)
 	}
@@ -213,7 +225,8 @@ func (rm *room) torchGauge(d *delver, col int) int {
 	if d.torch == 0 {
 		numSt = stTorchOut
 	}
-	fr.Text(21, col+6, itoa(d.torch)+"t", numSt)
+	tc := putInt(fr, 21, col+6, d.torch, numSt)
+	fr.SetRune(21, tc, 't', numSt)
 	return col
 }
 
@@ -228,7 +241,8 @@ func (rm *room) memorial(d *delver) {
 		}
 	}
 	fr.Text(1, 2, "THE BONEYARD — ROLL OF THE DEAD", stTitle)
-	fr.Text(2, 2, "collapses in "+rm.cdCache, stHUDDim)
+	mc := fr.Text(2, 2, "collapses in ", stHUDDim)
+	fr.Text(2, mc, rm.cdCache, stHUDDim)
 
 	// Top three by respects, then the deepest, then the freshest.
 	row := 4
@@ -246,17 +260,25 @@ func (rm *room) memorial(d *delver) {
 			return
 		}
 		fr.Text(row, 2, label, stShrine)
-		fr.Text(row, 18, clampCols(c.name()+" — "+c.killer+", B"+itoa(c.floor), 58), stHUD)
+		w := newClampWriter(fr, row, 18, 58, stHUD)
+		w.strClamp(c.handle, 24).str(" — ").str(c.killer).str(", B").num(c.floor)
+		w.done()
 		row++
-		fr.Text(row, 18, clampCols("\""+c.words+"\"", 58), stMsg)
+		ww := newClampWriter(fr, row, 18, 58, stMsg)
+		ww.str("\"").str(c.words).str("\"")
+		ww.done()
 		row += 2
 	}
 	line("MOST MOURNED", mostMourned)
 	line("DEEPEST DEATH", deepest)
 	n := len(rm.bones)
-	fr.Text(row+1, 2, itoa(n)+" souls rest in this week's Ossuary.", stMsg)
+	nc := putInt(fr, row+1, 2, n, stMsg)
+	fr.Text(row+1, nc, " souls rest in this week's Ossuary.", stMsg)
 	fr.Text(kit.Rows-3, 2, "YOUR LINEAGE", stShrine)
-	fr.Text(kit.Rows-2, 2, "this week: banked B"+itoa(d.banked)+"   "+delverBadge(d.banked), stHUD)
+	lc := fr.Text(kit.Rows-2, 2, "this week: banked B", stHUD)
+	lc = putInt(fr, kit.Rows-2, lc, d.banked, stHUD)
+	lc = fr.Text(kit.Rows-2, lc, "   ", stHUD)
+	fr.Text(kit.Rows-2, lc, delverBadge(d.banked), stHUD)
 	fr.Text(kit.Rows-1, 2, "[m] back to the dark", stHUDDim)
 }
 
@@ -283,11 +305,46 @@ func (rm *room) deathCardScreen(d *delver) {
 		fr.Text(row, col, s, st)
 	}
 	center(4, "Y O U   D I E D", kit.Style{FG: kit.Red, Attr: kit.AttrBold})
-	center(6, "on B"+itoa(c.floor)+", slain by "+c.killer, stHUD)
-	center(9, "banked B"+itoa(c.banked)+"   "+itoa(c.kills)+" kills   "+itoa(c.gold)+" gold", stMsg)
-	center(10, itoa(c.respects)+" mourned   "+itoa(c.avenges)+" avenged", stMsg)
+
+	// "on B<floor>, slain by <killer>"
+	w6 := runeLen("on B") + intWidth(c.floor) + runeLen(", slain by ") + runeLen(c.killer)
+	c6 := centerStart(w6)
+	c6 = fr.Text(6, c6, "on B", stHUD)
+	c6 = putInt(fr, 6, c6, c.floor, stHUD)
+	c6 = fr.Text(6, c6, ", slain by ", stHUD)
+	fr.Text(6, c6, c.killer, stHUD)
+
+	// "banked B<n>   <kills> kills   <gold> gold"
+	w9 := runeLen("banked B") + intWidth(c.banked) + runeLen("   ") +
+		intWidth(c.kills) + runeLen(" kills   ") + intWidth(c.gold) + runeLen(" gold")
+	c9 := centerStart(w9)
+	c9 = fr.Text(9, c9, "banked B", stMsg)
+	c9 = putInt(fr, 9, c9, c.banked, stMsg)
+	c9 = fr.Text(9, c9, "   ", stMsg)
+	c9 = putInt(fr, 9, c9, c.kills, stMsg)
+	c9 = fr.Text(9, c9, " kills   ", stMsg)
+	c9 = putInt(fr, 9, c9, c.gold, stMsg)
+	fr.Text(9, c9, " gold", stMsg)
+
+	// "<respects> mourned   <avenges> avenged"
+	w10 := intWidth(c.respects) + runeLen(" mourned   ") + intWidth(c.avenges) + runeLen(" avenged")
+	c10 := centerStart(w10)
+	c10 = putInt(fr, 10, c10, c.respects, stMsg)
+	c10 = fr.Text(10, c10, " mourned   ", stMsg)
+	c10 = putInt(fr, 10, c10, c.avenges, stMsg)
+	fr.Text(10, c10, " avenged", stMsg)
+
 	if c.deepestHandle != "" {
-		center(13, "deepest this week: B"+itoa(c.deepestThisWeek)+" by "+clampCols(c.deepestHandle, 20), stShrine)
+		// "deepest this week: B<n> by <handle clamped to 20>"
+		w13 := runeLen("deepest this week: B") + intWidth(c.deepestThisWeek) +
+			runeLen(" by ") + clampWidth(c.deepestHandle, 20)
+		c13 := centerStart(w13)
+		c13 = fr.Text(13, c13, "deepest this week: B", stShrine)
+		c13 = putInt(fr, 13, c13, c.deepestThisWeek, stShrine)
+		c13 = fr.Text(13, c13, " by ", stShrine)
+		dw := newClampWriter(fr, 13, c13, 20, stShrine)
+		dw.strClamp(c.deepestHandle, 20)
+		dw.done()
 	}
 	center(16, "the Gate calls you back", stHUDDim)
 	center(kit.Rows-2, "press any key", stHUDDim)
@@ -305,15 +362,38 @@ func (rm *room) gateScreen(d *delver) {
 		fr.Text(row, col, s, st)
 	}
 	center(2, "T H E   G A T E", stTitle)
-	center(3, "The Sunken Ossuary  —  collapses in "+rm.cdCache, stHUDDim)
-	deep, who := 0, ""
+	// "The Sunken Ossuary  —  collapses in <cdCache>" centered, written as two
+	// alloc-free frame writes (concat would allocate per render).
+	gw := runeLen("The Sunken Ossuary  —  collapses in ") + runeLen(rm.cdCache)
+	gc := centerStart(gw)
+	gc = fr.Text(3, gc, "The Sunken Ossuary  —  collapses in ", stHUDDim)
+	fr.Text(3, gc, rm.cdCache, stHUDDim)
+	deep := 0
+	var whoHandle string
 	for _, c := range rm.bones {
 		if c.floor > deep {
-			deep, who = c.floor, c.name()
+			deep, whoHandle = c.floor, c.handle
 		}
 	}
-	center(6, "deepest descent:  B"+itoa(deep)+"  ("+who+")", stShrine)
-	center(7, itoa(len(rm.bones))+" bones rest below.  Your best: B"+itoa(d.banked), stMsg)
+	// "deepest descent:  B<deep>  (<name clamped to 24>)" — name() == clampCols(handle,24).
+	w6 := runeLen("deepest descent:  B") + intWidth(deep) + runeLen("  (") +
+		clampWidth(whoHandle, 24) + runeLen(")")
+	c6 := centerStart(w6)
+	c6 = fr.Text(6, c6, "deepest descent:  B", stShrine)
+	c6 = putInt(fr, 6, c6, deep, stShrine)
+	c6 = fr.Text(6, c6, "  (", stShrine)
+	nw := newClampWriter(fr, 6, c6, 24, stShrine)
+	nw.strClamp(whoHandle, 24)
+	nw.done()
+	fr.Text(6, nw.col, ")", stShrine)
+
+	// "<bones> bones rest below.  Your best: B<banked>"
+	nb := len(rm.bones)
+	w7 := intWidth(nb) + runeLen(" bones rest below.  Your best: B") + intWidth(d.banked)
+	c7 := centerStart(w7)
+	c7 = putInt(fr, 7, c7, nb, stMsg)
+	c7 = fr.Text(7, c7, " bones rest below.  Your best: B", stMsg)
+	putInt(fr, 7, c7, d.banked, stMsg)
 	center(10, "[1] BLADE    [2] LANTERN    [3] FLASK", stHUD)
 	center(11, "choose your kit, then step off the stairs to descend", stHUDDim)
 	center(14, "[m] the Roll of the Dead", stHUDDim)

@@ -99,6 +99,10 @@ type room struct {
 	resultOK bool
 
 	frame *kit.Frame // reused render scratch (allocation-light steady state)
+
+	// oppBuf is a reusable scratch slice for composeRacers' opponent list, so the
+	// per-render strip build allocates nothing under -gc=leaking.
+	oppBuf []kit.Player
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {

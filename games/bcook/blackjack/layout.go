@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -60,11 +59,15 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 
 	// Title + phase/time above the felt.
 	f.Text(0, 1, "♠♥♦♣ BLACKJACK", stTitle)
-	phase := rm.phase
 	if secs := rm.remaining(); secs > 0 {
-		phase = fmt.Sprintf("%s · %s", rm.phase, clock(secs))
+		// "<phase> · <clock>" right-anchored: compute width, then write l-to-r.
+		w := runeLen(rm.phase) + runeLen(" · ") + clockWidth(secs)
+		c := f.Text(0, kit.Cols-1-w+1, rm.phase, stPhase)
+		c = f.Text(0, c, " · ", stPhase)
+		putClock(f, 0, c, secs, stPhase)
+	} else {
+		f.TextRight(0, kit.Cols-1, rm.phase, stPhase)
 	}
-	f.TextRight(0, kit.Cols-1, phase, stPhase)
 
 	drawFelt(f, feltTop, feltBottom)
 	center(f, feltTop, " B L A C K J A C K ", stFelt)
@@ -95,7 +98,12 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 
 	f.Text(kit.Rows-1, 1, "Esc leave", stDim)
 	if s := rm.seats[v.AccountID]; s != nil {
-		f.TextRight(kit.Rows-1, kit.Cols-1, fmt.Sprintf("chips %d   HI %d", s.chips, s.highScore), stDim)
+		// "chips %d   HI %d" right-anchored ending at Cols-1.
+		w := runeLen("chips ") + intWidth(s.chips) + runeLen("   HI ") + intWidth(s.highScore)
+		c := f.Text(kit.Rows-1, kit.Cols-1-w+1, "chips ", stDim)
+		c = putInt(f, kit.Rows-1, c, s.chips, stDim)
+		c = f.Text(kit.Rows-1, c, "   HI ", stDim)
+		putInt(f, kit.Rows-1, c, s.highScore, stDim)
 	}
 }
 
@@ -111,16 +119,21 @@ func (rm *room) drawDealer(f *kit.Frame) {
 	w := cardsWidth(len(rm.dealer))
 	col := (kit.Cols - w) / 2
 	drawCardsAnim(f, dealerRow, col, rm.dealer, hide, rm.dealerResolver())
-	show := rm.dealer.total()
-	label := fmt.Sprintf("(%d)", show)
+	lc := col + w + 2
 	if rm.dealerHole {
-		label = fmt.Sprintf("shows %d", hand{rm.dealer[0]}.total())
+		// "shows %d" — the dealer up card's total only.
+		c := f.Text(dealerRow+1, lc, "shows ", stDim)
+		putInt(f, dealerRow+1, c, hand{rm.dealer[0]}.total(), stDim)
 	} else if rm.dealer.isBlackjack() {
-		label = "BLACKJACK"
+		f.Text(dealerRow+1, lc, "BLACKJACK", stDim)
 	} else if rm.dealer.isBust() {
-		label = "BUST"
+		f.Text(dealerRow+1, lc, "BUST", stDim)
+	} else {
+		// "(%d)" — the dealer's full total.
+		c := f.Text(dealerRow+1, lc, "(", stDim)
+		c = putInt(f, dealerRow+1, c, rm.dealer.total(), stDim)
+		f.Text(dealerRow+1, c, ")", stDim)
 	}
-	f.Text(dealerRow+1, col+w+2, label, stDim)
 }
 
 func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
@@ -140,20 +153,31 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
 	}
 	if active {
 		// A doubled, highlighted marker so the active seat is unmissable; the
-		// glyph degrades to ">>" on non-UTF-8 sessions (► -> >).
-		name = "►►" + name
+		// glyph degrades to ">>" on non-UTF-8 sessions (► -> >). Written as a
+		// "►►"+name composite centred in the slot, without the allocating concat.
+		w := runeLen("►►") + runeLen(name)
+		c := f.Text(seatNameRow, slotStart(slot, w), "►►", nameSt)
+		f.Text(seatNameRow, c, name, nameSt)
+	} else {
+		centerSlot(f, seatNameRow, slot, name, nameSt)
 	}
-	centerSlot(f, seatNameRow, slot, name, nameSt)
 
 	if rm.phase == phBetting {
-		status := "--"
 		if s.placed {
-			status = fmt.Sprintf("bet %d", s.bet)
+			// "bet %d" centred in the slot.
+			w := runeLen("bet ") + intWidth(s.bet)
+			c := f.Text(seatCardRow+1, slotStart(slot, w), "bet ", stDim)
+			putInt(f, seatCardRow+1, c, s.bet, stDim)
 		} else if own {
-			status = fmt.Sprintf("bet %d?", s.bet)
+			// "bet %d?" centred in the slot.
+			w := runeLen("bet ") + intWidth(s.bet) + 1
+			c := f.Text(seatCardRow+1, slotStart(slot, w), "bet ", stDim)
+			c = putInt(f, seatCardRow+1, c, s.bet, stDim)
+			f.Text(seatCardRow+1, c, "?", stDim)
+		} else {
+			centerSlot(f, seatCardRow+1, slot, "--", stDim)
 		}
-		centerSlot(f, seatCardRow+1, slot, status, stDim)
-		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+		putChips(f, seatChipRow, slot, s.chips, stDim)
 		return
 	}
 	// A seat with no hand sat the round out (it never placed a bet). This keys off
@@ -163,26 +187,62 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
 	if len(s.hands) == 0 {
 		centerSlot(f, seatCardRow+1, slot, "no bet", stDim)
 		centerSlot(f, seatValRow, slot, "sat out", stDim)
-		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+		putChips(f, seatChipRow, slot, s.chips, stDim)
 		return
 	}
 
-	// Draw the seat's hand(s) as joined card groups, left to right within the slot.
+	// Draw the seat's hand(s) as joined card groups, left to right within the
+	// slot. The drawn count is the prefix of hands that fit; an overflowing tail
+	// shows a "+" marker. We mirror the value-list join (labels separated by
+	// single spaces) without allocating: compute its width, then write directly.
 	col := slot + 1
 	limit := slot + slotW
-	var vals []string
+	drawn := 0 // hands actually drawn (card groups rendered)
+	overflow := false
 	for hi, h := range s.hands {
 		w := cardsWidth(len(h.cards))
 		if col+w > limit && hi > 0 {
-			vals = append(vals, "+")
+			overflow = true
 			break
 		}
 		drawCardsAnim(f, seatCardRow, col, h.cards, -1, rm.seatResolver(s.p, hi, h))
 		col += w + 1
-		vals = append(vals, valueLabel(h.cards))
+		drawn++
 	}
-	centerSlot(f, seatValRow, slot, strings.Join(vals, " "), valueStyle(s))
-	centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+	// Joined value-label width: each drawn hand's label, plus a "+" if overflowed,
+	// separated by single spaces (matching strings.Join(vals, " ")).
+	valW := 0
+	for i := 0; i < drawn; i++ {
+		if i > 0 {
+			valW++ // separating space
+		}
+		valW += valueLabelWidth(s.hands[i].cards)
+	}
+	if overflow {
+		if drawn > 0 {
+			valW++ // separating space
+		}
+		valW++ // "+"
+	}
+	// Write the joined labels centred within the slot.
+	valSt := valueStyle(s)
+	vc := slotStart(slot, valW)
+	for i := 0; i < drawn; i++ {
+		if i > 0 {
+			f.SetRune(seatValRow, vc, ' ', valSt)
+			vc++
+		}
+		vc = putValueLabel(f, seatValRow, vc, s.hands[i].cards, valSt)
+	}
+	if overflow {
+		if drawn > 0 {
+			f.SetRune(seatValRow, vc, ' ', valSt)
+			vc++
+		}
+		f.SetRune(seatValRow, vc, '+', valSt)
+		vc++
+	}
+	putChips(f, seatChipRow, slot, s.chips, stDim)
 	if rm.phase == phResults && s.result != "" {
 		centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
 	}
@@ -193,43 +253,59 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 	if s == nil {
 		return
 	}
-	var msg string
-	st := stActive
 	switch rm.phase {
 	case phBetting:
 		if !s.placed {
 			// Prominent, highlighted call to bet for a viewer who hasn't yet.
 			// ASCII-only so it reads identically on non-UTF-8 sessions.
-			msg, st = "PLACE YOUR BET - Up/Down stake  SPACE bet", stPrompt
+			center(f, actionRow, "PLACE YOUR BET - Up/Down stake  SPACE bet", stPrompt)
 		} else if n := rm.unplacedCount(); n > 0 {
+			// "waiting on %d %s to bet - deals in %s" centred, written without
+			// allocating: compute the width, then write the pieces directly.
 			noun := "player"
 			if n != 1 {
 				noun = "players"
 			}
-			msg, st = fmt.Sprintf("waiting on %d %s to bet - deals in %s", n, noun, clock(rm.remaining())), stDim
+			secs := rm.remaining()
+			w := runeLen("waiting on ") + intWidth(n) + 1 + runeLen(noun) +
+				runeLen(" to bet - deals in ") + clockWidth(secs)
+			c := (kit.Cols - w) / 2
+			c = f.Text(actionRow, c, "waiting on ", stDim)
+			c = putInt(f, actionRow, c, n, stDim)
+			f.SetRune(actionRow, c, ' ', stDim)
+			c++
+			c = f.Text(actionRow, c, noun, stDim)
+			c = f.Text(actionRow, c, " to bet - deals in ", stDim)
+			putClock(f, actionRow, c, secs, stDim)
 		} else {
-			msg, st = "all bets in - dealing...", stPhase
+			center(f, actionRow, "all bets in - dealing...", stPhase)
 		}
 	case phInsurance:
 		if s.placed && !s.insuranceDecided {
-			msg = "Dealer shows an Ace - Insurance?   [Y]es   [N]o"
+			center(f, actionRow, "Dealer shows an Ace - Insurance?   [Y]es   [N]o", stActive)
 		} else {
-			msg, st = "waiting for insurance...", stDim
+			center(f, actionRow, "waiting for insurance...", stDim)
 		}
 	case phTurns:
 		switch {
 		case active != nil && active.p.AccountID == v.AccountID:
 			_, h := rm.firstUnresolved()
-			// Highlighted YOUR TURN so the viewer can't miss that it's on them.
-			msg, st = "YOUR TURN - "+legalActions(s, h), stPrompt
+			// Highlighted "YOUR TURN - " + the legal-action prompt, centred and
+			// written piece-by-piece (the actions joined by "  ") with no alloc.
+			w := runeLen("YOUR TURN - ") + legalActionsWidth(s, h)
+			c := (kit.Cols - w) / 2
+			c = f.Text(actionRow, c, "YOUR TURN - ", stPrompt)
+			putLegalActions(f, actionRow, c, s, h, stPrompt)
 		case active != nil:
-			msg, st = fmt.Sprintf("waiting on %s...", active.p.Handle), stDim
+			// "waiting on %s..." centred, written directly (literal, handle, "...").
+			w := runeLen("waiting on ") + runeLen(active.p.Handle) + runeLen("...")
+			c := (kit.Cols - w) / 2
+			c = f.Text(actionRow, c, "waiting on ", stDim)
+			c = f.Text(actionRow, c, active.p.Handle, stDim)
+			f.Text(actionRow, c, "...", stDim)
 		}
 	case phResults:
-		msg, st = "round over - next hand shortly", stDim
-	}
-	if msg != "" {
-		center(f, actionRow, msg, st)
+		center(f, actionRow, "round over - next hand shortly", stDim)
 	}
 }
 
@@ -244,23 +320,53 @@ func (rm *room) unplacedCount() int {
 	return n
 }
 
-// legalActions lists the action prompts available for hand h.
-func legalActions(s *seat, h *phand) string {
+// eachLegalAction calls fn for each action prompt available for hand h, in the
+// same order legalActions used to list them. Shared by legalActionsWidth and
+// putLegalActions so the width and the writes can never diverge.
+func eachLegalAction(s *seat, h *phand, fn func(label string)) {
 	if h == nil {
-		return ""
+		return
 	}
-	parts := []string{"[H]it", "[S]tand"}
+	fn("[H]it")
+	fn("[S]tand")
 	first := len(h.cards) == 2 && !h.doubled
 	if first && s.chips >= h.bet {
-		parts = append(parts, "[D]ouble")
+		fn("[D]ouble")
 	}
 	if first && h.cards[0].r == h.cards[1].r && s.chips >= h.bet && len(s.hands) < maxHands {
-		parts = append(parts, "[P]split")
+		fn("[P]split")
 	}
 	if first && len(s.hands) == 1 {
-		parts = append(parts, "[R]surrender")
+		fn("[R]surrender")
 	}
-	return strings.Join(parts, "  ")
+}
+
+// legalActionsWidth returns the column width of the action prompts joined by
+// two-space separators (matching the old strings.Join(parts, "  ")).
+func legalActionsWidth(s *seat, h *phand) int {
+	w, n := 0, 0
+	eachLegalAction(s, h, func(label string) {
+		if n > 0 {
+			w += 2 // "  " separator
+		}
+		w += runeLen(label)
+		n++
+	})
+	return w
+}
+
+// putLegalActions writes the action prompts (joined by "  ") at (row, col) and
+// returns the next column, allocating nothing.
+func putLegalActions(f *kit.Frame, row, col int, s *seat, h *phand, st kit.Style) int {
+	n := 0
+	eachLegalAction(s, h, func(label string) {
+		if n > 0 {
+			col = f.Text(row, col, "  ", st)
+		}
+		col = f.Text(row, col, label, st)
+		n++
+	})
+	return col
 }
 
 // --- animation-aware card drawing ------------------------------------------
@@ -297,44 +403,53 @@ func (rm *room) faceFromAnim(a cardAnim) cardFace {
 	return cardFace{flip: frame, flipping: flipping}
 }
 
+// cardResolver carries the per-card draw decision inputs as a plain value so
+// drawCardsAnim can consult it WITHOUT a heap-allocating closure (a func literal
+// capturing rm/p/bustIdx escapes to the heap, which leaks under -gc=leaking).
+// active=false means the static layout (no animation, no bust highlight).
+type cardResolver struct {
+	rm      *room
+	active  bool
+	kind    animKind
+	player  kit.Player
+	handIdx int
+	bustIdx int
+}
+
+// face computes the draw aspect for card i, mirroring the old resolver closures.
+func (cr cardResolver) face(i int) cardFace {
+	var face cardFace
+	if !cr.active {
+		return face
+	}
+	if a, ok := cr.rm.animFor(cr.kind, cr.player, cr.handIdx, i); ok {
+		face = cr.rm.faceFromAnim(a)
+	}
+	if i == cr.bustIdx && !face.sliding {
+		face.highlight = stLose
+		face.hasHL = true
+	}
+	return face
+}
+
 // seatResolver returns a per-card animation resolver for one of a seat's hands.
 // It also highlights the busting (final) card of a busted hand through results
 // so a bust stays visible and explained rather than the seat blanking.
-func (rm *room) seatResolver(p kit.Player, handIdx int, h *phand) func(i int) cardFace {
+func (rm *room) seatResolver(p kit.Player, handIdx int, h *phand) cardResolver {
 	bustIdx := -1
 	if h.cards.isBust() {
 		bustIdx = len(h.cards) - 1
 	}
-	return func(i int) cardFace {
-		var face cardFace
-		if a, ok := rm.animFor(animSeat, p, handIdx, i); ok {
-			face = rm.faceFromAnim(a)
-		}
-		if i == bustIdx && !face.sliding {
-			face.highlight = stLose
-			face.hasHL = true
-		}
-		return face
-	}
+	return cardResolver{rm: rm, active: true, kind: animSeat, player: p, handIdx: handIdx, bustIdx: bustIdx}
 }
 
 // dealerResolver returns the dealer row's per-card animation resolver.
-func (rm *room) dealerResolver() func(i int) cardFace {
+func (rm *room) dealerResolver() cardResolver {
 	bustIdx := -1
 	if !rm.dealerHole && rm.dealer.isBust() {
 		bustIdx = len(rm.dealer) - 1
 	}
-	return func(i int) cardFace {
-		var face cardFace
-		if a, ok := rm.animFor(animDealer, kit.Player{}, 0, i); ok {
-			face = rm.faceFromAnim(a)
-		}
-		if i == bustIdx && !face.sliding {
-			face.highlight = stLose
-			face.hasHL = true
-		}
-		return face
-	}
+	return cardResolver{rm: rm, active: true, kind: animDealer, handIdx: 0, bustIdx: bustIdx}
 }
 
 // drawCardBack renders a face-down card box (4 wide) at (row, col). It degrades
@@ -377,7 +492,7 @@ type cardFace struct {
 // drawCardsAnim renders the joined card group, consulting resolve(i) for each
 // card's animation aspect. resolve may be nil (the static layout). hideIdx
 // conceals a card as "??" (the dealer hole card).
-func drawCardsAnim(f *kit.Frame, row, col int, cards hand, hideIdx int, resolve func(i int) cardFace) {
+func drawCardsAnim(f *kit.Frame, row, col int, cards hand, hideIdx int, resolve cardResolver) {
 	if len(cards) == 0 {
 		f.Text(row+1, col, "( )", stDim)
 		return
@@ -386,9 +501,9 @@ func drawCardsAnim(f *kit.Frame, row, col int, cards hand, hideIdx int, resolve 
 	// (slide complete). A still-sliding tail card floats in separately so the
 	// joined box never has to render a gap.
 	arrived := len(cards)
-	if resolve != nil {
+	if resolve.active {
 		for i := range cards {
-			if resolve(i).sliding {
+			if resolve.face(i).sliding {
 				arrived = i
 				break
 			}
@@ -407,8 +522,8 @@ func drawCardsAnim(f *kit.Frame, row, col int, cards hand, hideIdx int, resolve 
 		f.SetRune(row+2, c, '─', stFelt)
 		f.SetRune(row+2, c+1, '─', stFelt)
 		var face cardFace
-		if resolve != nil {
-			face = resolve(i)
+		if resolve.active {
+			face = resolve.face(i)
 		}
 		switch {
 		case i == hideIdx:
@@ -444,9 +559,9 @@ func drawCardsAnim(f *kit.Frame, row, col int, cards hand, hideIdx int, resolve 
 	}
 	// Float any still-sliding cards in from the right felt edge toward the slot
 	// they will occupy once the group grows to include them.
-	if resolve != nil {
+	if resolve.active {
 		for i := arrived; i < len(cards); i++ {
-			face := resolve(i)
+			face := resolve.face(i)
 			if !face.sliding {
 				continue
 			}
@@ -482,14 +597,45 @@ func center(f *kit.Frame, row int, s string, st kit.Style) {
 	f.Text(row, (kit.Cols-len([]rune(s)))/2, s, st)
 }
 
-// centerSlot centres s within a slotW-wide column starting at slot.
+// centerSlot centres s within a slotW-wide column starting at slot. It is
+// alloc-free: it counts runes, and when s overflows the slot it writes only the
+// first slotW runes (at offset 0) by iterating runes and stopping at slotW,
+// rather than slicing-then-converting.
 func centerSlot(f *kit.Frame, row, slot int, s string, st kit.Style) {
-	n := len([]rune(s))
+	n := runeLen(s)
 	if n > slotW {
-		s = string([]rune(s)[:slotW])
-		n = slotW
+		col := slot
+		i := 0
+		for _, r := range s {
+			if i >= slotW {
+				break
+			}
+			f.SetRune(row, col, r, st)
+			col++
+			i++
+		}
+		return
 	}
 	f.Text(row, slot+(slotW-n)/2, s, st)
+}
+
+// slotStart returns the starting column to centre a w-wide composite within a
+// slotW column starting at slot, clamping a w>slotW composite to offset 0 so it
+// renders left-aligned exactly as centerSlot truncates an over-long string.
+func slotStart(slot, w int) int {
+	if w > slotW {
+		return slot
+	}
+	return slot + (slotW-w)/2
+}
+
+// putChips writes "$%d" centred in a slotW column starting at slot, allocating
+// nothing (the alloc-free form of centerSlot(f, row, slot, fmt.Sprintf("$%d",
+// chips), st)).
+func putChips(f *kit.Frame, row, slot, chips int, st kit.Style) {
+	w := 1 + intWidth(chips) // '$' + digits
+	c := f.Text(row, slotStart(slot, w), "$", st)
+	putInt(f, row, c, chips, st)
 }
 
 func (rm *room) remaining() int {
@@ -503,20 +649,39 @@ func (rm *room) remaining() int {
 	return int((d + time.Second - 1) / time.Second)
 }
 
-func clock(secs int) string { return fmt.Sprintf("0:%02d", secs) }
-
-func valueLabel(h hand) string {
+// valueLabelWidth returns the column width valueLabel would render for hand h,
+// matching putValueLabel exactly (no allocation).
+func valueLabelWidth(h hand) int {
 	if h.isBlackjack() {
-		return "BJ"
+		return 2 // "BJ"
 	}
 	total, soft := h.value()
 	if total > 21 {
-		return "BUST"
+		return 4 // "BUST"
+	}
+	w := intWidth(total)
+	if soft {
+		w++ // leading 's'
+	}
+	return w
+}
+
+// putValueLabel writes hand h's value label at (row, col) and returns the next
+// column, allocating nothing. It reproduces valueLabel's glyphs exactly:
+// "BJ" / "BUST" / "s%d" (soft) / "%d".
+func putValueLabel(f *kit.Frame, row, col int, h hand, st kit.Style) int {
+	if h.isBlackjack() {
+		return f.Text(row, col, "BJ", st)
+	}
+	total, soft := h.value()
+	if total > 21 {
+		return f.Text(row, col, "BUST", st)
 	}
 	if soft {
-		return fmt.Sprintf("s%d", total)
+		f.SetRune(row, col, 's', st)
+		col++
 	}
-	return fmt.Sprintf("%d", total)
+	return putInt(f, row, col, total, st)
 }
 
 func valueStyle(s *seat) kit.Style {

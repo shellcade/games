@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strconv"
 	"time"
 
 	kit "github.com/shellcade/kit/v2"
@@ -381,7 +380,7 @@ func (rm *room) drawPlayerLine(f *kit.Frame, row int, v kit.Player, c engine.Col
 	if rem < 30*time.Second {
 		cst = stClockLow
 	}
-	f.TextRight(row, kit.Cols-1, fmtClock(rem), cst)
+	putClockRight(f, row, kit.Cols-1, rem, cst)
 }
 
 func (rm *room) drawStatus(f *kit.Frame, row int, v kit.Player) {
@@ -451,28 +450,54 @@ func (rm *room) drawMoveList(f *kit.Frame, top int) {
 		if 2*li+1 < len(rm.moves) {
 			black = rm.moves[2*li+1]
 		}
-		f.Text(top+r, panelCol, moveListLine(li+1, white, black), stMoveList)
+		putMoveListLine(f, top+r, panelCol, li+1, white, black)
 	}
 }
 
-// moveListLine formats a numbered move-pair row ("  1. e2e4   e7e5") without
-// fmt — TinyGo-friendly and allocation-light.
-func moveListLine(num int, white, black string) string {
-	return padLeft(strconv.Itoa(num), 3) + ". " + padRight(white, 7) + " " + padRight(black, 7)
+// putMoveListLine writes a numbered move-pair row ("  1. e2e4   e7e5") directly
+// to the frame, matching the old moveListLine layout exactly: the move number
+// right-aligned in 3 cells, ". ", then white and black each left-aligned in a
+// 7-cell field separated by a space. Alloc-free (the move strings are already
+// stored, so f.Text just ranges over them; padding is written as spaces).
+func putMoveListLine(f *kit.Frame, row, col, num int, white, black string) {
+	col = putPadLeftInt(f, row, col, num, 3, stMoveList) // "  1"
+	f.SetRune(row, col, '.', stMoveList)                 // "."
+	f.SetRune(row, col+1, ' ', stMoveList)               // " "
+	col += 2
+	col = putPadRight(f, row, col, white, 7, stMoveList) // "e2e4   "
+	f.SetRune(row, col, ' ', stMoveList)                 // " "
+	col++
+	putPadRight(f, row, col, black, 7, stMoveList) // "e7e5   "
 }
 
-func padLeft(s string, n int) string {
-	for len(s) < n {
-		s = " " + s
+// putPadLeftInt writes n right-aligned in a width-cell field at (row,col),
+// space-filling on the left, and returns the column past the field.
+func putPadLeftInt(f *kit.Frame, row, col, n, width int, st kit.Style) int {
+	end := col + width
+	w := intWidth(n)
+	for ; w < width; w++ {
+		f.SetRune(row, col, ' ', st)
+		col++
 	}
-	return s
+	putInt(f, row, col, n, st)
+	return end
 }
 
-func padRight(s string, n int) string {
-	for len(s) < n {
-		s += " "
+// putPadRight writes s left-aligned in a width-cell field at (row,col),
+// space-filling on the right, and returns the column past the field. If s is
+// wider than width it is written in full (matching the old padRight, which only
+// ever padded, never truncated).
+func putPadRight(f *kit.Frame, row, col int, s string, width int, st kit.Style) int {
+	end := col + width
+	col = f.Text(row, col, s, st)
+	for col < end {
+		f.SetRune(row, col, ' ', st)
+		col++
 	}
-	return s
+	if col > end {
+		return col
+	}
+	return end
 }
 
 func (rm *room) drawPromoPicker(f *kit.Frame, row int, sel *selection) {
@@ -520,19 +545,28 @@ func (rm *room) drawFooter(f *kit.Frame, v kit.Player) {
 	f.Text(23, 1, hint, stFooter)
 }
 
-// fmtClock formats a duration as m:ss, clamped at 0.
-func fmtClock(d time.Duration) string {
+// putClockRight writes d as m:ss (minutes unpadded, seconds zero-padded to two
+// digits), right-aligned so the last digit lands on column end. This is the
+// alloc-free hot-path replacement for the old fmtClock + TextRight; it matches
+// fmtClock's exact format (clamped at 0).
+func putClockRight(f *kit.Frame, row, end int, d time.Duration, st kit.Style) {
 	if d < 0 {
 		d = 0
 	}
 	total := int(d.Round(time.Second).Seconds())
 	m := total / 60
 	s := total % 60
-	sec := strconv.Itoa(s)
-	if len(sec) < 2 {
-		sec = "0" + sec
+	// Width: minutes digits + ':' + 2 seconds digits.
+	width := intWidth(m) + 3
+	col := end - width + 1
+	col = putInt(f, row, col, m, st)
+	f.SetRune(row, col, ':', st)
+	col++
+	if s < 10 {
+		f.SetRune(row, col, '0', st)
+		col++
 	}
-	return strconv.Itoa(m) + ":" + sec
+	putInt(f, row, col, s, st)
 }
 
 // eqColor compares two colours by set-ness and components (kit.Color has no
