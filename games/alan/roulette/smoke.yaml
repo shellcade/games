@@ -4,9 +4,10 @@ heartbeat: 50ms
 # One shared wheel. The cursor moves over the felt landing on numbers, the lines
 # between them (splits), and the intersections (corners) — so a chip drops
 # exactly where you steer. Both seats bet, ready up (which closes the window
-# after a short grace beat), then the screen switches to the spinning wheel
-# before settling. The outcome is rolled from the seeded RNG at spin start, so
-# this script reproduces the same winning number every run.
+# after a short grace beat), then the wheel runs below the board while the chips
+# stay on the felt; the winning squares flash once the ball lands and hold solid
+# through the payout. The outcome is rolled from the seeded RNG at spin start,
+# so this script reproduces the same winning number every run.
 steps:
   - shot: table          # the empty felt, betting window counting down
 
@@ -27,21 +28,32 @@ steps:
   - key: enter           # drop a chip on the box under the cursor
   - shot: bets           # seat 0's view: chips on number/line/corner + readout
 
-  # --- seat 1 bets a street (its own colour) and readies --------------------
+  # --- seat 1 walks left to the two zeros and backs the 0-00 split ----------
   - seat: 1
-  - key: down
-  - key: down
-  - key: down            # step down to the street at the foot of the column
-  - key: enter           # a street (3 numbers)
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left
+  - key: left            # 12 steps: 17 -> … -> the line between 0 and 00
+  - key: enter           # the American 0-00 split (its own colour)
   - rune: "r"            # seat 1 ready
 
   # --- both ready -> the window closes -> the wheel spins -------------------
   - seat: 0
   - rune: "r"            # all ready: a short grace beat, then the spin
   - advance: 2.05s       # grace elapses, the wheel starts
-  - advance: 1.5s        # mid-spin — the dedicated wheel screen
+  - advance: 1.5s        # mid-spin — the wheel runs below the board
   - shot: spinning
-  - advance: 4s          # ~5.5s in: the wheel has come to rest, holding
+  - advance: 4s          # ~5.5s in: the ball has come to rest, the 1s pause
   - shot: landed
-  - advance: 3s          # past the 8s spin: settle + pay out, back to the felt
+  - advance: 0.75s       # ~6.25s: the winning squares flash on the board
+  - shot: flashing
+  - advance: 2s          # past the 8s spin: settle + pay out, winners solid
   - shot: result

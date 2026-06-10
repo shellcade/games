@@ -13,8 +13,10 @@ func countByKind() map[betKind]int {
 
 func TestBetCounts(t *testing.T) {
 	want := map[betKind]int{
-		kStraight: 37, kSplit: 60, kStreet: 12, kTrio: 2, kCorner: 22,
-		kBasket: 1, kLine: 11, kDozen: 3, kColumn: 3,
+		// 38 straights (0, 00, 1..36); 58 splits (57 in-grid + 0-00); two trios;
+		// one five-number top line; everything else as on a European felt.
+		kStraight: 38, kSplit: 58, kStreet: 12, kTrio: 2, kCorner: 22,
+		kTopLine: 1, kLine: 11, kDozen: 3, kColumn: 3,
 		kRed: 1, kBlack: 1, kOdd: 1, kEven: 1, kLow: 1, kHigh: 1,
 	}
 	got := countByKind()
@@ -23,15 +25,15 @@ func TestBetCounts(t *testing.T) {
 			t.Errorf("kind %s: got %d bets, want %d", k.name(), got[k], n)
 		}
 	}
-	if len(masterBets) != 157 {
-		t.Errorf("total bets = %d, want 157", len(masterBets))
+	if len(masterBets) != 156 {
+		t.Errorf("total bets = %d, want 156", len(masterBets))
 	}
 }
 
 func TestPayouts(t *testing.T) {
 	cases := map[betKind]int{
 		kStraight: 35, kSplit: 17, kStreet: 11, kTrio: 11, kCorner: 8,
-		kBasket: 8, kLine: 5, kDozen: 2, kColumn: 2, kRed: 1, kHigh: 1,
+		kTopLine: 6, kLine: 5, kDozen: 2, kColumn: 2, kRed: 1, kHigh: 1,
 	}
 	for k, p := range cases {
 		if k.payout() != p {
@@ -44,7 +46,7 @@ func TestPayouts(t *testing.T) {
 // for its family, and a correctly computed anchor.
 func TestBetIntegrity(t *testing.T) {
 	size := map[betKind]int{
-		kStraight: 1, kSplit: 2, kStreet: 3, kTrio: 3, kCorner: 4, kBasket: 4,
+		kStraight: 1, kSplit: 2, kStreet: 3, kTrio: 3, kCorner: 4, kTopLine: 5,
 		kLine: 6, kDozen: 12, kColumn: 12, kRed: 18, kBlack: 18, kOdd: 18,
 		kEven: 18, kLow: 18, kHigh: 18,
 	}
@@ -69,10 +71,27 @@ func TestBetIntegrity(t *testing.T) {
 			t.Errorf("inside %q anchor = %d, want %d", b.label, b.anchor, min)
 		}
 		for _, n := range b.nums {
-			if n < 0 || n > 36 {
+			if n < 0 || (n > 36 && n != doubleZero) {
 				t.Errorf("%s %q has out-of-range pocket %d", b.kind.name(), b.label, n)
 			}
 		}
+	}
+}
+
+// TestStraightMasterIndexing pins the invariant other code leans on: master bet
+// i IS the straight on pocket i for every pocket — 0..36, and 00 at index
+// doubleZero (37). shadeNumber's chip lookup (chipBits[n]) and the cursor tests
+// index straights this way.
+func TestStraightMasterIndexing(t *testing.T) {
+	for n := 0; n < pockets; n++ {
+		b := masterBets[n]
+		if b.kind != kStraight || len(b.nums) != 1 || b.nums[0] != n {
+			t.Errorf("masterBets[%d] = %s %q, want the straight on pocket %s",
+				n, b.kind.name(), b.label, pocketLabel(n))
+		}
+	}
+	if masterBets[doubleZero].label != "00" {
+		t.Errorf("masterBets[doubleZero] labelled %q, want \"00\"", masterBets[doubleZero].label)
 	}
 }
 
@@ -114,41 +133,10 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
-// TestIndexPartition checks every inside bet is anchored exactly once and the
-// anchor + outside indices together account for the whole master list.
-func TestIndexPartition(t *testing.T) {
-	total := len(outsideBets)
-	for _, idxs := range betsByAnchor {
-		total += len(idxs)
-	}
-	if total != len(masterBets) {
-		t.Fatalf("anchored+outside = %d, want %d", total, len(masterBets))
-	}
-	for n, idxs := range betsByAnchor {
-		for _, i := range idxs {
-			if masterBets[i].anchor != n {
-				t.Errorf("bet %q indexed under anchor %d but its anchor is %d",
-					masterBets[i].label, n, masterBets[i].anchor)
-			}
-		}
-	}
-	// Every number that can anchor a bet does: 0..33 anchor at least a straight
-	// plus higher structures; 34..36 anchor only their straight (top-right
-	// corner of the felt).
-	for n := 0; n <= 36; n++ {
-		if len(betsByAnchor[n]) == 0 {
-			t.Errorf("number %d anchors no bets (expected at least its straight)", n)
-		}
-		if masterBets[betsByAnchor[n][0]].kind != kStraight {
-			t.Errorf("anchor %d: first bet is %s, want STRAIGHT", n, masterBets[betsByAnchor[n][0]].kind.name())
-		}
-	}
-}
-
 // TestColorPartition verifies the red/black/green split.
 func TestColorPartition(t *testing.T) {
-	if colorOf(0) != green {
-		t.Error("0 should be green")
+	if colorOf(0) != green || colorOf(doubleZero) != green {
+		t.Error("0 and 00 should both be green")
 	}
 	var reds, blacks int
 	for n := 1; n <= 36; n++ {
@@ -219,7 +207,7 @@ func TestSettlementMath(t *testing.T) {
 	red := findBet(t, kRed, "RED")
 
 	const stake = 100
-	for result := 0; result <= 36; result++ {
+	for result := 0; result <= doubleZero; result++ { // 0, 1..36, and 00 (=37)
 		// Straight on 17 pays 35:1 only on 17.
 		ret := settleReturn(straight17, stake, result)
 		if result == 17 {
@@ -265,12 +253,12 @@ func findBet(t *testing.T, k betKind, label string) bet {
 	return bet{}
 }
 
-// TestWheelSequence checks the physical strip is a permutation of 0..36 and that
-// wheelIndex round-trips.
+// TestWheelSequence checks the physical strip is a permutation of all 38 pockets
+// (0, 00, 1..36) and that wheelIndex round-trips.
 func TestWheelSequence(t *testing.T) {
 	seen := map[int]bool{}
 	for _, n := range wheelSeq {
-		if n < 0 || n > 36 {
+		if n < 0 || (n > 36 && n != doubleZero) {
 			t.Fatalf("wheel pocket %d out of range", n)
 		}
 		if seen[n] {
@@ -278,10 +266,10 @@ func TestWheelSequence(t *testing.T) {
 		}
 		seen[n] = true
 	}
-	if len(seen) != 37 {
-		t.Fatalf("wheel has %d distinct pockets, want 37", len(seen))
+	if len(seen) != pockets {
+		t.Fatalf("wheel has %d distinct pockets, want %d", len(seen), pockets)
 	}
-	for n := 0; n <= 36; n++ {
+	for _, n := range wheelSeq {
 		if wheelSeq[wheelIndex(n)] != n {
 			t.Errorf("wheelIndex(%d) does not round-trip", n)
 		}

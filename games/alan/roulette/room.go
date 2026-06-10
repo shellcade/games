@@ -29,6 +29,11 @@ const (
 	resultsDur  = 7 * time.Second // payoff hold (board) before the next window
 	gracePeriod = 2 * time.Second // beat between "all ready" and the spin
 
+	// After the ball lands, the winning squares pause a beat, then flash until the
+	// wheel disappears (settlement), where the results board shows them solid.
+	flashDelay  = 1 * time.Second
+	flashPeriod = 300 * time.Millisecond // half a blink cycle
+
 	historyLen = 12 // recent winning numbers kept for the marquee
 
 	// wallet KV keys + merge rules, the casino pattern (balance: sum, the
@@ -135,9 +140,10 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 }
 
 // freeColorIdx returns the lowest chip-colour index not currently held by a
-// seated player, so each player at the table has a distinct colour.
+// seated player, so each player at the table has a distinct colour (the palette
+// covers MaxPlayers; see TestChipPaletteCoversTable).
 func (rm *room) freeColorIdx() int {
-	for i := 0; i < numChipColors; i++ {
+	for i := 0; i < len(chipColors); i++ {
 		taken := false
 		for _, id := range rm.order {
 			if p := rm.players[id]; p != nil && p.colorIdx == i {
@@ -365,13 +371,20 @@ func (rm *room) maybeCloseEarly(r kit.Room) {
 func (rm *room) toggleReady(r kit.Room, pl *player) {
 	pl.ready = !pl.ready
 	if rm.closing && !rm.allReady() {
-		// Someone backed out during the grace beat: cancel the early close and
-		// restore the full window deadline.
-		rm.closing = false
-		rm.arm(pendSpin, rm.deadline)
+		rm.cancelEarlyClose()
 		return
 	}
 	rm.maybeCloseEarly(r)
+}
+
+// cancelEarlyClose backs out of the armed grace beat (someone un-readied or
+// went back to betting) and restores the full window deadline.
+func (rm *room) cancelEarlyClose() {
+	if !rm.closing {
+		return
+	}
+	rm.closing = false
+	rm.arm(pendSpin, rm.deadline)
 }
 
 // --- stakes & chips --------------------------------------------------------
@@ -407,7 +420,11 @@ func (rm *room) placeBet(pl *player) {
 	}
 	pl.balance -= stake
 	pl.bets = append(pl.bets, placedBet{master: mi, stake: stake})
-	pl.ready = false // placing a chip un-readies you
+	// Placing a chip un-readies you — and if the table was already in the grace
+	// beat, backs out of the early close too (same as un-readying with r), so a
+	// player still betting can never be spun out from under.
+	pl.ready = false
+	rm.cancelEarlyClose()
 }
 
 // undoBet removes and refunds the last chip placed.

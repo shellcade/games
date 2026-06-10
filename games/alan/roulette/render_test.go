@@ -1,6 +1,76 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	kit "github.com/shellcade/kit/v2"
+)
+
+// TestWinnerHighlightTiming pins the reveal sequence: dark through the spin and
+// the 1s pause after the ball lands, flashing on/off until settlement, then
+// solid through the results board.
+func TestWinnerHighlightTiming(t *testing.T) {
+	rm := newRoom(kit.RoomConfig{}, kit.Services{})
+	rm.spinStart = time.Unix(1_000_000, 0)
+
+	rm.phase = phBetting
+	if rm.winnerHighlightOn() {
+		t.Error("highlight on during betting")
+	}
+
+	rm.phase = phSpinning
+	at := func(sinceLanded time.Duration) bool {
+		rm.lastNow = rm.spinStart.Add(spinAnimDur + sinceLanded)
+		return rm.winnerHighlightOn()
+	}
+	if at(-time.Second) {
+		t.Error("highlight on while the ball is still rolling")
+	}
+	if at(flashDelay - time.Millisecond) {
+		t.Error("highlight on during the post-landing pause")
+	}
+	if !at(flashDelay) {
+		t.Error("flash not on at the first half-cycle")
+	}
+	if at(flashDelay + flashPeriod) {
+		t.Error("flash not off at the second half-cycle")
+	}
+	if !at(flashDelay + 2*flashPeriod) {
+		t.Error("flash not on again at the third half-cycle")
+	}
+
+	rm.phase = phResults
+	if !rm.winnerHighlightOn() {
+		t.Error("highlight not solid at results")
+	}
+}
+
+// TestChipPaletteCoversTable guards the palette against a MaxPlayers bump: every
+// seated player must get a distinct chip colour.
+func TestChipPaletteCoversTable(t *testing.T) {
+	if max := (Game{}).Meta().MaxPlayers; len(chipColors) < max {
+		t.Fatalf("chip palette has %d colours for %d seats", len(chipColors), max)
+	}
+}
+
+func TestRoundSummary(t *testing.T) {
+	cases := []struct {
+		won, staked int
+		want        string
+	}{
+		{600, 400, "up 200  (bet 400, back 600)"},
+		{170, 200, "down 30  (bet 200, back 170)"},
+		{0, 600, "down 600  (bet 600, back 0)"},
+		{400, 400, "even  (bet 400, back 400)"},
+		{0, 0, ""}, // sat the round out
+	}
+	for _, c := range cases {
+		if got := roundSummary(c.won, c.staked); got != c.want {
+			t.Errorf("roundSummary(%d,%d) = %q, want %q", c.won, c.staked, got, c.want)
+		}
+	}
+}
 
 func masterOf(t *testing.T, k betKind, label string) int {
 	t.Helper()
@@ -21,9 +91,13 @@ func TestChipPositions(t *testing.T) {
 	if row, col := chipPos(17); row != rowOfRR(1) || col != colInterior(5) {
 		t.Errorf("straight 17 chip at (%d,%d), want (%d,%d)", row, col, rowOfRR(1), colInterior(5))
 	}
-	// Straight on 0 (master 0): beside the "0", never on top of it.
-	if row, col := chipPos(0); row != rowOfRR(1) || col == zeroCol {
-		t.Errorf("zero chip at (%d,%d) collides with the 0 at col %d", row, col, zeroCol)
+	// Straight on 0 / 00: in the chip slot left of the digit, never on it.
+	if row, col := chipPos(0); row != zeroRow(0) || col >= zeroTextCol(0) {
+		t.Errorf("0 chip at (%d,%d) not left of its digit at col %d", row, col, zeroTextCol(0))
+	}
+	dz := masterOf(t, kStraight, "00")
+	if row, col := chipPos(dz); row != zeroRow(doubleZero) || col >= zeroTextCol(doubleZero) {
+		t.Errorf("00 chip at (%d,%d) not left of its digits at col %d", row, col, zeroTextCol(doubleZero))
 	}
 	// Street 16-18 sits on the outer (bottom) edge of column 5, centred in the
 	// cell's line segment — not on the left grid line.
