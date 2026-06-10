@@ -42,8 +42,13 @@ const (
 	keyPeak    = "peak"
 )
 
-// stakeTiers are the selectable chip denominations, lowest first.
-var stakeTiers = []int{10, 25, 50, 100}
+// stakeTiers are the selectable chip denominations, lowest first. The 5 chip is
+// the floor so a player whittled down to a few dollars can still place a bet
+// (and lose into the re-buy) rather than getting stuck unable to afford a chip.
+var stakeTiers = []int{5, 10, 25, 50, 100}
+
+// defaultStakeIdx is the chip a fresh seat arms — the 10, not the 5 floor.
+const defaultStakeIdx = 1
 
 // placedBet is one chip a player has put down this round (kept in placement
 // order so Backspace can undo the last one).
@@ -244,7 +249,8 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	bal, peak := rm.seedWallet(r, p)
 	rm.players[p.AccountID] = &player{
 		p: p, balance: bal, peak: peak, postedPeak: peak,
-		sel: newSelection(), joinOrder: rm.joinSeq, colorIdx: rm.freeColorIdx(),
+		stakeIdx: defaultStakeIdx,
+		sel:      newSelection(), joinOrder: rm.joinSeq, colorIdx: rm.freeColorIdx(),
 	}
 	rm.joinSeq++
 	rm.order = append(rm.order, p.AccountID)

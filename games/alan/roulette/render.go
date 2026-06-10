@@ -20,19 +20,27 @@ import (
 // boxes ring the grid. A fine lattice point (fr, fc) maps to the screen as
 // row = gridTop+fr, and a column derived from the cell pitch.
 const (
-	gridTop   = 2 // screen row of the grid's top border (fine row fr=0)
-	gridLeft  = 5 // screen col of the grid's left border (line k=0); also the zero boxes' right edge
-	pitch     = 4 // screen columns per number cell (IW interior + 1 line)
-	iw        = 3 // number-cell interior width
-	colBoxCol = 55
-	colBoxW   = 4
-	panelLeft = 60
-	helpRow   = 23
+	gridTop  = 3 // grid's top border (row 2 is a felt-padding row under the rail)
+	zeroLeft = 4 // left border of the zero boxes — the board's left margin
+	gridLeft = 9 // grid's left border (line k=0); also the zero boxes' right edge
+	pitch    = 5 // screen columns per number cell (iw interior + 1 line)
+	iw       = 4 // number-cell interior width
+
+	colBoxCol = 71 // the "2:1" column boxes, just right of the grid
+	colBoxW   = 5
+	dozenW    = 4 * pitch // a dozen box spans four number columns
+	evenW     = 2 * pitch // an even-money box spans two columns
+
+	// The framed table fills rows 1..13; the players sit beneath it (a 3-row
+	// seat: name / chips / status) and the betting / wheel / results panel below.
+	seatsRow = 14
+	panelRow = 17
+	helpRow  = 23
 )
 
 // zeroTextCol is the start column of a green pocket's label, right-aligned
 // against the grid border inside its box; zeroChipCol is the chip slot to its
-// left. The box interior is columns 1..gridLeft-1.
+// left. The box interior is columns zeroLeft+1..gridLeft-1.
 func zeroTextCol(n int) int { return gridLeft - len(pocketLabel(n)) }
 func zeroChipCol(n int) int { return zeroTextCol(n) - 1 }
 
@@ -43,17 +51,22 @@ func colInterior(c int) int {
 	return lineCol(c) + 1 // a cell's interior left col (number drawn at +1..+2)
 }
 
+// feltGreen is the table's felt surface; the betting layout sits on it.
+var feltGreen = kit.RGB(0x0c, 0x55, 0x2c)
+
 var (
 	stTitle = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}
 	stDim   = kit.Style{FG: kit.DimGray}
 	stHead  = kit.Style{FG: kit.White, Attr: kit.AttrBold}
-	stFrame = kit.Style{FG: kit.Gray(0x55)}
+	stFrame = kit.Style{FG: kit.Gray(0x55)} // the wheel-track border (off the felt)
+	// stGridLine is the white grid printed on the felt (light on green).
+	stGridLine = kit.Style{FG: kit.RGB(0xe6, 0xe6, 0xd2), BG: feltGreen}
 
 	stRedFelt   = kit.Style{FG: kit.White, BG: kit.RGB(0xb0, 0x20, 0x20), Attr: kit.AttrBold}
-	stBlackFelt = kit.Style{FG: kit.White, BG: kit.Gray(0x30), Attr: kit.AttrBold}
+	stBlackFelt = kit.Style{FG: kit.White, BG: kit.Gray(0x1c), Attr: kit.AttrBold}
 	stGreenFelt = kit.Style{FG: kit.White, BG: kit.RGB(0x10, 0x80, 0x30), Attr: kit.AttrBold}
 
-	stOutside = kit.Style{FG: kit.White, BG: kit.Gray(0x28)}
+	stOutside = kit.Style{FG: kit.White, BG: feltGreen} // outside-bet areas are felt
 	stChip    = kit.Style{FG: kit.Cyan, Attr: kit.AttrBold}
 	stWin     = kit.Style{FG: kit.Green, Attr: kit.AttrBold}
 	stLose    = kit.Style{FG: kit.Red, Attr: kit.AttrBold}
@@ -99,12 +112,14 @@ func (rm *room) compose(v kit.Player) *kit.Frame {
 	rm.viewer = pl
 
 	f.Text(0, 2, "* ROULETTE *", stTitle)
+	rm.drawMarquee(f) // recent winners, inline on the title row
 	rm.drawStatusLine(f, now)
-	rm.drawMarquee(f, 1)
+	// row 1 left blank for breathing room
+	rm.drawTableFrame(f) // a rail framing the whole felt
 	rm.drawFelt(f, pl)
-	rm.drawRoster(f, v)
-	// While the wheel spins, the board stays up (chips locked in) and the wheel
-	// runs in the panel below it, in place of the betting sidebar.
+	rm.drawSeats(f, v)
+	// While the wheel spins, the board and seats stay up (chips locked in) and
+	// the wheel runs in the panel below them, in place of the betting sidebar.
 	if rm.phase == phSpinning {
 		rm.drawSpinnerPanel(f, now, pl)
 	} else {
@@ -135,18 +150,50 @@ func (rm *room) drawStatusLine(f *kit.Frame, now time.Time) {
 	f.TextRight(0, kit.Cols-2, msg, st)
 }
 
-func (rm *room) drawMarquee(f *kit.Frame, row int) {
+// drawMarquee shows the recent winners inline on the title row, newest first,
+// trimmed before the status readout on the right.
+func (rm *room) drawMarquee(f *kit.Frame) {
+	const startCol, maxCol = 15, 50
 	if len(rm.history) == 0 {
-		// The first-round nudge only makes sense while betting is open.
-		if rm.phase == phBetting {
-			f.Text(row, 2, "no spins yet - place your chips and ready up", stDim)
-		}
 		return
 	}
-	col := f.Text(row, 2, "recent ", stDim)
-	for _, n := range rm.history {
-		col = f.Text(row, col, pocketLabel(n), colorStyle(n))
-		col = f.Text(row, col, " ", stDim)
+	col := f.Text(0, startCol, "recent ", stDim)
+	for i := len(rm.history) - 1; i >= 0; i-- {
+		s := pocketLabel(rm.history[i])
+		if col+len(s)+1 > maxCol {
+			break
+		}
+		col = f.Text(0, col, s, colorStyle(rm.history[i]))
+		col = f.Text(0, col, " ", stDim)
+	}
+}
+
+// stRail is the polished-wood rail that frames the felt.
+var stRail = kit.Style{FG: kit.RGB(0xb0, 0x88, 0x44), Attr: kit.AttrBold}
+
+// drawTableFrame lays the green felt and draws the wooden rail around it — a
+// double-lined border in the side margins and the blank rows above/below — so
+// the betting layout reads as one defined felt surface, not a floating grid.
+func (rm *room) drawTableFrame(f *kit.Frame) {
+	const l, r = 1, kit.Cols - 2 // rail cols 1 and 78
+	const t, b = 1, evenRowY + 2 // felt-padding row above the grid and below even-money
+	feltBg := kit.Style{BG: feltGreen}
+	for row := t + 1; row < b; row++ {
+		for c := l + 1; c < r; c++ {
+			f.SetRune(row, c, ' ', feltBg)
+		}
+	}
+	f.SetRune(t, l, '╔', stRail)
+	f.SetRune(t, r, '╗', stRail)
+	f.SetRune(b, l, '╚', stRail)
+	f.SetRune(b, r, '╝', stRail)
+	for c := l + 1; c < r; c++ {
+		f.SetRune(t, c, '═', stRail)
+		f.SetRune(b, c, '═', stRail)
+	}
+	for row := t + 1; row < b; row++ {
+		f.SetRune(row, l, '║', stRail)
+		f.SetRune(row, r, '║', stRail)
 	}
 }
 
@@ -203,18 +250,18 @@ func zeroRow(n int) int {
 func (rm *room) drawZeroBox(f *kit.Frame) {
 	right := lineCol(0)
 	rule := func(row int) {
-		for c := 0; c <= right; c++ {
-			f.SetRune(row, c, '-', stFrame)
+		for c := zeroLeft; c <= right; c++ {
+			f.SetRune(row, c, '-', stGridLine)
 		}
-		f.SetRune(row, 0, '+', stFrame)
-		f.SetRune(row, right, '+', stFrame)
+		f.SetRune(row, zeroLeft, '+', stGridLine)
+		f.SetRune(row, right, '+', stGridLine)
 	}
 	rule(gridTop)     // top of the 0 cell
 	rule(gridTop + 3) // the dividing line (the 0-00 split)
 	rule(gridTop + 6) // bottom of the 00 cell
 	for _, r := range []int{gridTop + 1, gridTop + 2, gridTop + 4, gridTop + 5} {
-		f.SetRune(r, 0, '|', stFrame)
-		for c := 1; c < right; c++ {
+		f.SetRune(r, zeroLeft, '|', stGridLine)
+		for c := zeroLeft + 1; c < right; c++ {
 			f.SetRune(r, c, ' ', stGreenFelt)
 		}
 	}
@@ -229,45 +276,51 @@ func (rm *room) drawGridFrame(f *kit.Frame) {
 	for _, fr := range []int{0, 2, 4, 6} {
 		row := gridTop + fr
 		for c := lineCol(0); c <= lineCol(cols); c++ {
-			f.SetRune(row, c, '-', stFrame)
+			f.SetRune(row, c, '-', stGridLine)
 		}
 		for k := 0; k <= cols; k++ {
-			f.SetRune(row, lineCol(k), '+', stFrame)
+			f.SetRune(row, lineCol(k), '+', stGridLine)
 		}
 	}
 	// Verticals on the three number rows.
 	for rr := 0; rr <= 2; rr++ {
 		row := rowOfRR(rr)
 		for k := 0; k <= cols; k++ {
-			f.SetRune(row, lineCol(k), '|', stFrame)
+			f.SetRune(row, lineCol(k), '|', stGridLine)
 		}
 	}
 }
 
-// drawNumber paints number n in its felt colour (the cell's left slot is the
-// chip slot, painted blank here and overdrawn by drawAllChips).
+// drawNumber paints number n centred in its felt cell (the left slot doubles as
+// the chip slot, overdrawn by drawAllChips).
 func (rm *room) drawNumber(f *kit.Frame, n int) {
 	rr, c := gridRC(n)
 	row := rowOfRR(rr)
 	col := colInterior(c)
 	st := feltStyle(n)
-	f.SetRune(row, col, ' ', st)
-	f.Text(row, col+1, pad2(n), st)
+	for i := 0; i < iw; i++ {
+		f.SetRune(row, col+i, ' ', st)
+	}
+	f.Text(row, col+numOff, pad2(n), st)
 }
 
-// drawOutsideBoxes draws the dozen, even-money, and column "2:1" boxes.
+// numOff centres the two-digit number in the iw-wide interior (the cell's left
+// slot, col+0, stays the chip slot).
+const numOff = (iw - 2 + 1) / 2
+
+// drawOutsideBoxes draws the dozen, even-money, and column "2:1" boxes. Each
+// dozen spans four number columns, each even-money box two; the rightmost of a
+// row is one wider to meet the grid's right border.
 func (rm *room) drawOutsideBoxes(f *kit.Frame) {
-	// Dozens (row below the grid): three 16-wide boxes.
-	rm.drawBox(f, dozenRowY, lineCol(0), 16, "1st 12", stOutside)
-	rm.drawBox(f, dozenRowY, lineCol(4), 16, "2nd 12", stOutside)
-	rm.drawBox(f, dozenRowY, lineCol(8), 17, "3rd 12", stOutside)
-	// Even-money strip: six 8-wide boxes.
-	rm.drawBox(f, evenRowY, lineCol(0), 8, "1-18", stOutside)
-	rm.drawBox(f, evenRowY, lineCol(2), 8, "EVEN", stOutside)
-	rm.drawBox(f, evenRowY, lineCol(4), 8, "RED", redBox())
-	rm.drawBox(f, evenRowY, lineCol(6), 8, "BLACK", blackBox())
-	rm.drawBox(f, evenRowY, lineCol(8), 8, "ODD", stOutside)
-	rm.drawBox(f, evenRowY, lineCol(10), 9, "19-36", stOutside)
+	rm.drawBox(f, dozenRowY, lineCol(0), dozenW, "1st 12", stOutside)
+	rm.drawBox(f, dozenRowY, lineCol(4), dozenW, "2nd 12", stOutside)
+	rm.drawBox(f, dozenRowY, lineCol(8), dozenW+1, "3rd 12", stOutside)
+	rm.drawBox(f, evenRowY, lineCol(0), evenW, "1-18", stOutside)
+	rm.drawBox(f, evenRowY, lineCol(2), evenW, "EVEN", stOutside)
+	rm.drawBox(f, evenRowY, lineCol(4), evenW, "RED", redBox())
+	rm.drawBox(f, evenRowY, lineCol(6), evenW, "BLACK", blackBox())
+	rm.drawBox(f, evenRowY, lineCol(8), evenW, "ODD", stOutside)
+	rm.drawBox(f, evenRowY, lineCol(10), evenW+1, "19-36", stOutside)
 	// Column "2:1" boxes at the right of each number row.
 	for rr := 0; rr <= 2; rr++ {
 		rm.drawBox(f, rowOfRR(rr), colBoxCol, colBoxW, "2:1", stOutside)
@@ -275,8 +328,8 @@ func (rm *room) drawOutsideBoxes(f *kit.Frame) {
 }
 
 const (
-	dozenRowY = gridTop + 8  // row 10
-	evenRowY  = gridTop + 10 // row 12
+	dozenRowY = gridTop + 7 // row 9, snug under the grid
+	evenRowY  = gridTop + 8 // row 10, snug under the dozens
 )
 
 func redBox() kit.Style   { return kit.Style{FG: kit.White, BG: kit.RGB(0xb0, 0x20, 0x20)} }
@@ -338,7 +391,7 @@ func (rm *room) shadeNumber(f *kit.Frame, n int, overlay kit.Style) {
 		st := merge(stGreenFelt, overlay)
 		row := zeroRow(n)
 		if rm.chipBits[n] == 0 {
-			for c := 1; c < gridLeft; c++ {
+			for c := zeroLeft + 1; c < gridLeft; c++ {
 				f.SetRune(row, c, ' ', st)
 			}
 		}
@@ -351,11 +404,15 @@ func (rm *room) shadeNumber(f *kit.Frame, n int, overlay kit.Style) {
 	col := colInterior(c)
 	// Highlight the whole cell for a bold, obvious mark — but when a chip sits in
 	// the cell's left slot (a straight bet on this number) leave the slot alone,
-	// shading just the digits so the marker stays visible.
-	if rm.chipBits[n] == 0 {
-		f.SetRune(row, col, ' ', st)
+	// shading just the rest so the marker stays visible.
+	start := 0
+	if rm.chipBits[n] != 0 {
+		start = 1
 	}
-	f.Text(row, col+1, pad2(n), st)
+	for i := start; i < iw; i++ {
+		f.SetRune(row, col+i, ' ', st)
+	}
+	f.Text(row, col+numOff, pad2(n), st)
 }
 
 // shadeOutside re-styles outside box mi. Like shadeNumber it leaves the box's
@@ -502,7 +559,7 @@ func (rm *room) drawSpinnerPanel(f *kit.Frame, now time.Time, pl *player) {
 	center := window / 2
 	trackW := window * slotW
 	left := (kit.Cols - trackW) / 2
-	top := 15
+	top := panelRow + 1 // pointer rides at top-1, clear of the seats; net at top+5 (helpRow, suppressed mid-spin)
 	px := left + center*slotW + slotW/2
 	f.SetRune(top-1, px, 'v', stTitle)
 	f.SetRune(top+3, px, '^', stTitle)
@@ -534,16 +591,16 @@ func (rm *room) drawSpinnerPanel(f *kit.Frame, now time.Time, pl *player) {
 	// viewer how they did this round.
 	if now.Sub(rm.spinStart) >= spinAnimDur {
 		msg := "rests on " + numLabel(rm.result)
-		f.Text(top+5, (kit.Cols-len(msg))/2, msg, colorStyle(rm.result))
+		f.Text(top+4, (kit.Cols-len(msg))/2, msg, colorStyle(rm.result))
 		if pl != nil {
 			won, staked := rm.roundNet(pl)
 			if s := roundSummary(won, staked); s != "" {
-				f.Text(top+6, (kit.Cols-len(s))/2, s, netStyle(won-staked))
+				f.Text(top+5, (kit.Cols-len(s))/2, s, netStyle(won-staked))
 			}
 		}
 	} else {
 		msg := "the ball is rolling..."
-		f.Text(top+5, (kit.Cols-len(msg))/2, msg, stDim)
+		f.Text(top+4, (kit.Cols-len(msg))/2, msg, stDim)
 	}
 }
 
@@ -609,51 +666,71 @@ func (rm *room) wheelDisplayIndex(now time.Time) int {
 	}
 }
 
-// --- roster panel -----------------------------------------------------------
+// --- the seats (players, under the table) -----------------------------------
 
-func (rm *room) drawRoster(f *kit.Frame, v kit.Player) {
-	f.Text(gridTop, panelLeft, "TABLE", stHead)
-	row := gridTop + 1
-	for _, id := range rm.order {
+const (
+	seatW     = 8        // each seat is a narrow column: swatch + name, chips/status stacked
+	seatLeft  = zeroLeft // the strip spans the board…
+	seatRight = colBoxCol + colBoxW - 1
+)
+
+// drawSeats lays the players out beneath the board like chairs, evenly spaced
+// around the table. Each is a narrow column — a colour swatch + name, with the
+// chip count and round status stacked underneath — so a full table still has
+// room to breathe. The strip doubles as the chip-colour legend.
+func (rm *room) drawSeats(f *kit.Frame, v kit.Player) {
+	n := len(rm.order)
+	if n == 0 {
+		return
+	}
+	if n > len(chipColors) {
+		n = len(chipColors)
+	}
+	slot := (seatRight - seatLeft + 1) / n
+	for i, id := range rm.order {
+		if i >= n {
+			break
+		}
 		pl := rm.players[id]
-		if pl == nil || row > gridTop+8 {
+		if pl == nil {
 			continue
 		}
-		name := pl.p.Handle
-		if len(name) > 7 {
-			name = name[:7]
+		x := seatLeft + i*slot + (slot-seatW)/2 // centre the seat in its slot
+		if x < seatLeft {
+			x = seatLeft
 		}
-		// Chip-colour swatch + name (the roster is the legend): the viewer's own
-		// row is bold so they can spot their colour.
-		f.SetRune(row, panelLeft, '*', chipStyle(pl.colorIdx))
+		f.SetRune(seatsRow, x, '*', chipStyle(pl.colorIdx))
+		name := pl.p.Handle
+		if len(name) > seatW-1 {
+			name = name[:seatW-1]
+		}
 		nameSt := kit.Style{FG: chipColors[pl.colorIdx]}
 		if id == v.AccountID {
 			nameSt.Attr |= kit.AttrBold
 		}
-		f.Text(row, panelLeft+2, name, nameSt)
-		f.TextRight(row, kit.Cols-1, pad2r(pl.balance, 5), stHead)
-		switch rm.phase {
-		case phResults:
-			if pl.lastPlayed {
-				f.Text(row, panelLeft+10, signed(pl.lastNet), netStyle(pl.lastNet))
-			} else {
-				f.Text(row, panelLeft+10, ".", stDim)
-			}
-		case phSpinning:
-			// Mid-spin "ready" is stale — show what each player has riding.
-			if s := pl.staked(); s > 0 {
-				f.Text(row, panelLeft+10, "@"+strconv.Itoa(s), stChip)
-			} else {
-				f.Text(row, panelLeft+10, ".", stDim)
-			}
-		default:
-			if pl.ready {
-				f.Text(row, panelLeft+10, "rdy", stReady)
-			} else if s := pl.staked(); s > 0 {
-				f.Text(row, panelLeft+10, "@"+strconv.Itoa(s), stChip)
-			}
+		f.Text(seatsRow, x+1, name, nameSt)               // name
+		f.Text(seatsRow+1, x+1, strconv.Itoa(pl.balance), stHead) // chips, underneath
+		rm.drawSeatStatus(f, seatsRow+2, x+1, pl)         // status, under that
+	}
+}
+
+// drawSeatStatus writes a seat's one-word round status (its third line).
+func (rm *room) drawSeatStatus(f *kit.Frame, row, x int, pl *player) {
+	switch rm.phase {
+	case phResults:
+		if pl.lastPlayed {
+			f.Text(row, x, signed(pl.lastNet), netStyle(pl.lastNet))
 		}
-		row++
+	case phSpinning:
+		if s := pl.staked(); s > 0 {
+			f.Text(row, x, "@"+strconv.Itoa(s), stChip)
+		}
+	default:
+		if pl.ready {
+			f.Text(row, x, "ready", stReady)
+		} else if s := pl.staked(); s > 0 {
+			f.Text(row, x, "@"+strconv.Itoa(s), stChip)
+		}
 	}
 }
 
@@ -674,44 +751,53 @@ func (rm *room) drawSidebar(f *kit.Frame, pl *player) {
 		case kSplit:
 			desc = "SPLIT " + b.label
 		}
-		f.Text(14, 2, "> "+desc+"   pays "+strconv.Itoa(b.kind.payout())+":1", stArmed)
-		f.TextRight(14, kit.Cols-2, "chip "+strconv.Itoa(stakeTiers[pl.stakeIdx]), stHead)
+		f.Text(panelRow, 2, "> "+desc+"   pays "+strconv.Itoa(b.kind.payout())+":1", stArmed)
+		f.TextRight(panelRow, kit.Cols-2, "chip "+strconv.Itoa(stakeTiers[pl.stakeIdx]), stHead)
 	} else if rm.phase == phResults {
 		won, staked := rm.roundNet(pl)
 		if s := roundSummary(won, staked); s != "" {
-			f.Text(14, 2, s, netStyle(won-staked))
+			f.Text(panelRow, 2, s, netStyle(won-staked))
 		}
 	}
 
-	header := "your chips (" + strconv.Itoa(pl.staked()) + " down):"
-	if rm.phase == phResults {
-		header = "your chips this round:"
-	}
-	f.Text(15, 2, header, stHead)
+	// The chip detail is secondary (the markers are on the board) — a single
+	// line, with a label and the bets, trimmed to fit.
+	rm.drawYourChips(f, pl)
+}
+
+// drawYourChips lists the viewer's bets under the panel, one per line down the
+// rows it has and flowing into extra columns when a player spreads a lot of
+// chips, summarising the tail with "+N more" only when even that runs out.
+func (rm *room) drawYourChips(f *kit.Frame, pl *player) {
 	groups := rm.groupBets(pl.bets)
+	label := "your chips (" + strconv.Itoa(pl.staked()) + " down):"
+	if rm.phase == phResults {
+		label = "your chips this round:"
+	}
+	f.Text(panelRow+1, 2, label, stHead)
 	if len(groups) == 0 {
-		f.Text(16, 4, "none yet", stDim)
+		f.Text(chipsTop, 4, "none yet", stDim)
 		return
 	}
+	maxCells := chipsRows * chipsCols
 	yourSt := chipStyle(pl.colorIdx)
-	const lastRow = 21 // bottom of the chips area (helpRow-2)
-	col, row := 4, 16
 	for i, g := range groups {
-		seg := masterBets[g.master].label + " x" + strconv.Itoa(g.stake)
-		if col+len(seg) > kit.Cols-2 {
-			if row == lastRow {
-				// Out of rows: summarise the rest at the end of the last line
-				// (never wrap back over chips already drawn there).
-				f.Text(row, col, "+"+strconv.Itoa(len(groups)-i)+" more", stDim)
-				break
-			}
-			row++
-			col = 4
+		c, r := i/chipsRows, i%chipsRows // column-major: fill a column top-down first
+		x := 4 + c*chipsColW
+		if len(groups) > maxCells && i == maxCells-1 {
+			f.Text(chipsTop+r, x, "+"+strconv.Itoa(len(groups)-i)+" more", stDim)
+			return
 		}
-		col = f.Text(row, col, seg, yourSt)
-		col = f.Text(row, col, "   ", stDim)
+		f.Text(chipsTop+r, x, masterBets[g.master].label+" x"+strconv.Itoa(g.stake), yourSt)
 	}
 }
+
+const (
+	chipsTop  = panelRow + 2        // first chip row (the label sits on panelRow+1)
+	chipsRows = helpRow - chipsTop  // rows available down to the help line
+	chipsColW = 18                  // width of one chip column
+	chipsCols = (kit.Cols - 4) / chipsColW
+)
 
 func (rm *room) drawHelp(f *kit.Frame, pl *player) {
 	var help string
@@ -719,11 +805,13 @@ func (rm *room) drawHelp(f *kit.Frame, pl *player) {
 	case phBetting:
 		help = "arrows move  enter place  +/- chip  bksp undo  c clear  r ready"
 	case phSpinning:
-		help = "no more bets - the ball is rolling"
+		help = "" // the spinner panel owns this row mid-spin (its result + net land here)
 	case phResults:
 		help = "paying out - next round opens shortly"
 	}
-	f.Text(helpRow, 2, help, stDim)
+	if help != "" {
+		f.Text(helpRow, 2, help, stDim)
+	}
 	if pl != nil {
 		f.TextRight(helpRow, kit.Cols-2, "BAL "+strconv.Itoa(pl.balance), stTitle)
 	}
@@ -770,26 +858,26 @@ func outsideRect(b bet) (row, col, w int) {
 	case kDozen:
 		switch b.nums[0] {
 		case 1:
-			return dozenRowY, lineCol(0), 16
+			return dozenRowY, lineCol(0), dozenW
 		case 13:
-			return dozenRowY, lineCol(4), 16
+			return dozenRowY, lineCol(4), dozenW
 		default:
-			return dozenRowY, lineCol(8), 17
+			return dozenRowY, lineCol(8), dozenW + 1
 		}
 	case kLow:
-		return evenRowY, lineCol(0), 8
+		return evenRowY, lineCol(0), evenW
 	case kEven:
-		return evenRowY, lineCol(2), 8
+		return evenRowY, lineCol(2), evenW
 	case kRed:
-		return evenRowY, lineCol(4), 8
+		return evenRowY, lineCol(4), evenW
 	case kBlack:
-		return evenRowY, lineCol(6), 8
+		return evenRowY, lineCol(6), evenW
 	case kOdd:
-		return evenRowY, lineCol(8), 8
+		return evenRowY, lineCol(8), evenW
 	case kHigh:
-		return evenRowY, lineCol(10), 9
+		return evenRowY, lineCol(10), evenW + 1
 	}
-	return evenRowY, lineCol(0), 8
+	return evenRowY, lineCol(0), evenW
 }
 
 func outsideLabel(b bet) string {
@@ -859,21 +947,6 @@ func pad2(n int) string {
 	s := strconv.Itoa(n)
 	if len(s) < 2 {
 		return " " + s
-	}
-	return s
-}
-
-func pad(s string, w int) string {
-	for len(s) < w {
-		s += " "
-	}
-	return s
-}
-
-func pad2r(n, w int) string {
-	s := strconv.Itoa(n)
-	for len(s) < w {
-		s = " " + s
 	}
 	return s
 }

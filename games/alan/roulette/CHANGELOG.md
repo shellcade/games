@@ -1,5 +1,20 @@
 # Changelog
 
+## Felt table makeover
+
+Reworked the table so it reads like a real felt, and made room for a full house.
+
+- The betting layout now fills the width as one green felt surface inside a
+  wooden rail — white grid lines, red/black number boxes, green zeros — with the
+  dozen and even-money rows tucked up snug and a row of felt breathing above and
+  below.
+- Players are seated in narrow stacked columns (name / chips / status) beneath
+  the table, spread evenly so a full six-player table still breathes; the recent
+  winning numbers moved up next to the title.
+- Added a **5** chip so a player ground down to a few dollars can still place a
+  bet (and bust into the re-buy) rather than getting stuck unable to afford one —
+  the default chip stays 10.
+
 ## American double-zero wheel
 
 Switched the table from the single-zero European wheel to the American

@@ -87,6 +87,24 @@ func TestStakeClamp(t *testing.T) {
 	}
 }
 
+// TestFiveDollarFloor locks in the 5-chip floor: a player whittled down to a few
+// dollars clamps to the 5 chip and can still bet (then bust into the re-buy)
+// rather than being stuck unable to afford the 10.
+func TestFiveDollarFloor(t *testing.T) {
+	_, rm := newGame(t, "p1")
+	pl := rm.players["p1"]
+	pl.balance = 5
+	rm.clampStake(pl) // every betting window re-clamps the chip to the balance
+	if got := stakeTiers[pl.stakeIdx]; got != 5 {
+		t.Fatalf("chip clamped to %d on a 5 balance, want the 5 floor", got)
+	}
+	setCursorNumber(rm, "p1", 17)
+	rm.placeBet(pl)
+	if len(pl.bets) != 1 || pl.balance != 0 {
+		t.Fatalf("could not bet the last 5: bets=%d balance=%d", len(pl.bets), pl.balance)
+	}
+}
+
 // TestRoundSettles drives a full betting -> spin -> settle cycle and checks the
 // outcome math against the rolled pocket (whatever the seeded RNG produces).
 func TestRoundSettles(t *testing.T) {
@@ -199,8 +217,8 @@ func TestRebuyOnBust(t *testing.T) {
 	// Stake the whole 100 on a single straight that will miss unless the wheel
 	// lands on it; then resolve and check either a clean win or a re-buy.
 	setCursorNumber(rm, "p1", 33)
-	pl.stakeIdx = 0
-	for i := 0; i < 10; i++ { // 10 x 10 = the whole 100 on straight 33
+	pl.stakeIdx = defaultStakeIdx // chip 10
+	for i := 0; i < 10; i++ {     // 10 x 10 = the whole 100 on straight 33
 		rm.placeBet(pl)
 	}
 	if pl.balance != 0 {
