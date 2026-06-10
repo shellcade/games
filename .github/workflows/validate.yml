@@ -73,7 +73,7 @@ jobs:
       - uses: actions/setup-go@v5
         if: steps.changed.outputs.dirs != ''
         with: { go-version: "${{ env.GO_VERSION }}" }
-      - uses: acifani/setup-tinygo@v2
+      - uses: acifani/setup-tinygo@v3
         if: steps.changed.outputs.dirs != ''
         with: { tinygo-version: "${{ env.TINYGO_VERSION }}" }
 
