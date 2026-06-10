@@ -20,7 +20,7 @@ import (
 // boxes ring the grid. A fine lattice point (fr, fc) maps to the screen as
 // row = gridTop+fr, and a column derived from the cell pitch.
 const (
-	gridTop  = 2 // screen row of the grid's top border (fine row fr=0)
+	gridTop  = 3 // grid's top border (row 2 is a felt-padding row under the rail)
 	zeroLeft = 4 // left border of the zero boxes — the board's left margin
 	gridLeft = 9 // grid's left border (line k=0); also the zero boxes' right edge
 	pitch    = 5 // screen columns per number cell (iw interior + 1 line)
@@ -31,8 +31,8 @@ const (
 	dozenW    = 4 * pitch // a dozen box spans four number columns
 	evenW     = 2 * pitch // an even-money box spans two columns
 
-	// The board fills rows 2..12; the players sit beneath it and the betting /
-	// wheel / results panel below them.
+	// The framed table fills rows 1..13; the players sit beneath it (a 3-row
+	// seat: name / chips / status) and the betting / wheel / results panel below.
 	seatsRow = 14
 	panelRow = 17
 	helpRow  = 23
@@ -51,17 +51,22 @@ func colInterior(c int) int {
 	return lineCol(c) + 1 // a cell's interior left col (number drawn at +1..+2)
 }
 
+// feltGreen is the table's felt surface; the betting layout sits on it.
+var feltGreen = kit.RGB(0x0c, 0x55, 0x2c)
+
 var (
 	stTitle = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}
 	stDim   = kit.Style{FG: kit.DimGray}
 	stHead  = kit.Style{FG: kit.White, Attr: kit.AttrBold}
-	stFrame = kit.Style{FG: kit.Gray(0x55)}
+	stFrame = kit.Style{FG: kit.Gray(0x55)} // the wheel-track border (off the felt)
+	// stGridLine is the white grid printed on the felt (light on green).
+	stGridLine = kit.Style{FG: kit.RGB(0xe6, 0xe6, 0xd2), BG: feltGreen}
 
 	stRedFelt   = kit.Style{FG: kit.White, BG: kit.RGB(0xb0, 0x20, 0x20), Attr: kit.AttrBold}
-	stBlackFelt = kit.Style{FG: kit.White, BG: kit.Gray(0x30), Attr: kit.AttrBold}
+	stBlackFelt = kit.Style{FG: kit.White, BG: kit.Gray(0x1c), Attr: kit.AttrBold}
 	stGreenFelt = kit.Style{FG: kit.White, BG: kit.RGB(0x10, 0x80, 0x30), Attr: kit.AttrBold}
 
-	stOutside = kit.Style{FG: kit.White, BG: kit.Gray(0x28)}
+	stOutside = kit.Style{FG: kit.White, BG: feltGreen} // outside-bet areas are felt
 	stChip    = kit.Style{FG: kit.Cyan, Attr: kit.AttrBold}
 	stWin     = kit.Style{FG: kit.Green, Attr: kit.AttrBold}
 	stLose    = kit.Style{FG: kit.Red, Attr: kit.AttrBold}
@@ -110,6 +115,7 @@ func (rm *room) compose(v kit.Player) *kit.Frame {
 	rm.drawMarquee(f) // recent winners, inline on the title row
 	rm.drawStatusLine(f, now)
 	// row 1 left blank for breathing room
+	rm.drawTableFrame(f) // a rail framing the whole felt
 	rm.drawFelt(f, pl)
 	rm.drawSeats(f, v)
 	// While the wheel spins, the board and seats stay up (chips locked in) and
@@ -159,6 +165,35 @@ func (rm *room) drawMarquee(f *kit.Frame) {
 		}
 		col = f.Text(0, col, s, colorStyle(rm.history[i]))
 		col = f.Text(0, col, " ", stDim)
+	}
+}
+
+// stRail is the polished-wood rail that frames the felt.
+var stRail = kit.Style{FG: kit.RGB(0xb0, 0x88, 0x44), Attr: kit.AttrBold}
+
+// drawTableFrame lays the green felt and draws the wooden rail around it — a
+// double-lined border in the side margins and the blank rows above/below — so
+// the betting layout reads as one defined felt surface, not a floating grid.
+func (rm *room) drawTableFrame(f *kit.Frame) {
+	const l, r = 1, kit.Cols - 2 // rail cols 1 and 78
+	const t, b = 1, evenRowY + 2 // felt-padding row above the grid and below even-money
+	feltBg := kit.Style{BG: feltGreen}
+	for row := t + 1; row < b; row++ {
+		for c := l + 1; c < r; c++ {
+			f.SetRune(row, c, ' ', feltBg)
+		}
+	}
+	f.SetRune(t, l, '╔', stRail)
+	f.SetRune(t, r, '╗', stRail)
+	f.SetRune(b, l, '╚', stRail)
+	f.SetRune(b, r, '╝', stRail)
+	for c := l + 1; c < r; c++ {
+		f.SetRune(t, c, '═', stRail)
+		f.SetRune(b, c, '═', stRail)
+	}
+	for row := t + 1; row < b; row++ {
+		f.SetRune(row, l, '║', stRail)
+		f.SetRune(row, r, '║', stRail)
 	}
 }
 
@@ -216,16 +251,16 @@ func (rm *room) drawZeroBox(f *kit.Frame) {
 	right := lineCol(0)
 	rule := func(row int) {
 		for c := zeroLeft; c <= right; c++ {
-			f.SetRune(row, c, '-', stFrame)
+			f.SetRune(row, c, '-', stGridLine)
 		}
-		f.SetRune(row, zeroLeft, '+', stFrame)
-		f.SetRune(row, right, '+', stFrame)
+		f.SetRune(row, zeroLeft, '+', stGridLine)
+		f.SetRune(row, right, '+', stGridLine)
 	}
 	rule(gridTop)     // top of the 0 cell
 	rule(gridTop + 3) // the dividing line (the 0-00 split)
 	rule(gridTop + 6) // bottom of the 00 cell
 	for _, r := range []int{gridTop + 1, gridTop + 2, gridTop + 4, gridTop + 5} {
-		f.SetRune(r, zeroLeft, '|', stFrame)
+		f.SetRune(r, zeroLeft, '|', stGridLine)
 		for c := zeroLeft + 1; c < right; c++ {
 			f.SetRune(r, c, ' ', stGreenFelt)
 		}
@@ -241,17 +276,17 @@ func (rm *room) drawGridFrame(f *kit.Frame) {
 	for _, fr := range []int{0, 2, 4, 6} {
 		row := gridTop + fr
 		for c := lineCol(0); c <= lineCol(cols); c++ {
-			f.SetRune(row, c, '-', stFrame)
+			f.SetRune(row, c, '-', stGridLine)
 		}
 		for k := 0; k <= cols; k++ {
-			f.SetRune(row, lineCol(k), '+', stFrame)
+			f.SetRune(row, lineCol(k), '+', stGridLine)
 		}
 	}
 	// Verticals on the three number rows.
 	for rr := 0; rr <= 2; rr++ {
 		row := rowOfRR(rr)
 		for k := 0; k <= cols; k++ {
-			f.SetRune(row, lineCol(k), '|', stFrame)
+			f.SetRune(row, lineCol(k), '|', stGridLine)
 		}
 	}
 }
@@ -293,8 +328,8 @@ func (rm *room) drawOutsideBoxes(f *kit.Frame) {
 }
 
 const (
-	dozenRowY = gridTop + 8  // row 10
-	evenRowY  = gridTop + 10 // row 12
+	dozenRowY = gridTop + 7 // row 9, snug under the grid
+	evenRowY  = gridTop + 8 // row 10, snug under the dozens
 )
 
 func redBox() kit.Style   { return kit.Style{FG: kit.White, BG: kit.RGB(0xb0, 0x20, 0x20)} }
@@ -524,7 +559,7 @@ func (rm *room) drawSpinnerPanel(f *kit.Frame, now time.Time, pl *player) {
 	center := window / 2
 	trackW := window * slotW
 	left := (kit.Cols - trackW) / 2
-	top := panelRow // pointer rides at top-1 (the gap below the seats); net at top+5
+	top := panelRow + 1 // pointer rides at top-1, clear of the seats; net at top+5 (helpRow, suppressed mid-spin)
 	px := left + center*slotW + slotW/2
 	f.SetRune(top-1, px, 'v', stTitle)
 	f.SetRune(top+3, px, '^', stTitle)
@@ -634,15 +669,15 @@ func (rm *room) wheelDisplayIndex(now time.Time) int {
 // --- the seats (players, under the table) -----------------------------------
 
 const (
-	seatW     = 12        // width of one seat's swatch + name + balance
-	seatLeft  = zeroLeft  // the strip spans the board…
+	seatW     = 8        // each seat is a narrow column: swatch + name, chips/status stacked
+	seatLeft  = zeroLeft // the strip spans the board…
 	seatRight = colBoxCol + colBoxW - 1
 )
 
-// drawSeats lays the players out beneath the board, like chairs evenly spaced
-// around the table: each is a colour swatch + name + balance with the round
-// status underneath. Fewer players spread across the full width rather than
-// bunching at the left. The strip doubles as the chip-colour legend.
+// drawSeats lays the players out beneath the board like chairs, evenly spaced
+// around the table. Each is a narrow column — a colour swatch + name, with the
+// chip count and round status stacked underneath — so a full table still has
+// room to breathe. The strip doubles as the chip-colour legend.
 func (rm *room) drawSeats(f *kit.Frame, v kit.Player) {
 	n := len(rm.order)
 	if n == 0 {
@@ -666,22 +701,21 @@ func (rm *room) drawSeats(f *kit.Frame, v kit.Player) {
 		}
 		f.SetRune(seatsRow, x, '*', chipStyle(pl.colorIdx))
 		name := pl.p.Handle
-		if len(name) > 5 {
-			name = name[:5]
+		if len(name) > seatW-1 {
+			name = name[:seatW-1]
 		}
 		nameSt := kit.Style{FG: chipColors[pl.colorIdx]}
 		if id == v.AccountID {
 			nameSt.Attr |= kit.AttrBold
 		}
-		f.Text(seatsRow, x+1, name, nameSt)
-		f.TextRight(seatsRow, x+seatW-2, strconv.Itoa(pl.balance), stHead) // leave a gap to the next seat
-		rm.drawSeatStatus(f, x+1, pl)
+		f.Text(seatsRow, x+1, name, nameSt)               // name
+		f.Text(seatsRow+1, x+1, strconv.Itoa(pl.balance), stHead) // chips, underneath
+		rm.drawSeatStatus(f, seatsRow+2, x+1, pl)         // status, under that
 	}
 }
 
-// drawSeatStatus writes a seat's one-word status under its name.
-func (rm *room) drawSeatStatus(f *kit.Frame, x int, pl *player) {
-	row := seatsRow + 1
+// drawSeatStatus writes a seat's one-word round status (its third line).
+func (rm *room) drawSeatStatus(f *kit.Frame, row, x int, pl *player) {
 	switch rm.phase {
 	case phResults:
 		if pl.lastPlayed {
@@ -771,11 +805,13 @@ func (rm *room) drawHelp(f *kit.Frame, pl *player) {
 	case phBetting:
 		help = "arrows move  enter place  +/- chip  bksp undo  c clear  r ready"
 	case phSpinning:
-		help = "no more bets - the ball is rolling"
+		help = "" // the spinner panel owns this row mid-spin (its result + net land here)
 	case phResults:
 		help = "paying out - next round opens shortly"
 	}
-	f.Text(helpRow, 2, help, stDim)
+	if help != "" {
+		f.Text(helpRow, 2, help, stDim)
+	}
 	if pl != nil {
 		f.TextRight(helpRow, kit.Cols-2, "BAL "+strconv.Itoa(pl.balance), stTitle)
 	}
