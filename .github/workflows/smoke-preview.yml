@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: download smoke artifact
         id: dl
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true # validate runs with no changed games upload nothing
         with:
           name: smoke-previews
