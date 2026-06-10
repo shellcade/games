@@ -36,7 +36,7 @@ jobs:
       # outputs the arcade re-verifies server-side anyway).
       dirs: ${{ steps.changed.outputs.dirs }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0             # full history for the changed-dirs diff
           persist-credentials: false # this job compiles untrusted code — no token on disk
@@ -169,7 +169,7 @@ jobs:
       contents: write       # cut releases
       pull-requests: write  # upsert the verified:false comment on the merged PR
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0             # all tags for N derivation + CHANGELOG notes
           persist-credentials: false # gh uses GH_TOKEN from env; git stays read-only
