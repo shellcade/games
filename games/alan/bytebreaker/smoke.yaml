@@ -1,0 +1,25 @@
+seed: 7
+seats: 1
+heartbeat: 50ms
+# A single cabinet: a rainbow wall of bytes up top, the paddle and a resting bit
+# down the bottom. Launch the bit, rally it up into the wall to smash bytes (each
+# throws off sparks and scores), and slide the paddle to keep it alive. The bit
+# physics replay identically every run from the seeded RNG.
+steps:
+  - advance: 50ms
+  - shot: ready          # level 1: the full wall, "press SPACE to launch"
+
+  - seat: 0
+  - key: space           # launch the bit up the board
+  - advance: 700ms
+  - shot: climb          # the bit rising toward the wall
+
+  - advance: 800ms
+  - shot: smash          # a byte shatters into sparks, the score ticks up
+
+  - key: right           # slide the paddle under the falling bit…
+  - key: right
+  - key: right
+  - key: right
+  - advance: 700ms
+  - shot: save           # …and keep the rally alive
