@@ -13,7 +13,7 @@ During the **betting window**:
 |---|---|
 | arrow keys | move the cursor over the felt — onto a number, the line between two numbers, or a four-number intersection |
 | Enter / Space | drop a chip exactly where the cursor sits |
-| `+` / `-` | change the chip denomination (10 / 25 / 50 / 100) |
+| `+` / `-` | change the chip denomination (5 / 10 / 25 / 50 / 100) |
 | Backspace | undo your last chip |
 | `c` | clear all your chips (refunded) |
 | `r` | ready up — when every seated player is ready the wheel spins after a short beat |
