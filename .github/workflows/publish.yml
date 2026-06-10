@@ -8,7 +8,7 @@ on:
 
 # Single source of truth for the toolchain — keep in lockstep with validate.yml.
 env:
-  KIT_VERSION: "2.1.1"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
+  KIT_VERSION: "2.3.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.0"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
@@ -81,6 +81,10 @@ jobs:
           # (digest + conformance) — this call carries no trust, only the tag.
           PUBLISH_ENDPOINT: "https://shellcade.com/admin/game:publish"
           ADMIN_SECRET: ${{ secrets.SHELLCADE_ADMIN_SECRET }}
+          # Derived from pushed file paths. Pass via env so it is shell DATA,
+          # never spliced into the script as ${{ }} (authorize.yml documents
+          # this rule) — this step holds contents:write and ADMIN_SECRET.
+          DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
           set -euo pipefail
           while read -r d; do
@@ -194,4 +198,4 @@ jobs:
             else
               echo "SHELLCADE_ADMIN_SECRET not set — skipping arcade auto-publish"
             fi
-          done <<< "${{ steps.changed.outputs.dirs }}"
+          done <<< "$DIRS"

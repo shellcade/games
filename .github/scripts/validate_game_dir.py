@@ -5,7 +5,9 @@ the artifact and is asserted separately via `shellcade-kit meta`).
 Usage: validate_game_dir.py games/<username>/<name>
 
 Enforces:
-  - bare-name directory: ^[a-z0-9-]{1,32}$
+  - path shape: exactly games/<username>/<name>, BOTH segments matching
+    ^[a-z0-9-]{1,32}$ — the workflows iterate these paths in shell, so the
+    shape is a checked invariant, not a convention
   - a standalone-module marker present: go.mod (Go guest) or Cargo.toml (Rust
     guest). The artifact's meta is the source of truth either way; this is just
     a "the sources build as their own module" sanity check.
@@ -37,8 +39,17 @@ def main() -> None:
     if len(sys.argv) != 2:
         err("usage: validate_game_dir.py games/<username>/<name>")
     d = sys.argv[1].rstrip("/")
-    name = os.path.basename(d)
 
+    # The whole path shape is the contract: games/<username>/<name> with both
+    # segments bare names. The owner segment is fork-controlled too (it comes
+    # from PR file paths), so it gets the same charset check as the game name.
+    # Anchor on the trailing segments so authors can pass "$(pwd)" locally.
+    parts = d.split("/")
+    if len(parts) < 3 or parts[-3] != "games":
+        err(f"{d}: game directory must be games/<username>/<name>")
+    owner, name = parts[-2], parts[-1]
+    if not re.fullmatch(r"[a-z0-9-]{1,32}", owner):
+        err(f"{d}: username directory {owner!r} must match [a-z0-9-]{{1,32}}")
     if not re.fullmatch(r"[a-z0-9-]{1,32}", name):
         err(f"{d}: game directory name {name!r} must match [a-z0-9-]{{1,32}}")
     # A game is a standalone module in its source language: go.mod for a Go

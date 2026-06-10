@@ -4,8 +4,11 @@ on:
 
 # Single source of truth for the toolchain. Bump these (and publish.yml, which
 # pins the same versions) together; CI must be reproducible across re-runs.
+# The "kit version lockstep" step below fails the PR when a changed game
+# requires a newer kit than this pinned engine, so a stale pin is caught
+# mechanically instead of by this comment.
 env:
-  KIT_VERSION: "2.1.1"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
+  KIT_VERSION: "2.3.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.0"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
@@ -56,11 +59,16 @@ jobs:
 
       - name: validate game directory (module, LICENSE, no artifacts)
         if: steps.changed.outputs.dirs != ''
+        env:
+          # Fork-controlled (derived from PR file paths). Pass via env so it is
+          # shell DATA, never spliced into the script as ${{ }} (authorize.yml
+          # documents this rule).
+          DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
           while read -r d; do
             [ -z "$d" ] && continue
             python3 .github/scripts/validate_game_dir.py "$d"
-          done <<< "${{ steps.changed.outputs.dirs }}"
+          done <<< "$DIRS"
 
       - uses: actions/setup-go@v5
         if: steps.changed.outputs.dirs != ''
@@ -102,6 +110,47 @@ jobs:
           tar xzf "$tarball"
           ./shellcade-kit version
 
+      # Lockstep guard: the conformance engine embedded in the pinned
+      # shellcade-kit must be at least as new as the kit each changed game
+      # builds against, or `check`/`smoke` silently skip the feature paths the
+      # arcade actually drives (the meta trailer is tolerant-reader). Compare
+      # the engine's embedded kit module version (`shellcade-kit version`
+      # prints it) against each game's go.mod / Cargo.toml kit pin.
+      - name: kit version lockstep
+        if: steps.changed.outputs.dirs != ''
+        env:
+          # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
+          DIRS: ${{ steps.changed.outputs.dirs }}
+        run: |
+          engine=$(./shellcade-kit version | awk '$1 == "kit" {print $2}')
+          engine="${engine#v}"
+          case "$engine" in
+            *[0-9].[0-9]*) ;;
+            *) echo "::error::could not parse the kit version from 'shellcade-kit version' (got '$engine')"; exit 1 ;;
+          esac
+          echo "pinned shellcade-kit ${KIT_VERSION} embeds kit v${engine}"
+          while read -r d; do
+            [ -z "$d" ] && continue
+            req=""
+            if [ -f "$d/go.mod" ]; then
+              req=$(cd "$d" && go mod edit -json | jq -r '.Require[]? | select(.Path == "github.com/shellcade/kit/v2") | .Version')
+            elif [ -f "$d/Cargo.toml" ]; then
+              # Crate pins the SDK by git tag: shellcade-kit = { git = ..., tag = "vX.Y.Z" }
+              req=$(sed -n 's/^shellcade-kit *= *{.*tag *= *"\(v[0-9][^"]*\)".*/\1/p' "$d/Cargo.toml" | head -1)
+            fi
+            if [ -z "$req" ]; then
+              echo "$d: no kit pin found — skipping lockstep check"
+              continue
+            fi
+            req="${req#v}"
+            newest=$(printf '%s\n%s\n' "$req" "$engine" | sort -V | tail -1)
+            if [ "$newest" != "$engine" ]; then
+              echo "::error::$d requires kit v${req} but CI verifies with shellcade-kit ${KIT_VERSION} (engine kit v${engine}) — the toolchain pin is stale, so conformance would not exercise the kit features this game uses. Bump KIT_VERSION to a shellcade-kit release >= ${req} in BOTH .github/workflows/validate.yml and .github/workflows/publish.yml (a binary release tagged v${req} must exist on shellcade/kit)."
+              exit 1
+            fi
+            echo "$d: kit v${req} <= engine kit v${engine} — ok"
+          done <<< "$DIRS"
+
       # Pin freeze (ANSI → SVG) to an exact release and verify against the
       # release's checksums.txt; it renders the smoke shots into the preview
       # images the smoke-preview workflow publishes.
@@ -118,6 +167,9 @@ jobs:
 
       - name: build + conformance per game
         if: steps.changed.outputs.dirs != ''
+        env:
+          # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
+          DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
           while read -r d; do
             [ -z "$d" ] && continue
@@ -153,7 +205,7 @@ jobs:
             if [ "$minp" -lt 1 ] || [ "$maxp" -gt 1024 ] || [ "$minp" -gt "$maxp" ]; then
               echo "::error::$d: player bounds $minp-$maxp outside the platform's 1..1024"; exit 1
             fi
-          done <<< "${{ steps.changed.outputs.dirs }}"
+          done <<< "$DIRS"
 
       # Smoke: run each changed game's smoke.yaml against the artifact just
       # built (the script is validated and executed by shellcade-kit; a missing
@@ -163,6 +215,9 @@ jobs:
       # context) publishes the images and posts the sticky comment.
       - name: smoke screens per game
         if: steps.changed.outputs.dirs != ''
+        env:
+          # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
+          DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
           mkdir -p previews
           games_json='[]'
@@ -178,7 +233,7 @@ jobs:
               shots=$(echo "$shots" | jq -c --arg s "$(basename "${ansi%.ansi}.svg")" '. + [$s]')
             done
             games_json=$(echo "$games_json" | jq -c --arg dir "$d" --arg sub "${owner}-${game}" --argjson shots "$shots" '. + [{dir: $dir, sub: $sub, shots: $shots}]')
-          done <<< "${{ steps.changed.outputs.dirs }}"
+          done <<< "$DIRS"
           jq -n --argjson games "$games_json" \
             --arg pr "${{ github.event.pull_request.number }}" \
             --arg sha "${{ github.event.pull_request.head.sha }}" \
