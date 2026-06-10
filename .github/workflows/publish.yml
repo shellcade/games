@@ -61,7 +61,7 @@ jobs:
           fi
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         if: steps.changed.outputs.dirs != ''
         with: { go-version: "${{ env.GO_VERSION }}" }
       - uses: acifani/setup-tinygo@v3
