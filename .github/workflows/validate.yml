@@ -8,7 +8,7 @@ on:
 # requires a newer kit than this pinned engine, so a stale pin is caught
 # mechanically instead of by this comment.
 env:
-  KIT_VERSION: "2.3.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
+  KIT_VERSION: "2.8.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.0"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
