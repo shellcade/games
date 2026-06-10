@@ -147,6 +147,22 @@ func TestZeroColumnNavigation(t *testing.T) {
 	}
 }
 
+// TestUpThroughOutsideRows checks that ascending from the even-money strip stops
+// on the dozen row rather than leaping past it to a grid line in the same column.
+func TestUpThroughOutsideRows(t *testing.T) {
+	low := masterOf(t, kLow, "1-18")
+	up := masterBets[nextSpot(low, -1, 0)]
+	if up.kind != kDozen {
+		t.Errorf("up from 1-18 = %s %q, want a DOZEN", up.kind.name(), up.label)
+	}
+	// And up from the dozen continues onto the grid (its six-line / numbers).
+	dozenIdx := nextSpot(low, -1, 0)
+	above := masterBets[nextSpot(dozenIdx, -1, 0)]
+	if above.outside {
+		t.Errorf("up from the dozen = %s %q, want a grid bet", above.kind.name(), above.label)
+	}
+}
+
 // TestDownThroughDozens checks that descending off the felt from a bottom-row
 // number passes through the street and the dozen strip before the even-money
 // row — never skipping the dozen because a wide box doesn't line up column-wise.

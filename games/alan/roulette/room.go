@@ -29,6 +29,11 @@ const (
 	resultsDur  = 7 * time.Second // payoff hold (board) before the next window
 	gracePeriod = 2 * time.Second // beat between "all ready" and the spin
 
+	// After the ball lands, the winning squares pause a beat, then flash until the
+	// wheel disappears (settlement), where the results board shows them solid.
+	flashDelay  = 1 * time.Second
+	flashPeriod = 300 * time.Millisecond // half a blink cycle
+
 	historyLen = 12 // recent winning numbers kept for the marquee
 
 	// wallet KV keys + merge rules, the casino pattern (balance: sum, the

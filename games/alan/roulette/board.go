@@ -178,9 +178,12 @@ func containsN(ns []int, x int) bool {
 func nextSpot(from, dr, dc int) int {
 	cur := spots[from]
 	// A vertical move first tries to stay in the exact same column, so a number
-	// column — and the zero lane (0 → 0-00 split → 00) — descends cleanly. Only
-	// when nothing lies further down this column do we fall back below (e.g.
-	// stepping off the bottom row into the dozen strip).
+	// column — and the zero lane (0 → 0-00 split → 00) — descends cleanly. The
+	// jump is capped to a couple of fine rows: those lanes step at most 2 with
+	// nothing between, but a longer same-column reach would skip over a whole row
+	// of boxes (e.g. up from 1-18 must stop on the 1st 12 dozen, not leap to the
+	// six-line above it). Beyond the cap we fall back to the nearest row below.
+	const sameColMaxRows = 2
 	if dr != 0 {
 		best, bestDist := from, 1<<30
 		for i, s := range spots {
@@ -191,7 +194,7 @@ func nextSpot(from, dr, dc int) int {
 				best, bestDist = i, d
 			}
 		}
-		if best != from {
+		if best != from && bestDist <= sameColMaxRows {
 			return best
 		}
 	}

@@ -48,9 +48,11 @@ steps:
   - seat: 0
   - rune: "r"            # all ready: a short grace beat, then the spin
   - advance: 2.05s       # grace elapses, the wheel starts
-  - advance: 1.5s        # mid-spin — the dedicated wheel screen
+  - advance: 1.5s        # mid-spin — the wheel runs below the board
   - shot: spinning
-  - advance: 4s          # ~5.5s in: the wheel has come to rest, holding
+  - advance: 4s          # ~5.5s in: the ball has come to rest, the 1s pause
   - shot: landed
-  - advance: 3s          # past the 8s spin: settle + pay out, back to the felt
+  - advance: 0.75s       # ~6.25s: the winning squares flash on the board
+  - shot: flashing
+  - advance: 2s          # past the 8s spin: settle + pay out, winners solid
   - shot: result
