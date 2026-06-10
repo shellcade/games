@@ -52,3 +52,6 @@ a game is a pull request.**
 - One directory per game, under your own username. CI rejects PRs that touch
   other authors' games.
 - Keep artifacts out of the repo — CI builds the `.wasm` it publishes.
+- Hosted content must meet the [content policy](CONTENT_POLICY.md) — it also
+  documents how to report a game and how takedowns work (operators can pull a
+  game offline immediately; the catalog entry follows by PR).

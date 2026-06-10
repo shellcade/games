@@ -13,13 +13,13 @@ nothing is declared twice and nothing can drift.
 | module marker | Every game is a **standalone module** in its source language: `go.mod` for a Go guest (any path; `require github.com/shellcade/kit`), or `Cargo.toml` for a Rust guest (a `cdylib` for `wasm32-wasip1`; implement the ABI from `ABI.md` — see `bcook/tic-tac-toe-rs`). The **built artifact** and its `meta` are the real contract; the language is your choice |
 | source | Builds with its pinned toolchain profile (TinyGo dev profile, or `cargo build --release --target wasm32-wasip1`) and passes `shellcade-kit check` (the same harness the arcade runs) |
 | `LICENSE` | One of: **MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, Unlicense** |
-| `smoke.yaml` | A deterministic smoke script (seed, seats, steps) that drives your game and names screen dumps — CI runs it on every PR (`shellcade-kit smoke`) and posts the screens as a visual preview comment. Schema + authoring guidance: [kit GUIDE.md "Smoke scripts"](https://github.com/shellcade/kit/blob/main/GUIDE.md#smoke-scripts-scripted-screens) |
+| `smoke.yaml` | A deterministic smoke script (seed, seats, steps) that drives your game and names screen dumps — CI runs it on every PR (`shellcade-kit smoke`) and posts the screens as a visual preview comment. Smoke scripts drive at most **8 seats** (the runner clamps `minPlayers` to the seat count, so large-room games still pass smoke; large-room behavior is exercised by `check` and your budget tests). Schema + authoring guidance: [kit GUIDE.md "Smoke scripts"](https://github.com/shellcade/kit/blob/main/GUIDE.md#smoke-scripts-scripted-screens) |
 
 The **directory name** is the game's bare name — `[a-z0-9-]{1,32}`, no slash —
 and MUST equal the `slug` your artifact's meta reports (`shellcade-kit meta`).
 Your game's platform identity is the path: `<shellcade-username>/<game-name>`.
 Player bounds (`minPlayers`/`maxPlayers` in your meta) must sit within the
-platform's 1..8.
+platform's 1..1024.
 
 Built artifacts (`*.wasm`) are **never committed** — CI builds what ships.
 

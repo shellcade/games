@@ -1,0 +1,12 @@
+# Keeps the WORKFLOW actions current (checkout, setup-go, upload-artifact, …).
+# Deliberately NOT enabled for gomod/cargo: every game under games/ is a
+# standalone, author-owned module, and only the linked author (or an admin)
+# may publish to a namespace — a bot PR touching games/<user>/ would fail that
+# authorization by design. Game dependency vulns are caught by the nightly
+# vulncheck workflow instead, and fixed by the game's author.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
