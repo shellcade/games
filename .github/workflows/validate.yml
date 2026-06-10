@@ -192,6 +192,19 @@ jobs:
             fi
             ./shellcade-kit check "$d/game.wasm"
 
+            # Release-profile gate (TinyGo-only): publish.yml ships an -opt=2
+            # wasm-opt'd binary — a DIFFERENT artifact than the -opt=1 dev
+            # build smoked below. A release-profile-only miscompile must fail
+            # HERE, pre-merge, where the author can act on it; publish.yml
+            # re-checks the same profile post-merge as defense in depth. Rust
+            # games already build --release above, so they need no second pass.
+            if [ -f "$d/go.mod" ]; then
+              ( cd "$d" && tinygo build -opt=2 -no-debug -gc=leaking \
+                  -o game-release.wasm -target wasip1 -buildmode=c-shared . )
+              ./shellcade-kit check "$d/game-release.wasm"
+              rm -f "$d/game-release.wasm"
+            fi
+
             # The artifact IS the metadata: assert it agrees with the path.
             meta=$(./shellcade-kit meta "$d/game.wasm")
             echo "$meta"

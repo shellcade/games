@@ -13,23 +13,40 @@ env:
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.25"
 
-# Need write access to cut releases; GITHUB_TOKEN only, no external secrets.
-permissions:
-  contents: write
+# Two-job split by design (mirrors validate.yml/smoke-preview.yml): the build
+# job compiles community game code — a Rust crate's build.rs or proc-macro
+# executes ARBITRARY CODE on the runner during `cargo build` — so it runs with
+# NO secrets, no token (persist-credentials: false), and read-only permissions.
+# Job-level isolation, not step-level: a malicious build script can leave a
+# background process that reads later steps' environments on the same runner.
+# The release job holds GITHUB_TOKEN + SHELLCADE_ADMIN_SECRET and runs ZERO
+# game code: it only downloads the built artifacts, cuts releases, and
+# notifies the arcade.
+permissions: {}
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      # Captured by the "changed game dirs" step, which runs BEFORE any game
+      # code executes — so this output cannot be influenced by a malicious
+      # build script, unlike the uploaded artifact contents (which are build
+      # outputs the arcade re-verifies server-side anyway).
+      dirs: ${{ steps.changed.outputs.dirs }}
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }   # full history + all tags for N derivation
+        with:
+          fetch-depth: 0             # full history for the changed-dirs diff
+          persist-credentials: false # this job compiles untrusted code — no token on disk
 
       - name: changed game dirs
         id: changed
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # Manual sanity run: walk every game dir (publish is idempotent —
-            # unchanged digests are skipped per-release below).
+            # unchanged digests are skipped per-release in the release job).
             dirs=$(find games -mindepth 2 -maxdepth 2 -type d | sort)
           else
             # Diff the merge commit against its first parent (main before merge).
@@ -70,23 +87,30 @@ jobs:
           tar xzf "$tarball"
           echo "$PWD/binaryen-${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
 
-      - name: build, digest, and release per game
+      # Pin shellcade-kit to an exact release and verify the download against
+      # the release's checksums.txt before running it (same block as
+      # validate.yml) — `check` below gates the RELEASE artifact.
+      - name: shellcade-kit
+        if: steps.changed.outputs.dirs != ''
+        run: |
+          base="https://github.com/shellcade/kit/releases/download/v${KIT_VERSION}"
+          tarball="shellcade-kit_${KIT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$tarball" "$base/$tarball"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          grep " $tarball\$" checksums.txt | sha256sum -c -
+          tar xzf "$tarball"
+          ./shellcade-kit version
+
+      - name: build, check, and stage per game
         if: steps.changed.outputs.dirs != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Arcade auto-publish (add-game-versions): after each release is cut,
-          # CI asks the arcade to verify+promote it per the arcade's publish
-          # policy (graduated default: live games auto-update; first publishes
-          # wait for admin go-live). The arcade re-verifies everything locally
-          # (digest + conformance) — this call carries no trust, only the tag.
-          PUBLISH_ENDPOINT: "https://shellcade.com/admin/game:publish"
-          ADMIN_SECRET: ${{ secrets.SHELLCADE_ADMIN_SECRET }}
           # Derived from pushed file paths. Pass via env so it is shell DATA,
           # never spliced into the script as ${{ }} (authorize.yml documents
-          # this rule) — this step holds contents:write and ADMIN_SECRET.
+          # this rule).
           DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
           set -euo pipefail
+          mkdir -p dist
           while read -r d; do
             [ -z "$d" ] && continue
             echo "=== $d ==="
@@ -100,15 +124,6 @@ jobs:
             game=$(echo "$d" | cut -d/ -f3)     # bare game name (== artifact meta slug)
             echo "owner=$owner game=$game"
 
-            # Best-effort GitHub attribution for the release notes: resolve the
-            # merged PR's author for this commit. Authorization happened at PR
-            # time (authorize.yml against the shellcade link); this is cosmetic
-            # only, so a missing/failed lookup just omits the @mention — it must
-            # NEVER fail the publish.
-            mapped=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
-                       -q '.[0].user.login' 2>/dev/null || true)
-            if [ "$mapped" = "null" ]; then mapped=""; fi
-
             # Release-profile build, per module marker.
             if [ -f "$d/go.mod" ]; then
               ( cd "$d" && go mod tidy && tinygo build -opt=2 -no-debug -gc=leaking \
@@ -121,7 +136,94 @@ jobs:
               ( cd "$d" && cargo build --release --target wasm32-wasip1 )
               cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
             fi
+
+            # Conformance-gate the artifact that actually ships: validate.yml
+            # checks the -opt=1 dev build, so a release-profile-only miscompile
+            # would otherwise reach the arcade unchecked.
+            ./shellcade-kit check "$d/game.wasm"
+
             digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
+            echo "digest: sha256:$digest"
+
+            mkdir -p "dist/${owner}-${game}"
+            cp "$d/game.wasm" "dist/${owner}-${game}/game.wasm"
+          done <<< "$DIRS"
+
+      - name: upload release artifacts
+        if: steps.changed.outputs.dirs != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-wasm
+          path: dist/
+          retention-days: 7
+
+  release:
+    # Holds the secrets; runs ZERO game code. Cuts the GitHub release per game
+    # and notifies the arcade. The wasm digest is recomputed here from the
+    # downloaded artifact, so the digest pinned in the release notes always
+    # describes the bytes actually attached.
+    needs: build
+    if: needs.build.outputs.dirs != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # cut releases
+      pull-requests: write  # upsert the verified:false comment on the merged PR
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0             # all tags for N derivation + CHANGELOG notes
+          persist-credentials: false # gh uses GH_TOKEN from env; git stays read-only
+
+      - name: download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-wasm
+          path: dist
+
+      - name: release and notify per game
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Arcade auto-publish (add-game-versions): after each release is cut,
+          # CI asks the arcade to verify+promote it per the arcade's publish
+          # policy (graduated default: live games auto-update; first publishes
+          # wait for admin go-live). The arcade re-verifies everything locally
+          # (digest + conformance) — this call carries no trust, only the tag.
+          PUBLISH_ENDPOINT: "https://shellcade.com/admin/game:publish"
+          ADMIN_SECRET: ${{ secrets.SHELLCADE_ADMIN_SECRET }}
+          # Derived from pushed file paths, captured in the build job BEFORE
+          # any game code ran. Pass via env so it is shell DATA, never spliced
+          # into the script as ${{ }} (authorize.yml documents this rule) —
+          # this step holds contents:write and ADMIN_SECRET.
+          DIRS: ${{ needs.build.outputs.dirs }}
+        run: |
+          set -euo pipefail
+          refused=0
+          : > refusals.md
+
+          # Best-effort GitHub attribution + comment target: resolve the merged
+          # PR for this commit (one push == one merge commit, so once per run).
+          # Authorization happened at PR time (authorize.yml against the
+          # shellcade link); the @mention is cosmetic only, so a missing/failed
+          # lookup just omits it — it must NEVER fail the publish.
+          mapped=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+                     -q '.[0].user.login' 2>/dev/null || true)
+          if [ "$mapped" = "null" ]; then mapped=""; fi
+          pr_number=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+                        -q '.[0].number' 2>/dev/null || true)
+          if [ "$pr_number" = "null" ]; then pr_number=""; fi
+
+          while read -r d; do
+            [ -z "$d" ] && continue
+            echo "=== $d ==="
+            owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
+            game=$(echo "$d" | cut -d/ -f3)     # bare game name (== artifact meta slug)
+
+            wasm="dist/${owner}-${game}/game.wasm"
+            if [ ! -f "$wasm" ]; then
+              echo "::error::build artifact missing for $d (expected $wasm)"; exit 1
+            fi
+            digest=$(sha256sum "$wasm" | cut -d' ' -f1)
             echo "digest: sha256:$digest"
 
             # Next version integer N from existing <owner>-<game>-vN tags.
@@ -148,7 +250,7 @@ jobs:
 
             tag="${prefix}${next}"
             asset="${owner}-${game}-v${next}.wasm"
-            cp "$d/game.wasm" "$asset"
+            cp "$wasm" "$asset"
 
             # Attribution line: include the @mention only when we resolved one.
             if [ -n "$mapped" ]; then
@@ -183,19 +285,123 @@ jobs:
             fi
             echo "published $tag ($asset)"
 
-            # Arcade auto-publish — FAIL-SOFT: a missing secret or an
-            # unreachable arcade never fails the release (the admin area can
-            # always verify+promote manually). The endpoint is idempotent, so
-            # a re-run re-verifies and re-applies the policy without
-            # duplicating anything.
-            if [ -n "${ADMIN_SECRET}" ]; then
-              body=$(printf '{"tag":"%s","githubUser":"%s"}' "$tag" "$mapped")
-              resp=$(curl -sS -m 90 -X POST \
-                       -H "Authorization: Bearer ${ADMIN_SECRET}" \
-                       -H "Content-Type: application/json" \
-                       -d "$body" "${PUBLISH_ENDPOINT}" || true)
-              echo "game:publish → ${resp:-no response (arcade unreachable; promote via Admin tools)}"
-            else
+            # Arcade auto-publish. Transport failures stay FAIL-SOFT — a
+            # missing secret, an unreachable arcade, a non-200, or a garbled
+            # body never fails the release (the admin area can always
+            # verify+promote manually; the endpoint is idempotent, so a re-run
+            # re-verifies and re-applies the policy without duplicating
+            # anything). A definitive 200 {verified:false} is a REFUSAL of the
+            # release-profile artifact and must be LOUD: without it the GitHub
+            # release exists, every pipeline is green, and the game silently
+            # never updates in the arcade.
+            if [ -z "${ADMIN_SECRET}" ]; then
               echo "SHELLCADE_ADMIN_SECRET not set — skipping arcade auto-publish"
+              continue
             fi
+            body=$(jq -nc --arg tag "$tag" --arg user "$mapped" \
+                     '{tag:$tag, githubUser:$user}')
+            # Capture body + HTTP status separately so transport/HTTP errors
+            # are distinguishable from a clean verified:false decision
+            # (authorize.yml pattern).
+            resp=$(curl -sS -m 90 -w '\n%{http_code}' -X POST \
+                     -H "Authorization: Bearer ${ADMIN_SECRET}" \
+                     -H "Content-Type: application/json" \
+                     -d "$body" "${PUBLISH_ENDPOINT}") || {
+              echo "::warning::$tag: arcade unreachable — verify+promote via Admin tools"
+              continue
+            }
+            code=$(printf '%s' "$resp" | tail -n1)
+            payload=$(printf '%s' "$resp" | head -n -1)
+            if [ "$code" != "200" ]; then
+              echo "::warning::$tag: game:publish returned HTTP $code: ${payload:-<empty>} — verify+promote via Admin tools"
+              continue
+            fi
+            verified=$(printf '%s' "$payload" | jq -r '.verified' 2>/dev/null || true)
+            case "$verified" in
+              true)
+                echo "game:publish verified $tag → $payload"
+                ;;
+              false)
+                reason=$(printf '%s' "$payload" | jq -r '.reason // "no reason returned"')
+                echo "::error::arcade refused ${owner}/${game} ${tag}: ${reason}"
+                {
+                  printf '### `%s/%s` — tag `%s`\n\n' "$owner" "$game" "$tag"
+                  printf '%s\n\n' "$reason"
+                } >> refusals.md
+                refused=1
+                ;;
+              *)
+                # Empty or non-JSON 200 body: treat as transport-shaped, not a
+                # decision — stay fail-soft.
+                echo "::warning::$tag: unparseable game:publish response: ${payload:-<empty>} — verify+promote via Admin tools"
+                ;;
+            esac
           done <<< "$DIRS"
+          echo "refused=$refused" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      # Post (or update) ONE bot comment on the merged PR with the refusal
+      # details — without it the author sees a merged PR and a cut release and
+      # has no signal the arcade rejected the artifact. Keyed by a hidden
+      # marker so re-runs edit the same comment instead of spamming
+      # (authorize.yml pattern).
+      - name: upsert publish-refusal comment on the merged PR
+        if: steps.release.outputs.refused == '1' && steps.release.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.release.outputs.pr_number }}
+          MARKER: "<!-- shellcade-publish -->"
+        run: |
+          set -euo pipefail
+          {
+            echo "$MARKER"
+            echo "## shellcade could not publish this release to the arcade"
+            echo
+            echo "The GitHub release was cut, but the arcade's re-verification refused it,"
+            echo "so the game will NOT go live / update until this is resolved:"
+            echo
+            cat refusals.md
+            echo "_See the [publish run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for full logs. Re-running it retries the arcade publish._"
+          } > comment.md
+
+          # --paginate emits one match per page, so take the first id (the bot
+          # only ever creates one marked comment). Empty => create a new one.
+          existing=$(gh api --paginate \
+            "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -q ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1 || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" \
+              -f body="$(cat comment.md)" >/dev/null
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -f body="$(cat comment.md)" >/dev/null
+          fi
+
+      # On a clean pass, resolve any prior refusal comment so the merged PR
+      # stops showing a stale failure (edit in place — never delete history).
+      - name: clear prior refusal comment on pass
+        if: steps.release.outputs.refused == '0' && steps.release.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.release.outputs.pr_number }}
+          MARKER: "<!-- shellcade-publish -->"
+        run: |
+          set -euo pipefail
+          existing=$(gh api --paginate \
+            "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            -q ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1 || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            body="${MARKER}"$'\n'"shellcade published this release to the arcade. ✅"
+            gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" \
+              -f body="$body" >/dev/null
+          fi
+
+      - name: fail if the arcade refused any release
+        if: steps.release.outputs.refused == '1'
+        run: |
+          echo "::error::the arcade refused at least one release — see the errors above and the bot comment on the merged PR."
+          exit 1
