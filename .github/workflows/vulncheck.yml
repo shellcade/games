@@ -1,0 +1,67 @@
+name: vulncheck
+on:
+  schedule:
+    - cron: "17 4 * * *"      # nightly, whole catalog — a CVE lands in a dep
+                              # long after the game's PR merged, so PR-time
+                              # checks alone would never see it
+  workflow_dispatch:
+
+# Scans every published game's dependency graph against the known-vuln
+# databases (Go vulndb via govulncheck, RustSec via cargo-audit). Each game is
+# a standalone module with its own pins, so the whole tree is walked — there
+# is no shared go.mod to scan once. A failing run is the signal: the job log
+# names the affected game(s); the fix is a dep-bump PR to that game (by its
+# author, or by a maintainer if the author is unresponsive — see
+# CONTENT_POLICY.md for the takedown path when a vulnerable game must come
+# down before a fix exists).
+#
+# Versions are pinned like validate.yml/publish.yml pin their toolchain;
+# go install / cargo install --locked verify against the module/crate
+# checksum databases.
+env:
+  GO_VERSION: "1.25"
+  GOVULNCHECK_VERSION: "1.1.4"   # golang.org/x/vuln/cmd/govulncheck
+  CARGO_AUDIT_VERSION: "0.21.1"  # rustsec cargo-audit
+
+permissions:
+  contents: read
+
+jobs:
+  go-games:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      - name: govulncheck every Go game
+        run: |
+          go install "golang.org/x/vuln/cmd/govulncheck@v${GOVULNCHECK_VERSION}"
+          bin="$(go env GOPATH)/bin/govulncheck"
+          fail=0
+          for d in games/*/*/; do
+            [ -f "${d}go.mod" ] || continue
+            echo "=== $d ==="
+            # Source-level (call-graph) analysis: reports only vulns whose
+            # code the game can actually reach, so findings are actionable
+            # rather than go.sum noise.
+            ( cd "$d" && "$bin" ./... ) || { echo "::error::${d%/}: govulncheck found reachable known vulnerabilities — bump the affected dependency"; fail=1; }
+          done
+          exit $fail
+
+  rust-games:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo-audit every Rust game
+        run: |
+          cargo install cargo-audit --locked --version "${CARGO_AUDIT_VERSION}"
+          fail=0
+          for d in games/*/*/; do
+            [ -f "${d}Cargo.toml" ] || continue
+            echo "=== $d ==="
+            # cargo-audit reads the lockfile; generate one for any game that
+            # didn't commit it (the dep graph is the same one publish builds).
+            ( cd "$d" && [ -f Cargo.lock ] || cargo generate-lockfile )
+            ( cd "$d" && cargo audit ) || { echo "::error::${d%/}: cargo audit found known vulnerabilities — bump the affected dependency"; fail=1; }
+          done
+          exit $fail
