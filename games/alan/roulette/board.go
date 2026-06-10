@@ -8,7 +8,7 @@ package main
 //   - the line between two cells  -> split
 //   - a four-number intersection  -> corner
 //   - the outer end of a column   -> street (3) / six-line (6)
-//   - the zero and its boundary    -> 0, its splits, the trios, the basket
+//   - the zero lane + boundary     -> 0, 00, the 0-00 split, trios, top line
 //   - the boxes around the grid    -> dozens, columns, even-money
 //
 // Positions live on a fine integer lattice (fr, fc): odd/odd is a number,

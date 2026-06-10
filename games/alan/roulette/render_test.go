@@ -1,6 +1,58 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	kit "github.com/shellcade/kit/v2"
+)
+
+// TestWinnerHighlightTiming pins the reveal sequence: dark through the spin and
+// the 1s pause after the ball lands, flashing on/off until settlement, then
+// solid through the results board.
+func TestWinnerHighlightTiming(t *testing.T) {
+	rm := newRoom(kit.RoomConfig{}, kit.Services{})
+	rm.spinStart = time.Unix(1_000_000, 0)
+
+	rm.phase = phBetting
+	if rm.winnerHighlightOn() {
+		t.Error("highlight on during betting")
+	}
+
+	rm.phase = phSpinning
+	at := func(sinceLanded time.Duration) bool {
+		rm.lastNow = rm.spinStart.Add(spinAnimDur + sinceLanded)
+		return rm.winnerHighlightOn()
+	}
+	if at(-time.Second) {
+		t.Error("highlight on while the ball is still rolling")
+	}
+	if at(flashDelay - time.Millisecond) {
+		t.Error("highlight on during the post-landing pause")
+	}
+	if !at(flashDelay) {
+		t.Error("flash not on at the first half-cycle")
+	}
+	if at(flashDelay + flashPeriod) {
+		t.Error("flash not off at the second half-cycle")
+	}
+	if !at(flashDelay + 2*flashPeriod) {
+		t.Error("flash not on again at the third half-cycle")
+	}
+
+	rm.phase = phResults
+	if !rm.winnerHighlightOn() {
+		t.Error("highlight not solid at results")
+	}
+}
+
+// TestChipPaletteCoversTable guards the palette against a MaxPlayers bump: every
+// seated player must get a distinct chip colour.
+func TestChipPaletteCoversTable(t *testing.T) {
+	if max := (Game{}).Meta().MaxPlayers; len(chipColors) < max {
+		t.Fatalf("chip palette has %d colours for %d seats", len(chipColors), max)
+	}
+}
 
 func TestRoundSummary(t *testing.T) {
 	cases := []struct {

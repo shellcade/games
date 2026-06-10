@@ -148,6 +148,49 @@ func TestRoundSettles(t *testing.T) {
 	}
 }
 
+// TestPlacingChipCancelsEarlyClose guards the grace beat: a player who places
+// another chip while the early close is armed is un-readied AND the close backs
+// out (the wheel must never spin out from under someone still betting).
+func TestPlacingChipCancelsEarlyClose(t *testing.T) {
+	r, rm := newGame(t, "p1", "p2")
+	p1, p2 := rm.players["p1"], rm.players["p2"]
+	setCursorNumber(rm, "p1", 5)
+	rm.placeBet(p1)
+	rm.toggleReady(r, p1)
+	rm.toggleReady(r, p2)
+	if !rm.closing {
+		t.Fatal("early close not armed after all ready")
+	}
+	// p2 drops a chip during the grace beat.
+	setCursorNumber(rm, "p2", 8)
+	rm.placeBet(p2)
+	if p2.ready {
+		t.Error("placing a chip did not un-ready the player")
+	}
+	if rm.closing {
+		t.Error("placing a chip did not cancel the early close")
+	}
+	if rm.pendAt != rm.deadline {
+		t.Error("the betting-window deadline was not restored")
+	}
+	// The grace instant passing must NOT spin now.
+	r.Advance(gracePeriod + 100*time.Millisecond)
+	rm.OnWake(r)
+	if rm.phase != phBetting {
+		t.Fatalf("phase = %q after cancelled grace, want betting", rm.phase)
+	}
+	// Re-readying spins as usual.
+	rm.toggleReady(r, p2)
+	if !rm.closing {
+		t.Fatal("early close not re-armed after re-ready")
+	}
+	r.Advance(gracePeriod + 100*time.Millisecond)
+	rm.OnWake(r)
+	if rm.phase != phSpinning {
+		t.Fatalf("phase = %q, want spinning", rm.phase)
+	}
+}
+
 // TestRebuyOnBust confirms a wiped-out player is staked again.
 func TestRebuyOnBust(t *testing.T) {
 	r, rm := newGame(t, "p1")

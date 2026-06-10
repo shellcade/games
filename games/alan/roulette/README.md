@@ -22,8 +22,10 @@ The cursor lands on the real chip positions: a number's centre is a straight-up,
 the line between two cells is a split, an intersection is a corner, and the outer
 end of a column is a street or six-line. The armed-bet readout (e.g.
 `> SPLIT 2-3   pays 17:1`) and the highlighted numbers always show exactly what
-you'll stake. When the wheel spins, the screen switches to the wheel view; if
-nobody readies up the window's countdown spins it on its own.
+you'll stake. When the wheel spins it runs right below the felt — your chips
+stay on the table, the winning squares flash as the ball lands, and they hold
+solid through the payout. If nobody readies up the window's countdown spins it
+on its own.
 
 ## The bets
 

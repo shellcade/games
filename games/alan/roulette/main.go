@@ -1,8 +1,9 @@
-// Roulette — a shared-table European roulette wheel for the shellcade arcade.
-// Everyone at the table bets on ONE wheel: a timed betting window where each
-// player places chips across the full felt (straight, split, street, corner,
-// line, plus the dozen/column/even-money outside bets), a single shared spin,
-// then a payout beat before the next round opens.
+// Roulette — a shared-table American double-zero roulette wheel for the
+// shellcade arcade. Everyone at the table bets on ONE wheel: a timed betting
+// window where each player places chips across the full felt (straight, split,
+// street, corner, line, the zero-area trios and top line, plus the dozen/
+// column/even-money outside bets), a single shared spin, then a payout beat
+// before the next round opens.
 //
 // A wake-driven port to the shellcade wasm ABI: the betting window, the wheel
 // deceleration, and the results hold are deadlines held in guest memory and

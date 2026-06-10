@@ -12,7 +12,8 @@ import (
 // real bordered 3x12 table drawn with box lines, so the cursor can sit on a
 // number, on the line between two numbers (a split), or on an intersection (a
 // corner) — and a chip lands exactly there. While the wheel is spinning the
-// whole screen switches to a dedicated wheel view (drawSpinScreen).
+// board stays up (chips locked in) and the wheel runs in the panel below it
+// (drawSpinnerPanel), where the betting sidebar sits the rest of the time.
 //
 // Grid geometry: the zero box occupies the left margin; each number cell is
 // IW-wide with single-column lines between, and the dozen / even-money / column
@@ -75,8 +76,6 @@ var chipColors = []kit.Color{
 	kit.RGB(0xc5, 0xe1, 0x7a), // lime
 }
 
-const numChipColors = 6
-
 func chipStyle(idx int) kit.Style {
 	if idx < 0 || idx >= len(chipColors) {
 		idx = 0
@@ -138,7 +137,10 @@ func (rm *room) drawStatusLine(f *kit.Frame, now time.Time) {
 
 func (rm *room) drawMarquee(f *kit.Frame, row int) {
 	if len(rm.history) == 0 {
-		f.Text(row, 2, "no spins yet - place your chips and ready up", stDim)
+		// The first-round nudge only makes sense while betting is open.
+		if rm.phase == phBetting {
+			f.Text(row, 2, "no spins yet - place your chips and ready up", stDim)
+		}
 		return
 	}
 	col := f.Text(row, 2, "recent ", stDim)
@@ -154,7 +156,7 @@ func (rm *room) drawFelt(f *kit.Frame, pl *player) {
 	rm.drawZeroBox(f)
 	rm.drawGridFrame(f)
 	for n := 1; n <= 36; n++ {
-		rm.drawNumber(f, n, "")
+		rm.drawNumber(f, n)
 	}
 	rm.drawOutsideBoxes(f)
 
@@ -230,7 +232,7 @@ func (rm *room) drawGridFrame(f *kit.Frame) {
 			f.SetRune(row, c, '-', stFrame)
 		}
 		for k := 0; k <= cols; k++ {
-			f.SetRune(row, lineCol(k), junction(fr, k, cols), stFrame)
+			f.SetRune(row, lineCol(k), '+', stFrame)
 		}
 	}
 	// Verticals on the three number rows.
@@ -242,36 +244,15 @@ func (rm *room) drawGridFrame(f *kit.Frame) {
 	}
 }
 
-// junction returns the box-corner glyph at horizontal rule fr and line column k.
-func junction(fr, k, cols int) rune {
-	left := k == 0
-	right := k == cols
-	switch fr {
-	case 0: // top
-		if left {
-			return '+'
-		}
-		if right {
-			return '+'
-		}
-		return '+'
-	default:
-		return '+'
-	}
-}
-
-// drawNumber paints number n in its felt colour; marker (if non-empty) occupies
-// the cell's left slot (used for a chip dot).
-func (rm *room) drawNumber(f *kit.Frame, n int, marker string) {
+// drawNumber paints number n in its felt colour (the cell's left slot is the
+// chip slot, painted blank here and overdrawn by drawAllChips).
+func (rm *room) drawNumber(f *kit.Frame, n int) {
 	rr, c := gridRC(n)
 	row := rowOfRR(rr)
 	col := colInterior(c)
 	st := feltStyle(n)
 	f.SetRune(row, col, ' ', st)
 	f.Text(row, col+1, pad2(n), st)
-	if marker != "" {
-		f.Text(row, col, marker, stChip)
-	}
 }
 
 // drawOutsideBoxes draws the dozen, even-money, and column "2:1" boxes.
@@ -350,7 +331,18 @@ func (rm *room) drawCursor(f *kit.Frame, pl *player) {
 // shadeNumber re-styles number n's cell, preserving its felt background.
 func (rm *room) shadeNumber(f *kit.Frame, n int, overlay kit.Style) {
 	if n == 0 || n == doubleZero {
-		f.Text(zeroRow(n), zeroTextCol(n), pocketLabel(n), merge(stGreenFelt, overlay))
+		// The zero boxes follow the same rule as the grid cells: highlight the
+		// whole interior row, unless a chip sits in the box (a straight bet on
+		// this pocket is master bet n) — then shade just the digits. (Master i ==
+		// straight on pocket i, including 00 at index doubleZero.)
+		st := merge(stGreenFelt, overlay)
+		row := zeroRow(n)
+		if rm.chipBits[n] == 0 {
+			for c := 1; c < gridLeft; c++ {
+				f.SetRune(row, c, ' ', st)
+			}
+		}
+		f.Text(row, zeroTextCol(n), pocketLabel(n), st)
 		return
 	}
 	rr, c := gridRC(n)
@@ -432,11 +424,11 @@ func zeroChipPos(b bet, sp spot) (row, col int) {
 }
 
 // drawZeroCursor marks the cursor over a zero-area bet: the box itself for a
-// straight, otherwise a marker at the bet's chip position.
+// straight (chip-aware, via shadeNumber), otherwise a marker at the bet's chip
+// position.
 func (rm *room) drawZeroCursor(f *kit.Frame, b bet, sp spot) {
 	if b.kind == kStraight {
-		n := b.nums[0]
-		f.Text(zeroRow(n), zeroTextCol(n), pocketLabel(n), merge(stGreenFelt, stCursor))
+		rm.shadeNumber(f, b.nums[0], stCursor)
 		return
 	}
 	row, col := zeroChipPos(b, sp)
@@ -647,6 +639,13 @@ func (rm *room) drawRoster(f *kit.Frame, v kit.Player) {
 			} else {
 				f.Text(row, panelLeft+10, ".", stDim)
 			}
+		case phSpinning:
+			// Mid-spin "ready" is stale — show what each player has riding.
+			if s := pl.staked(); s > 0 {
+				f.Text(row, panelLeft+10, "@"+strconv.Itoa(s), stChip)
+			} else {
+				f.Text(row, panelLeft+10, ".", stDim)
+			}
 		default:
 			if pl.ready {
 				f.Text(row, panelLeft+10, "rdy", stReady)
@@ -695,16 +694,19 @@ func (rm *room) drawSidebar(f *kit.Frame, pl *player) {
 		return
 	}
 	yourSt := chipStyle(pl.colorIdx)
+	const lastRow = 21 // bottom of the chips area (helpRow-2)
 	col, row := 4, 16
 	for i, g := range groups {
 		seg := masterBets[g.master].label + " x" + strconv.Itoa(g.stake)
 		if col+len(seg) > kit.Cols-2 {
+			if row == lastRow {
+				// Out of rows: summarise the rest at the end of the last line
+				// (never wrap back over chips already drawn there).
+				f.Text(row, col, "+"+strconv.Itoa(len(groups)-i)+" more", stDim)
+				break
+			}
 			row++
 			col = 4
-		}
-		if row > 21 { // out of room
-			f.Text(21, col, "+"+strconv.Itoa(len(groups)-i)+" more", stDim)
-			break
 		}
 		col = f.Text(row, col, seg, yourSt)
 		col = f.Text(row, col, "   ", stDim)
@@ -715,10 +717,9 @@ func (rm *room) drawHelp(f *kit.Frame, pl *player) {
 	var help string
 	switch rm.phase {
 	case phBetting:
-		help = "arrows move (numbers/lines/corners)  enter place  +/-chip  bksp undo  c clear  r ready"
-		if len(help) > kit.Cols-12 {
-			help = "move  enter place  +/-chip  bksp undo  c clear  r ready"
-		}
+		help = "arrows move  enter place  +/- chip  bksp undo  c clear  r ready"
+	case phSpinning:
+		help = "no more bets - the ball is rolling"
 	case phResults:
 		help = "paying out - next round opens shortly"
 	}

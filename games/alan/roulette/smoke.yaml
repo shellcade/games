@@ -4,9 +4,10 @@ heartbeat: 50ms
 # One shared wheel. The cursor moves over the felt landing on numbers, the lines
 # between them (splits), and the intersections (corners) — so a chip drops
 # exactly where you steer. Both seats bet, ready up (which closes the window
-# after a short grace beat), then the screen switches to the spinning wheel
-# before settling. The outcome is rolled from the seeded RNG at spin start, so
-# this script reproduces the same winning number every run.
+# after a short grace beat), then the wheel runs below the board while the chips
+# stay on the felt; the winning squares flash once the ball lands and hold solid
+# through the payout. The outcome is rolled from the seeded RNG at spin start,
+# so this script reproduces the same winning number every run.
 steps:
   - shot: table          # the empty felt, betting window counting down
 

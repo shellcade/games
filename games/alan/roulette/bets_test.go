@@ -78,6 +78,23 @@ func TestBetIntegrity(t *testing.T) {
 	}
 }
 
+// TestStraightMasterIndexing pins the invariant other code leans on: master bet
+// i IS the straight on pocket i for every pocket — 0..36, and 00 at index
+// doubleZero (37). shadeNumber's chip lookup (chipBits[n]) and the cursor tests
+// index straights this way.
+func TestStraightMasterIndexing(t *testing.T) {
+	for n := 0; n < pockets; n++ {
+		b := masterBets[n]
+		if b.kind != kStraight || len(b.nums) != 1 || b.nums[0] != n {
+			t.Errorf("masterBets[%d] = %s %q, want the straight on pocket %s",
+				n, b.kind.name(), b.label, pocketLabel(n))
+		}
+	}
+	if masterBets[doubleZero].label != "00" {
+		t.Errorf("masterBets[doubleZero] labelled %q, want \"00\"", masterBets[doubleZero].label)
+	}
+}
+
 // TestNoDuplicateBets ensures the generation never emits the same covered set
 // for the same family twice.
 func TestNoDuplicateBets(t *testing.T) {
