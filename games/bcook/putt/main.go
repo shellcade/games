@@ -1,8 +1,10 @@
 // Putt — an SSH arcade mini-golf game for shellcade.
 //
 // ASCII mini-golf on the fixed 80x24 terminal canvas. Nine handcrafted holes
-// of increasing mischief: rotate an aim indicator with the arrows, hold space
-// to charge a power meter, release to putt. The ball rolls with friction,
+// of increasing mischief: Left/Right rotate an aim indicator, Up/Down step a
+// notched power dial that persists between shots (many terminals translate
+// mouse scroll into arrow up/down, so the dial is literally scrollable), and
+// space putts immediately at the dialed power. The ball rolls with friction,
 // bounces off the course walls (`/ \ | - =` and box characters), bogs down in
 // sand (`:`), and a splash in the water (`~`) costs a stroke and resets you to
 // where you putted from. Later holes add a spinning windmill arm to time.

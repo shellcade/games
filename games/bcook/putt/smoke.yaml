@@ -3,7 +3,8 @@ seats: 2
 heartbeat: 50ms
 steps:
   # (a) Hole 1 opening view: two golfers on the tee, the aim indicator pointing
-  # down the fairway at the flag, the HUD showing hole / par / strokes.
+  # down the fairway at the flag, the HUD with hole / par / strokes, and the
+  # power dial sitting at its mid-range default on the controls bar.
   - advance: 50ms
   - shot: hole1-open
 
@@ -19,57 +20,56 @@ steps:
   - key: left
   - key: left
 
-  # Hold space to charge. Each `key: space` refreshes the held state across the
-  # following short advance (as a real terminal's auto-repeat does); the meter
-  # fills cool->hot and the aim line lengthens with power.
-  - key: space
-  - advance: 200ms
-  - key: space
-  - advance: 200ms
-  - shot: charging
-  - key: space
-  - advance: 200ms
-  - key: space
-  - advance: 200ms
-  - key: space
-  - advance: 200ms
+  # Dial power up two notches: the stepped PWR meter fills and the aim line
+  # lengthens with the setting. (Many terminals translate mouse scroll into
+  # arrow up/down, so the dial is literally scrollable.)
+  - key: up
+  - key: up
+  - advance: 50ms
+  - shot: power-dial
 
-  # Release: stop pressing and the hold lingers out, firing a full-power putt.
-  # A short settle lets the ball leave the tee and streak off with its trail.
-  - advance: 450ms
+  # Crank the dial to full (clamps at the top notch)…
+  - key: up
+  - key: up
+  - key: up
+  - key: up
+
+  # …and putt: space fires IMMEDIATELY at the dialed power — no hold, no
+  # release timing. The ball streaks off down the fairway with its trail.
+  - key: space
+  - advance: 250ms
   - shot: putt-rolling
 
-  # The ball runs the length of the fairway, dead on line, and drops for a
-  # hole-in-one (it turns gold and the result shows).
+  # Full dial, dead on line: the ball runs the length of the fairway and drops
+  # for a hole-in-one (it turns gold and the result shows).
   - advance: 700ms
   - advance: 700ms
   - shot: holed-out
 
-  # (b) Seat 1's own view: their bright ball on the tee, seat 0 now sunk.
+  # (b) Seat 1's own view: their bright ball on the tee, dial still at the
+  # mid-range default — each golfer's dial is their own.
   - seat: 1
   - advance: 50ms
   - shot: rival-view
 
-  # Seat 1 also charges a full-power putt straight at the cup and sinks it. With
-  # both golfers holed out, the per-hole SCORECARD intermission appears.
+  # Seat 1 cranks their dial to full and putts too. With both golfers holed
+  # out, the per-hole SCORECARD intermission appears.
+  - key: up
+  - key: up
+  - key: up
+  - key: up
+  - key: up
+  - key: up
   - key: space
-  - advance: 200ms
-  - key: space
-  - advance: 200ms
-  - key: space
-  - advance: 200ms
-  - key: space
-  - advance: 200ms
-  - key: space
-  - advance: 200ms
-  - advance: 450ms
+  - advance: 250ms
   - advance: 700ms
   - advance: 700ms
   - shot: scorecard
 
   # After the scorecard dwell the round rolls to hole 2 — Dogleg — showing the
   # next course's geometry: a central wall block the putt must bend around,
-  # fresh tee, fresh aim line, and the carried-over round TOTAL in the HUD.
+  # fresh tee and aim line, the carried-over round TOTAL, and each golfer's
+  # dial still parked where they left it (the setting persists between holes).
   - advance: 1500ms
   - advance: 1500ms
   - shot: hole2-dogleg

@@ -55,7 +55,7 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	rm.now = r.Now()
 	rm.names[p.AccountID] = p
 	if _, ok := rm.golfers[p.AccountID]; !ok {
-		g := &golfer{glyph: '●', color: palette[len(rm.order)%len(palette)]}
+		g := &golfer{glyph: '●', color: palette[len(rm.order)%len(palette)], notch: defaultNotch}
 		rm.golfers[p.AccountID] = g
 		rm.order = append(rm.order, p.AccountID)
 		// Backfill par for holes already finished by everyone else, so a late
@@ -104,45 +104,40 @@ func (rm *room) OnClose(r kit.Room) {}
 
 // --- input -------------------------------------------------------------------
 
-// OnInput handles aiming and the charge-and-release putt. Arrows rotate the aim
-// indicator; holding space charges (tracked across terminal auto-repeat by the
-// keyhold tracker), and releasing it — detected on the next wake when the held
-// state lingers out — fires the putt.
+// OnInput handles aiming, the power dial, and the putt. Left/Right rotate the
+// aim indicator; Up/Down step the notched power dial (the setting persists
+// between shots — dial it once and it stays, like a scroll wheel); Space putts
+// immediately at the dialed power. No hold-to-charge: over SSH, latency jitter
+// moves a release point, but a notch you dialed is exactly the notch you get.
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	rm.now = r.Now()
 	g := rm.golfers[p.AccountID]
 	if g == nil || rm.phase != phasePlay {
 		return
 	}
-	// Record a space press/repeat for this golfer (terminals have no key-up, so
-	// "held" is derived from the auto-repeat stream lingering, per golfer so two
-	// players charging at once never interfere).
-	if in.Kind == kit.InputRune && in.Rune == ' ' {
-		g.lastSpace = rm.now
-	}
 	switch kit.Resolve(in, kit.CtxNav) {
 	case kit.ActLeft:
-		if g.state == stateAim || g.state == stateCharge {
+		if g.state == stateAim {
 			g.aim -= aimStepRad
 		}
 	case kit.ActRight:
-		if g.state == stateAim || g.state == stateCharge {
+		if g.state == stateAim {
 			g.aim += aimStepRad
 		}
 	case kit.ActUp:
-		// Fine aim: nudge a small step (lets a single tap creep the line).
-		if g.state == stateAim || g.state == stateCharge {
-			g.aim -= aimStepRad / 4
+		// Dial a notch of power up. Many terminals translate mouse scroll into
+		// arrow up/down, so the dial doubles as a literal scroll wheel.
+		if g.notch < powerNotches {
+			g.notch++
 		}
 	case kit.ActDown:
-		if g.state == stateAim || g.state == stateCharge {
-			g.aim += aimStepRad / 4
+		if g.notch > 1 {
+			g.notch--
 		}
 	case kit.ActConfirm:
-		// Space pressed: begin charging if resting.
+		// Space: putt right now at the dialed power.
 		if g.state == stateAim {
-			g.state = stateCharge
-			g.power = 0
+			rm.launch(g)
 		}
 	}
 	rm.render(r)
@@ -150,9 +145,9 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 
 // --- heartbeat ---------------------------------------------------------------
 
-// OnWake is the ~20 Hz heartbeat: advance the windmill, integrate charging and
-// rolling balls, resolve hole-outs and the stroke cap, drive the scorecard
-// timers, and render every view.
+// OnWake is the ~20 Hz heartbeat: advance the windmill, integrate the rolling
+// balls, resolve hole-outs and the stroke cap, drive the scorecard timers, and
+// render every view.
 func (rm *room) OnWake(r kit.Room) {
 	rm.now = r.Now()
 	dt := rm.step()
@@ -202,50 +197,21 @@ func (rm *room) advanceWindmill(dt float64) {
 
 func (rm *room) advanceGolfers(r kit.Room, dt float64) {
 	for _, g := range rm.golfers {
-		switch g.state {
-		case stateCharge:
-			rm.advanceCharge(g, dt)
-		case stateRoll:
+		if g.state == stateRoll {
 			rm.advanceRoll(r, g, dt)
 		}
 	}
 }
 
-// advanceCharge raises the power meter while space is held, oscillating back
-// down at full so a fumbled hold doesn't auto-max — and fires the putt the
-// moment the player lets go (the held state lingers out).
-func (rm *room) advanceCharge(g *golfer, dt float64) {
-	// Space still held (its auto-repeat is within the linger window): keep
-	// charging, clamped at full.
-	if !g.lastSpace.IsZero() && rm.now.Sub(g.lastSpace) <= holdLinger {
-		g.power += chargeRate * dt
-		if g.power > maxPower {
-			g.power = maxPower
-		}
-		return
-	}
-	// Released — take the putt.
-	rm.launch(g)
-}
-
-// launch converts the charged power into a rolling ball and counts the stroke.
+// launch fires a putt at the dialed notch and counts the stroke. The dial is
+// left where it is — the next shot reuses the setting until it's re-dialed.
 func (rm *room) launch(g *golfer) {
-	g.lastSpace = time.Time{} // consume the press so it can't re-trigger
-	if g.power <= 0.02 {
-		// A tap with no real charge: cancel, don't waste a stroke.
-		g.state = stateAim
-		g.power = 0
-		return
-	}
-	// Quadratic power curve: feather taps stay soft for delicate putts, while
-	// full charge still drives most of the way across the course.
-	speed := minLaunch + (maxLaunch-minLaunch)*g.power*g.power
+	speed := notchSpeed(g.notch)
 	g.preX, g.preY = g.x, g.y
 	g.vx = math.Cos(g.aim) * speed
 	g.vy = math.Sin(g.aim) * speed * aspect
 	g.state = stateRoll
 	g.strokes++
-	g.power = 0
 }
 
 // advanceRoll integrates one rolling ball: friction by surface, sub-stepped
@@ -386,7 +352,8 @@ func (rm *room) placeAtTee(g *golfer) {
 	g.vx, g.vy = 0, 0
 	g.state = stateAim
 	g.aim = aimToCup(g, h)
-	g.power = 0
+	// The power dial is deliberately NOT reset: it persists between shots and
+	// holes (the scroll-wheel feel — you dial it, it stays).
 	g.strokes = 0
 	g.holeIdx = rm.holeIdx
 }
