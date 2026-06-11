@@ -1,4 +1,4 @@
-module shellcade.games/keen-wolf66/neon-snake
+module shellcade.games/luke/neon-snake
 
 go 1.25.0
 
