@@ -1,0 +1,26 @@
+seed: 7
+seats: 1
+heartbeat: 50ms
+# A solo battle: one human tank plus two CPUs on fresh, destructible hills. The
+# player nudges the angle (a faint trajectory stub shows the aim), then fires —
+# the shell arcs across the field, craters the ground, and the blast goes off.
+# Terrain, wind, and CPU aim all replay identically from the seeded RNG.
+steps:
+  - advance: 50ms
+  - shot: battlefield    # hills, three tanks, the player lining up a shot
+
+  - seat: 0
+  - key: right
+  - key: right
+  - advance: 50ms
+  - shot: aiming         # the trajectory preview stub off the barrel
+
+  - key: space           # fire!
+  - advance: 700ms
+  - shot: flight         # the shell arcing over the hills, trailing
+
+  - advance: 1700ms
+  - shot: impact         # the blast going off
+
+  - advance: 900ms
+  - shot: aftermath      # the fireball clears — a modest crater, not a canyon
