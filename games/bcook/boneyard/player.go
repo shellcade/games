@@ -40,14 +40,14 @@ type delver struct {
 	// explored is the fog-of-war memory, per visited floor.
 	explored map[int]*[floorH][floorW]bool
 
-	weapon, armor, relic       *itemDef
-	cursedW, cursedA, cursedR  bool // looted-cursed slots, equip-locked till cleansed
-	heals                      int
-	recalls, necros, tokens    int  // scrolls of recall/necromancer; avenge bone-tokens
-	keys                       int  // crypt keys
+	weapon, armor, relic                *itemDef
+	cursedW, cursedA, cursedR           bool // looted-cursed slots, equip-locked till cleansed
+	heals                               int
+	recalls, necros, tokens             int // scrolls of recall/necromancer; avenge bone-tokens
+	keys                                int // crypt keys
 	lastBankX, lastBankY, lastBankFloor int // recall anchor (last banked shrine)
-	torchMul             int // percent of baseline burn (LANTERN 60)
-	kit                  *kitDef
+	torchMul                            int // percent of baseline burn (LANTERN 60)
+	kit                                 *kitDef
 
 	lastDX, lastDY int // last move direction (the corpse's last gasp)
 
@@ -57,13 +57,13 @@ type delver struct {
 	dying      *corpse   // last-words modal target (this run's fresh corpse)
 	dyingUntil time.Time // modal window
 
-	heldUntil   time.Time // gelatinous engulf: movement locked
-	rotUntilFloor int     // plague rot active while deepest <= this
-	knownHeal   bool      // identification: draughts are murky until first quaff
-	viewingWall bool      // the memorial overlay ([m])
-	deathCard   *deathSummary // shown briefly after a death
+	heldUntil     time.Time     // gelatinous engulf: movement locked
+	rotUntilFloor int           // plague rot active while deepest <= this
+	knownHeal     bool          // identification: draughts are murky until first quaff
+	viewingWall   bool          // the memorial overlay ([m])
+	deathCard     *deathSummary // shown briefly after a death
 
-	online bool // connected (offline delvers persist but are not targets)
+	online bool   // connected (offline delvers persist but are not targets)
 	rng    uint64 // per-actor combat PRNG (week-seed derived; never wall-clock)
 	runs   int    // lifetime runs this week (re-seeds the PRNG per run)
 
@@ -485,7 +485,6 @@ func itoa(n int) string {
 	}
 	return string(b[i:])
 }
-
 
 // openCrypt spends a key to break a sealed crypt, spilling a guaranteed prize.
 func (d *delver) openCrypt(rm *room, f *floor) {

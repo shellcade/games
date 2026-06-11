@@ -129,7 +129,7 @@ func (rm *room) composeRacers(f *kit.Frame, r kit.Room, v kit.Player) {
 	const stripTop = 18
 	row := stripTop
 	if ps := rm.st[v.AccountID]; ps != nil {
-		rm.racerRow(f, row, "You ("+v.DisplayName()+")", ps, stAccent, stAccent)
+		rm.racerRow(f, row, v.Character, "You ("+v.DisplayName()+")", ps, stAccent, stAccent)
 		row++
 	}
 
@@ -157,17 +157,21 @@ func (rm *room) composeRacers(f *kit.Frame, r kit.Room, v kit.Player) {
 		if ps == nil {
 			continue
 		}
-		rm.racerRow(f, row, p.DisplayName(), ps, stPlain, stDim)
+		rm.racerRow(f, row, p.Character, p.DisplayName(), ps, stPlain, stDim)
 		row++
 	}
 }
 
-// racerRow draws one strip line: padded name, progress bar, WPM and accuracy.
-func (rm *room) racerRow(f *kit.Frame, row int, name string, ps *pstate, nameSt, statSt kit.Style) {
-	if len(name) > 18 {
-		name = name[:18]
+// racerRow draws one strip line: the racer's character tile (kit v2.9.0, one
+// styled cell + one space) immediately before the padded name, then progress
+// bar, WPM and accuracy. The tile + space come out of the old 18-col name
+// field, so the bar and stats columns stay put.
+func (rm *room) racerRow(f *kit.Frame, row int, ch kit.Character, name string, ps *pstate, nameSt, statSt kit.Style) {
+	if len(name) > 16 {
+		name = name[:16]
 	}
-	f.Text(row, 1, fmt.Sprintf("%-18s", name), nameSt)
+	f.Set(row, 1, kit.CharacterCell(ch))
+	f.Text(row, 3, fmt.Sprintf("%-16s", name), nameSt)
 	f.Text(row, 20, progressBar(ps.cursor, len(rm.passage), 20), stDone)
 	f.Text(row, 43, fmt.Sprintf("WPM:%3d  ACC:%s", ps.wpmSnapOrLive(rm), accuracyStr(ps)), statSt)
 }
@@ -191,7 +195,7 @@ func (rm *room) composeCountdown(f *kit.Frame) {
 
 func (rm *room) composeResults(f *kit.Frame, v kit.Player) {
 	f.Text(2, 1, "RESULTS", stHeader)
-	f.Text(4, 2, fmt.Sprintf("%-4s %-20s %-6s %-6s %s", "#", "Player", "WPM", "ACC", "Status"), stDim)
+	f.Text(4, 2, fmt.Sprintf("%-4s %-2s%-18s %-6s %-6s %s", "#", "", "Player", "WPM", "ACC", "Status"), stDim)
 	row := 5
 	for _, pr := range rm.result.Rankings {
 		if row > 20 {
@@ -203,14 +207,19 @@ func (rm *room) composeResults(f *kit.Frame, v kit.Player) {
 			acc = accuracyStr(ps)
 		}
 		name := pr.Player.DisplayName()
-		if len(name) > 20 {
-			name = name[:20]
+		if len(name) > 18 {
+			name = name[:18]
 		}
 		st := stPlain
 		if pr.Player.AccountID == v.AccountID {
 			st = stAccent
 		}
-		f.Text(row, 2, fmt.Sprintf("%-4d %-20s %-6d %-6s %s", pr.Rank, name, pr.Metric, acc, statusLabel(pr.Status)), st)
+		// Rank, then the racer's character tile immediately before the name
+		// (the tile + space narrow the old 20-col name field; the WPM/ACC/
+		// Status columns stay put).
+		f.Text(row, 2, fmt.Sprintf("%-4d", pr.Rank), st)
+		f.Set(row, 7, kit.CharacterCell(pr.Player.Character))
+		f.Text(row, 9, fmt.Sprintf("%-18s %-6d %-6s %s", name, pr.Metric, acc, statusLabel(pr.Status)), st)
 		row++
 	}
 }

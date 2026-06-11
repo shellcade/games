@@ -14,6 +14,7 @@ import (
 
 type corpse struct {
 	handle string
+	ch     kit.Character // the dead's arcade character, frozen at death (zero for ancestral bones)
 	floor  int
 	x, y   int
 	killer string
@@ -27,9 +28,9 @@ type corpse struct {
 
 	respects int             // flowers left at these bones
 	mourners map[string]bool // who already mourned (one flower per account)
-	looted   bool // gold taken
-	devoured bool // marrow taken (blocked once respects >= 3)
-	avenged  int  // kills credited against these bones
+	looted   bool            // gold taken
+	devoured bool            // marrow taken (blocked once respects >= 3)
+	avenged  int             // kills credited against these bones
 
 	weapon, armor, relic *itemDef // the dead's gear — the prize and the risk
 }
@@ -59,6 +60,7 @@ func (rm *room) die(r kit.Room, d *delver, killer string) {
 	gasp := gaspName(d.lastDX, d.lastDY)
 	c := &corpse{
 		handle: d.p.Handle,
+		ch:     d.p.Character,
 		floor:  deathFloor, x: cx, y: cy,
 		killer:  killer,
 		species: killer,
@@ -77,14 +79,15 @@ func (rm *room) die(r kit.Room, d *delver, killer string) {
 
 	// The YOU DIED card: freeze this run's tale before the slate wipes.
 	deep, who := 0, ""
+	var whoCh kit.Character
 	for _, bc := range rm.bones {
 		if bc.floor > deep {
-			deep, who = bc.floor, bc.handle
+			deep, who, whoCh = bc.floor, bc.handle, bc.ch
 		}
 	}
 	card := &deathSummary{killer: killer, floor: deathFloor, banked: d.banked,
 		kills: d.kills, gold: d.gold, respects: d.respects, avenges: d.avenges,
-		deepestThisWeek: deep, deepestHandle: who}
+		deepestThisWeek: deep, deepestHandle: who, deepestCh: whoCh}
 
 	// A fresh run from the Gate, IN the same delver (allocation-free death:
 	// the world keeps the old run's bones, the heap keeps nothing else).

@@ -65,7 +65,10 @@ func TestWalkAndDescend(t *testing.T) {
 	sx, sy := d.x, d.y
 	var dir kit.Input
 	f := rm.world.at(1)
-	for _, try := range []struct{ r rune; dx, dy int }{{'d', 1, 0}, {'a', -1, 0}, {'s', 0, 1}, {'w', 0, -1}} {
+	for _, try := range []struct {
+		r      rune
+		dx, dy int
+	}{{'d', 1, 0}, {'a', -1, 0}, {'s', 0, 1}, {'w', 0, -1}} {
 		if f.open(sx+try.dx, sy+try.dy) {
 			dir = kit.Input{Kind: kit.InputRune, Rune: try.r}
 			break

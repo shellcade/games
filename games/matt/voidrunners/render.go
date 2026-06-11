@@ -155,12 +155,17 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player) {
 			name = string([]rune(name)[:8])
 		}
 		col = f.Text(0, col, "● ", kit.Style{FG: s.color, Attr: kit.AttrBold})
+		f.Set(0, col, kit.CharacterCell(p.Character)) // character tile + a space before the name
+		col += 2
 		seg := fmt.Sprintf("%s %d", name, s.kills)
 		if id == viewer.AccountID {
 			seg += "*"
 		}
 		col = f.Text(0, col, seg+"  ", kit.Style{FG: s.color})
-		if col > 58 {
+		// 56, not 58: each segment grew two columns (tile + space), so the
+		// break compensates to keep the strip clear of the right-aligned
+		// K/D/BEST readout exactly as before.
+		if col > 56 {
 			break
 		}
 	}

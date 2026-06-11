@@ -18,6 +18,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       6,
 		Tags:             []string{"roulette", "casino", "betting", "american"},
 
+		// Player characters: each player's tile renders beside their name in
+		// the seat strip under the table.
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		// A casual social table: when everyone leaves, the room closes — no
 		// hibernation snapshot, no Resume-menu entry.
 		Lifecycle: kit.LifecycleEphemeral,

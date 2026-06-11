@@ -31,6 +31,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       6,
 		Tags:             []string{"action", "shooter", "pvp", "arcade"},
 
+		// Player characters: each pilot's tile renders beside their name on
+		// the scoreboard, visible to every player.
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		QuickModeLabel:    "Quick dogfight",
 		SoloModeLabel:     "Target practice",
 		PrivateInviteLine: "Friends join your arena when they enter the code.",

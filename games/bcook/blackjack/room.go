@@ -75,7 +75,7 @@ type seat struct {
 type pending uint8
 
 const (
-	pendNone        pending = iota
+	pendNone         pending = iota
 	pendBettingClose         // betting window closed (or grace beat elapsed)
 	pendInsurance            // insurance window closed -> resolve
 	pendTurn                 // active turn timed out -> auto-stand
@@ -203,7 +203,10 @@ func (rm *room) postPeak(r kit.Room, s *seat) {
 // --- roster ----------------------------------------------------------------
 
 func (rm *room) OnJoin(r kit.Room, p kit.Player) {
-	if _, ok := rm.seats[p.AccountID]; ok {
+	if s, ok := rm.seats[p.AccountID]; ok {
+		// A re-delivered join is a fresh kit.Player (new connection): adopt
+		// it so the seat renders the current handle and character tile.
+		s.p = p
 		rm.render(r)
 		return
 	}

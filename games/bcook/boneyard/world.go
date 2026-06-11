@@ -30,8 +30,8 @@ type floor struct {
 	depth int // 1-based: B<depth>
 	tiles [floorH][floorW]byte
 
-	upX, upY     int // arrival stairs (B1's up-stairs is the Gate)
-	downX, downY int
+	upX, upY         int // arrival stairs (B1's up-stairs is the Gate)
+	downX, downY     int
 	shrineX, shrineY int // 0,0 = no shrine on this floor
 	cryptX, cryptY   int // 0,0 = no sealed crypt
 }

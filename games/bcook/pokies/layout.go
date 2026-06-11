@@ -86,8 +86,18 @@ func (rm *room) compose(v kit.Player) *kit.Frame {
 	f.TextRight(0, kit.Cols-2, "pull the lever - chase your high score", stDim)
 
 	if rm.tickerActive(rm.lastNow) {
-		msg := "* " + rm.ticker.text + " *"
-		f.Text(1, (kit.Cols-len(msg))/2, msg, stTicker)
+		// The winner's character tile (kit v2.9.0) rides immediately before
+		// their name (ticker text starts with the name); a zero character
+		// degrades to the plain centered banner.
+		if ch := rm.ticker.ch; ch.Glyph != "" {
+			w := 2 + 2 + len([]rune(rm.ticker.text)) + 2
+			c := f.Text(1, (kit.Cols-w)/2, "* ", stTicker)
+			f.Set(1, c, kit.CharacterCell(ch))
+			f.Text(1, c+2, rm.ticker.text+" *", stTicker)
+		} else {
+			msg := "* " + rm.ticker.text + " *"
+			f.Text(1, (kit.Cols-len(msg))/2, msg, stTicker)
+		}
 	}
 
 	n := len(rm.order)
@@ -132,16 +142,26 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 	}
 	left, right := col, col+cardW-1
 
-	// Top border with the (truncated) handle.
+	// Top border with the player's character tile (kit v2.9.0) immediately
+	// before the (truncated) handle; the tile + its space come out of the
+	// name budget so the marquee never outgrows the cabinet.
 	rm.border(f, top, col, '╭', '╮', bord)
 	name := id
+	var ch kit.Character
 	if p, ok := rm.names[id]; ok {
-		name = p.Handle
+		name, ch = p.Handle, p.Character
 	}
-	if maxName := cardW - 4; len(name) > maxName {
+	maxName, nameCol := cardW-4, col+2
+	if ch.Glyph != "" {
+		maxName = cardW - 6
+		f.SetRune(top, nameCol, ' ', nameSt)
+		f.Set(top, nameCol+1, kit.CharacterCell(ch))
+		nameCol += 2
+	}
+	if len(name) > maxName {
 		name = name[:maxName]
 	}
-	f.Text(top, col+2, " "+name+" ", nameSt)
+	f.Text(top, nameCol, " "+name+" ", nameSt)
 
 	// Sides for every interior row.
 	for r := 1; r <= 9; r++ {

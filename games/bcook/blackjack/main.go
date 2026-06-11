@@ -18,8 +18,8 @@
 // This is the native entry point; the wasm exports live in exports.go. The game
 // logic shares this package so `go run .` plays it.
 //
-// Build (artifact): tinygo build -opt=1 -no-debug -gc=leaking \
-//   -o game.wasm -target wasip1 -buildmode=c-shared .
+//	Build (artifact): tinygo build -opt=1 -no-debug -gc=leaking \
+//	  -o game.wasm -target wasip1 -buildmode=c-shared .
 package main
 
 import kit "github.com/shellcade/kit/v2"

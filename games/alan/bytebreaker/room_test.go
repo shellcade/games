@@ -71,6 +71,37 @@ func TestBestPersistsAndPosts(t *testing.T) {
 	}
 }
 
+func TestRivalCharacterRendersBesideName(t *testing.T) {
+	p1 := kittest.Player("p1")
+	p2 := kittest.Player("p2")
+	p2.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	r := kittest.NewRoom(p1, p2)
+	rm := (Game{}).NewRoom(r.Config(), r.Services()).(*room)
+	rm.OnStart(r)
+	rm.OnJoin(r, p1)
+	rm.OnJoin(r, p2)
+
+	f := r.LastFrame(p1)
+	idx := -1
+	for c := 2; c < kit.Cols-1; c++ {
+		if f.Cells[statusRow][c].Rune == 'p' && f.Cells[statusRow][c+1].Rune == '2' {
+			idx = c
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("rival name not on status row: %q", kittest.String(f, statusRow))
+	}
+	got := f.Cells[statusRow][idx-2]
+	want := kit.CharacterCell(p2.Character)
+	if got != want {
+		t.Errorf("cell before rival name = %+v, want character tile %+v", got, want)
+	}
+	if f.Cells[statusRow][idx-1].Rune != ' ' {
+		t.Errorf("no space between character tile and rival name")
+	}
+}
+
 func TestMembersGetIndependentBoards(t *testing.T) {
 	_, rm := newGame(t, "p1", "p2")
 	if len(rm.boards) != 2 {

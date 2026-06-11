@@ -1,5 +1,10 @@
 # Changelog
 
+## Player characters
+
+Each pilot's player character now renders beside their name on the scoreboard,
+visible to everyone in the arena.
+
 ## Directional flight and a calmer multiplayer arena
 
 Reworked the controls. Arrows are now directional: press one and your ship

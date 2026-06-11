@@ -368,7 +368,11 @@ func (rm *room) drawPlayerLine(f *kit.Frame, row int, v kit.Player, c engine.Col
 			st = stPanelOwn
 		}
 	}
-	f.Text(row, panelCol, prefix+label+" "+name, st)
+	// Character tile + a space immediately before the name (blank for an
+	// empty seat: the zero Character yields a blank cell).
+	col := f.Text(row, panelCol, prefix+label+" ", st)
+	f.Set(row, col, kit.CharacterCell(who.Character))
+	f.Text(row, col+2, name, st)
 
 	// Clock on the right of the panel.
 	var rem time.Duration

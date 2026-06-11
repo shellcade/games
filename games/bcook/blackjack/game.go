@@ -21,6 +21,11 @@ func (Game) Meta() kit.GameMeta {
 		// no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
 		Lifecycle: kit.LifecycleEphemeral,
 
+		// Per-member arcade characters (kit v2.9.0): every roster member
+		// arrives with Player.Character populated, rendered as a one-cell
+		// tile right before the player's name (seat rail + turn waits).
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		QuickModeLabel:    "Join a table",
 		SoloModeLabel:     "Heads-up vs dealer",
 		PrivateInviteLine: "Friends take a seat when they enter the code.",

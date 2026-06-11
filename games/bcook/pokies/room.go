@@ -29,6 +29,11 @@ func (Game) Meta() kit.GameMeta {
 		// no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
 		Lifecycle: kit.LifecycleEphemeral,
 
+		// Per-member arcade characters (kit v2.9.0): each player's tile
+		// renders right before their name on the cabinet marquee and the
+		// big-win ticker.
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		QuickModeLabel:    "Quick spin",
 		SoloModeLabel:     "Solo spin",
 		PrivateInviteLine: "Friends join your floor when they enter the code.",
@@ -108,9 +113,11 @@ type machine struct {
 	postedPeak int       // last peak posted to the leaderboard (post only on increase)
 }
 
-// ticker is the room-wide big-win banner.
+// ticker is the room-wide big-win banner. text starts with the winner's
+// name; ch is their character tile, rendered immediately before it.
 type ticker struct {
 	text  string
+	ch    kit.Character
 	until time.Time
 }
 
@@ -119,13 +126,13 @@ type room struct {
 	cfg kit.RoomConfig
 	svc kit.Services
 
-	machines map[string]*machine    // keyed by account id (hibernation-safe)
-	order    []string               // join order of account ids, for left-to-right layout
-	names    map[string]kit.Player  // account id -> player (for handles + leaderboard Post)
-	ticker   ticker                 // room-wide big-win banner
-	variant  *variant               // the active odds variant, refreshed on a deadline
-	nextCfg  time.Time              // next config-refresh deadline
-	lastNow  time.Time              // room clock captured at the last render
+	machines map[string]*machine   // keyed by account id (hibernation-safe)
+	order    []string              // join order of account ids, for left-to-right layout
+	names    map[string]kit.Player // account id -> player (for handles + leaderboard Post)
+	ticker   ticker                // room-wide big-win banner
+	variant  *variant              // the active odds variant, refreshed on a deadline
+	nextCfg  time.Time             // next config-refresh deadline
+	lastNow  time.Time             // room clock captured at the last render
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -430,6 +437,7 @@ func (rm *room) settleSpin(r kit.Room, id string) {
 		if p, ok := rm.names[id]; ok {
 			rm.ticker = ticker{
 				text:  fmt.Sprintf("%s hit a big win  +%d", p.DisplayName(), win),
+				ch:    p.Character,
 				until: r.Now().Add(tickerDur),
 			}
 		}

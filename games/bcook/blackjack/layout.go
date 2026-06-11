@@ -39,7 +39,7 @@ var (
 	stRed    = kit.Style{FG: kit.Red, Attr: kit.AttrBold}
 	stWin    = kit.Style{FG: kit.Green, Attr: kit.AttrBold}
 	stLose   = kit.Style{FG: kit.Red, Attr: kit.AttrBold}
-	stBack   = kit.Style{FG: kit.Yellow}                                       // card back while sliding/flipping
+	stBack   = kit.Style{FG: kit.Yellow}                                           // card back while sliding/flipping
 	stPrompt = kit.Style{FG: kit.RGB(0, 0, 0), BG: kit.Yellow, Attr: kit.AttrBold} // bright wait-state prompt
 )
 
@@ -134,16 +134,24 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
 	case own:
 		nameSt = stOwn
 	}
-	name := s.p.Handle
-	if len(name) > slotW-2 {
-		name = name[:slotW-2]
-	}
+	// Seat label: [►►]<character tile> <name>, centred in the slot. The
+	// arcade character tile (kit v2.9.0) rides immediately before the name;
+	// the 2 extra columns (tile + space) come out of the name budget so the
+	// slot never overflows.
+	marker, markerW := "", 0
 	if active {
 		// A doubled, highlighted marker so the active seat is unmissable; the
 		// glyph degrades to ">>" on non-UTF-8 sessions (► -> >).
-		name = "►►" + name
+		marker, markerW = "►►", 2
 	}
-	centerSlot(f, seatNameRow, slot, name, nameSt)
+	name := s.p.Handle
+	if max := slotW - markerW - 2; len(name) > max {
+		name = name[:max]
+	}
+	labelW := markerW + 2 + len([]rune(name))
+	nameCol := f.Text(seatNameRow, slot+(slotW-labelW)/2, marker, nameSt)
+	f.Set(seatNameRow, nameCol, kit.CharacterCell(s.p.Character))
+	f.Text(seatNameRow, nameCol+2, name, nameSt)
 
 	if rm.phase == phBetting {
 		status := "--"
@@ -223,7 +231,11 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 			// Highlighted YOUR TURN so the viewer can't miss that it's on them.
 			msg, st = "YOUR TURN - "+legalActions(s, h), stPrompt
 		case active != nil:
-			msg, st = fmt.Sprintf("waiting on %s...", active.p.Handle), stDim
+			// The active player's character tile rides immediately before
+			// their name, so the wait line is drawn in parts (text–tile–text)
+			// rather than through the centered-string path.
+			centerWithChar(f, actionRow, "waiting on ", kit.CharacterCell(active.p.Character), active.p.Handle+"...", stDim)
+			return
 		}
 	case phResults:
 		msg, st = "round over - next hand shortly", stDim
@@ -480,6 +492,20 @@ func drawFelt(f *kit.Frame, top, bot int) {
 
 func center(f *kit.Frame, row int, s string, st kit.Style) {
 	f.Text(row, (kit.Cols-len([]rune(s)))/2, s, st)
+}
+
+// centerWithChar centres "<pre><character tile> <post>" on a row: the styled
+// tile cell (width 1, kit v2.9.0) plus its trailing space sit between the two
+// text parts, so a player name in post carries its character right before it.
+func centerWithChar(f *kit.Frame, row int, pre string, ch kit.Cell, post string, st kit.Style) {
+	w := len([]rune(pre)) + 2 + len([]rune(post))
+	col := (kit.Cols - w) / 2
+	if col < 0 {
+		col = 0
+	}
+	col = f.Text(row, col, pre, st)
+	f.Set(row, col, ch)
+	f.Text(row, col+2, post, st)
 }
 
 // centerSlot centres s within a slotW-wide column starting at slot.

@@ -550,6 +550,47 @@ func TestComposedFrameRenderableAndFlipped(t *testing.T) {
 	}
 }
 
+// TestCharacterTileRendersBesideNames verifies each player's character tile
+// lands one cell + one space immediately before their name on both panel
+// player lines.
+func TestCharacterTileRendersBesideNames(t *testing.T) {
+	a, b := kittest.Player("alice"), kittest.Player("bob")
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	b.Character = kit.Character{Glyph: "@", InkR: 1, InkG: 2, InkB: 3, BgR: 4, BgG: 5, BgB: 6, Fallback: '@'}
+	tr := kittest.NewRoom(a, b)
+	tr.Cfg.Mode = kit.ModeQuick
+	tr.Cfg.MinPlayers = 2
+	rm := newRoom(tr.Cfg, tr.Services())
+	rm.OnStart(tr)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+
+	f := tr.LastFrame(a)
+	if f == nil {
+		t.Fatal("no frame for alice")
+	}
+	// Player lines at rows 2 and 4; the tile sits after the fixed-width
+	// prefix+colour+space ("  White " / "> Black ", 8 cells).
+	tileCol := panelCol + 8
+	for _, row := range []int{2, 4} {
+		var want kit.Cell
+		switch f.Cells[row][tileCol+2].Rune { // first cell of the name
+		case 'a':
+			want = kit.CharacterCell(a.Character)
+		case 'b':
+			want = kit.CharacterCell(b.Character)
+		default:
+			t.Fatalf("row %d: name does not start at col %d: %q", row, tileCol+2, kittest.String(f, row))
+		}
+		if got := f.Cells[row][tileCol]; got != want {
+			t.Errorf("row %d: cell before name = %+v, want character tile %+v", row, got, want)
+		}
+		if f.Cells[row][tileCol+1].Rune != ' ' {
+			t.Errorf("row %d: no space between character tile and name", row)
+		}
+	}
+}
+
 // --- hibernation determinism (state-only reconstruction) -------------------
 
 // TestStateOnlyReconstruction is a light guard for the hibernation contract: a

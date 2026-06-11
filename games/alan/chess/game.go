@@ -21,6 +21,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       2,
 		Tags:             []string{"chess", "strategy", "board"},
 
+		// Player characters: each player's tile renders beside their name on
+		// the side-panel player lines.
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		// Chess-appropriate lobby mode labels — the generic defaults don't fit a
 		// turn-based duel.
 		QuickModeLabel:    "Quick match",
