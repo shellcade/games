@@ -26,6 +26,13 @@ func (Game) Meta() kit.GameMeta {
 		SoloModeLabel:     "Solo vs CPU",
 		PrivateInviteLine: "Friends roll onto the battlefield when they enter the code.",
 
+		// Touch deck chip (kit v2.10.0): weapon cycling is the one input
+		// beyond the canonical vocabulary (aim/power/fire stay on the
+		// arrows + Confirm).
+		Controls: []kit.ControlDecl{
+			kit.RuneControl('w', "WEAPON"),
+		},
+
 		// Career wins: every match victory bumps a durable counter, posted to a
 		// shared leaderboard (higher is better, the board keeps your best total).
 		Leaderboard: &kit.LeaderboardSpec{
