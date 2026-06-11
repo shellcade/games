@@ -1,0 +1,75 @@
+seed: 7
+seats: 2
+heartbeat: 50ms
+steps:
+  # (a) Hole 1 opening view: two golfers on the tee, the aim indicator pointing
+  # down the fairway at the flag, the HUD showing hole / par / strokes.
+  - advance: 50ms
+  - shot: hole1-open
+
+  # Seat 0 lines up the shot: three right turns swing the aim indicator around,
+  # then three lefts bring it back onto the line to the cup.
+  - seat: 0
+  - key: right
+  - key: right
+  - key: right
+  - advance: 50ms
+  - shot: aiming
+  - key: left
+  - key: left
+  - key: left
+
+  # Hold space to charge. Each `key: space` refreshes the held state across the
+  # following short advance (as a real terminal's auto-repeat does); the meter
+  # fills cool->hot and the aim line lengthens with power.
+  - key: space
+  - advance: 200ms
+  - key: space
+  - advance: 200ms
+  - shot: charging
+  - key: space
+  - advance: 200ms
+  - key: space
+  - advance: 200ms
+  - key: space
+  - advance: 200ms
+
+  # Release: stop pressing and the hold lingers out, firing a full-power putt.
+  # A short settle lets the ball leave the tee and streak off with its trail.
+  - advance: 450ms
+  - shot: putt-rolling
+
+  # The ball runs the length of the fairway, dead on line, and drops for a
+  # hole-in-one (it turns gold and the result shows).
+  - advance: 700ms
+  - advance: 700ms
+  - shot: holed-out
+
+  # (b) Seat 1's own view: their bright ball on the tee, seat 0 now sunk.
+  - seat: 1
+  - advance: 50ms
+  - shot: rival-view
+
+  # Seat 1 also charges a full-power putt straight at the cup and sinks it. With
+  # both golfers holed out, the per-hole SCORECARD intermission appears.
+  - key: space
+  - advance: 200ms
+  - key: space
+  - advance: 200ms
+  - key: space
+  - advance: 200ms
+  - key: space
+  - advance: 200ms
+  - key: space
+  - advance: 200ms
+  - advance: 450ms
+  - advance: 700ms
+  - advance: 700ms
+  - shot: scorecard
+
+  # After the scorecard dwell the round rolls to hole 2 — Dogleg — showing the
+  # next course's geometry: a central wall block the putt must bend around,
+  # fresh tee, fresh aim line, and the carried-over round TOTAL in the HUD.
+  - advance: 1500ms
+  - advance: 1500ms
+  - shot: hole2-dogleg
