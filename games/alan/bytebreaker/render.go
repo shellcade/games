@@ -54,7 +54,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	drawBricks(f, b)
 	drawParticles(f, b)
 	drawPowerups(f, b)
-	drawPaddle(f, b)
+	drawPaddle(f, b, v.Character)
 	drawBalls(f, b)
 	rm.drawHUD(f, b)
 	rm.drawStatus(f, b, v)
@@ -133,7 +133,7 @@ func drawPowerups(f *kit.Frame, b *board) {
 	}
 }
 
-func drawPaddle(f *kit.Frame, b *board) {
+func drawPaddle(f *kit.Frame, b *board, ch kit.Character) {
 	st := stPaddle
 	if b.wide {
 		st = stPaddleW
@@ -144,6 +144,14 @@ func drawPaddle(f *kit.Frame, b *board) {
 		if c >= colMin && c <= colMax {
 			f.SetRune(paddleRow, c, ' ', st)
 		}
+	}
+	// The player's character rides the centre cell of the board. The run is
+	// 2*half+1 cells so the centre is exact (were the paddle ever even-width,
+	// this rounded centre would land left-of-centre). Skip the tile on a
+	// sliver of a paddle (<3 cells) so it still reads as a paddle, and for
+	// players without a character.
+	if ch.Glyph != "" && half >= 1 && center >= colMin && center <= colMax {
+		f.Set(paddleRow, center, kit.CharacterCell(ch))
 	}
 }
 

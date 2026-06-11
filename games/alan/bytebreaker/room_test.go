@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"testing"
 
 	kit "github.com/shellcade/kit/v2"
@@ -99,6 +100,48 @@ func TestRivalCharacterRendersBesideName(t *testing.T) {
 	}
 	if f.Cells[statusRow][idx-1].Rune != ' ' {
 		t.Errorf("no space between character tile and rival name")
+	}
+}
+
+func TestPaddleCentreShowsViewerCharacter(t *testing.T) {
+	p1 := kittest.Player("p1")
+	p1.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	r := kittest.NewRoom(p1)
+	rm := (Game{}).NewRoom(r.Config(), r.Services()).(*room)
+	rm.OnStart(r)
+	rm.OnJoin(r, p1)
+
+	b := rm.boards["p1"]
+	half, center := b.paddleHalf(), int(math.Round(b.paddleX))
+	f := r.LastFrame(p1)
+	if got, want := f.Cells[paddleRow][center], kit.CharacterCell(p1.Character); got != want {
+		t.Errorf("paddle centre cell = %+v, want character tile %+v", got, want)
+	}
+	// The rest of the run is still the plain board.
+	for c := center - half; c <= center+half; c++ {
+		if c == center {
+			continue
+		}
+		if cell := f.Cells[paddleRow][c]; cell.Rune != ' ' || cell.BG != stPaddle.BG {
+			t.Errorf("paddle cell %d = %+v, want a plain paddle cell", c, cell)
+		}
+	}
+}
+
+func TestZeroCharacterPaddleUnchanged(t *testing.T) {
+	r, rm := newGame(t, "p1") // kittest players carry the zero Character
+	b := rm.boards["p1"]
+	half, center := b.paddleHalf(), int(math.Round(b.paddleX))
+
+	// Every cell of the run, centre included, is exactly what SetRune writes.
+	exp := kit.NewFrame()
+	exp.SetRune(paddleRow, center, ' ', stPaddle)
+	want := exp.Cells[paddleRow][center]
+	f := r.LastFrame(kittest.Player("p1"))
+	for c := center - half; c <= center+half; c++ {
+		if f.Cells[paddleRow][c] != want {
+			t.Errorf("paddle cell %d = %+v, want %+v", c, f.Cells[paddleRow][c], want)
+		}
 	}
 }
 

@@ -80,8 +80,9 @@ type ship struct {
 	lastDirAt   time.Time // when it was pressed (for the diagonal chord window)
 	kills       int
 	deaths      int
-	best        int // all-time best kills (seeded from durable KV)
-	color       kit.Color
+	best        int       // all-time best kills (seeded from durable KV)
+	glyph       rune      // hull glyph: the pilot's character, or '◆' when they have none
+	color       kit.Color // ship colour: the character's BG colour, or a palette pick
 }
 
 // bullet is a single shot. owner is the firing pilot's account id.
