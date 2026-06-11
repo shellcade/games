@@ -272,28 +272,57 @@ func (rm *room) drawPanel(f *kit.Frame, v kit.Player) {
 	}
 	tankSt := kit.Style{FG: t.color, Attr: kit.AttrBold}
 	f.SetRune(panelRow, 2, '>', tankSt)
-	col := f.Text(panelRow, 4, t.name, tankSt) + 1
+	col := f.Text(panelRow, 4, t.name, tankSt) + 2
 
-	col = f.Text(panelRow, col+1, "HP ", stDim)
-	col = drawInt(f, panelRow, col, t.health, hpStyle(t.health))
-	col = f.Text(panelRow, col+2, "ANG ", stDim)
-	col = drawInt(f, panelRow, col, int(math.Round(t.angle)), stMsg)
-	col = f.Text(panelRow, col+2, "PWR ", stDim)
-	col = drawInt(f, panelRow, col, int(math.Round(t.power)), stMsg)
-	col = f.Text(panelRow, col+2, weapons[t.weapon].name, kit.Style{FG: weapons[t.weapon].color, Attr: kit.AttrBold})
-	if a := t.ammo[t.weapon]; a >= 0 {
-		col = f.Text(panelRow, col, " x", stDim)
-		col = drawInt(f, panelRow, col, a, stDim)
-	}
+	col = f.Text(panelRow, col, "HP ", stDim)
+	col = drawInt(f, panelRow, col, t.health, hpStyle(t.health)) + 2
+	col = f.Text(panelRow, col, "ANG ", stDim)
+	col = drawInt(f, panelRow, col, int(math.Round(t.angle)), stMsg) + 2
+	col = f.Text(panelRow, col, "PWR ", stDim)
+	col = drawInt(f, panelRow, col, int(math.Round(t.power)), stMsg) + 3
+
+	drawWeaponBar(f, panelRow, col, t)
 
 	// Right side: controls for the viewer on their turn, else who's up.
 	if !t.cpu && t.id == v.AccountID {
-		f.TextRight(panelRow, kit.Cols-2, "left/right aim  up/down power  W weapon  SPACE fire", stDim)
+		f.TextRight(panelRow, kit.Cols-2, "W weapon  SPACE fire", stDim)
 	} else if t.cpu {
 		f.TextRight(panelRow, kit.Cols-2, "CPU is taking aim...", stDim)
 	} else {
-		f.TextRight(panelRow, kit.Cols-2, "waiting on this player...", stDim)
+		f.TextRight(panelRow, kit.Cols-2, "their turn...", stDim)
 	}
+}
+
+// drawWeaponBar shows all three weapons with the selected one as a bright chip,
+// so it's always obvious what's loaded (and that W cycles it). Spent weapons dim.
+func drawWeaponBar(f *kit.Frame, row, col int, t *tank) int {
+	for i := range weapons {
+		w := weapons[i]
+		sel := i == t.weapon
+		if sel {
+			st := kit.Style{FG: kit.Gray(0x10), BG: w.color, Attr: kit.AttrBold}
+			f.SetRune(row, col, ' ', st)
+			c := f.Text(row, col+1, w.name, st)
+			if t.ammo[i] >= 0 {
+				c = f.Text(row, c, " x", st)
+				c = drawInt(f, row, c, t.ammo[i], st)
+			}
+			f.SetRune(row, c, ' ', st)
+			col = c + 1
+		} else {
+			st := stDim
+			if t.ammo[i] == 0 {
+				st = kit.Style{FG: kit.Gray(0x40)} // spent
+			}
+			c := f.Text(row, col, w.name, st)
+			if t.ammo[i] >= 0 {
+				c = f.Text(row, c, " x", st)
+				c = drawInt(f, row, c, t.ammo[i], st)
+			}
+			col = c + 1
+		}
+	}
+	return col
 }
 
 func (rm *room) drawGameOverBar(f *kit.Frame) {

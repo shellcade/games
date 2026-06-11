@@ -29,10 +29,13 @@ const (
 	startHealth = 100
 )
 
-// weapon kinds, cycled at aim time.
+// weapon kinds, cycled at aim time. The blast radius is how far the explosion
+// hurts tanks; the (much smaller) crater radius is how much ground it scoops, so
+// the landscape survives a long battle instead of vanishing in a few shots.
 type weapon struct {
 	name   string
-	radius float64 // blast radius in cells
+	radius float64 // blast (damage) radius in cells
+	crater float64 // terrain crater radius
 	damage int     // peak damage at the centre of the blast
 	ammo   int     // starting rounds; -1 = unlimited
 	glyph  rune    // the in-flight shell
@@ -40,9 +43,9 @@ type weapon struct {
 }
 
 var weapons = []weapon{
-	{"SHELL", 4.5, 34, -1, '*', kit.RGB(0xff, 0xe0, 0x3a)},
-	{"HEAVY", 7.5, 60, 3, '@', kit.RGB(0xff, 0x6b, 0x3a)},
-	{"TRACER", 2.6, 16, -1, '.', kit.RGB(0x6f, 0xff, 0xe0)},
+	{"SHELL", 4.0, 2.0, 30, -1, '*', kit.RGB(0xff, 0xe0, 0x3a)},
+	{"HEAVY", 6.5, 3.4, 52, 3, '@', kit.RGB(0xff, 0x6b, 0x3a)},
+	{"TRACER", 2.4, 1.1, 14, -1, '.', kit.RGB(0x6f, 0xff, 0xe0)},
 }
 
 // tankPalette colours the tanks by seat order (CPU tanks included).

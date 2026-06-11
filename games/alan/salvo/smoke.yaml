@@ -20,4 +20,7 @@ steps:
   - shot: flight         # the shell arcing over the hills, trailing
 
   - advance: 1700ms
-  - shot: impact         # the blast + fresh crater
+  - shot: impact         # the blast going off
+
+  - advance: 900ms
+  - shot: aftermath      # the fireball clears — a modest crater, not a canyon

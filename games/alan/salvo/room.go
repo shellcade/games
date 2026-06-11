@@ -435,7 +435,7 @@ func (rm *room) tankHit(s *shell) *tank {
 
 func (rm *room) explode(ex, ey float64, w weapon) {
 	rm.shell = nil
-	craterAt(rm.terrain, ex, ey, w.radius)
+	craterAt(rm.terrain, ex, ey, w.crater)
 	for _, t := range rm.tanks {
 		if !t.alive {
 			continue
