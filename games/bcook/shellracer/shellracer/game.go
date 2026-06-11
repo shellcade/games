@@ -39,6 +39,11 @@ func (Game) Meta() kit.GameMeta {
 		SoloModeLabel:     "Solo practice",
 		PrivateInviteLine: "The race begins when a second player joins.",
 
+		// Per-member arcade characters (kit v2.9.0): each racer's tile
+		// renders right before their name on the racer strip and the
+		// results table.
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		Leaderboard: &kit.LeaderboardSpec{
 			MetricLabel: "WPM",
 			Direction:   kit.HigherBetter,

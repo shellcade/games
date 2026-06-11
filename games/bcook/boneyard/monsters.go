@@ -57,15 +57,15 @@ var bestiary = []species{
 
 // monster is one live spawn.
 type monster struct {
-	sp     *species
-	floor  int
-	x, y   int
-	hp     int
-	rng    uint64 // per-actor combat PRNG: (week_seed, floor, spawn_index)
-	nextAt time.Time
-	fuse   int  // bloat: consecutive acts adjacent to a delver (bursts at 2)
-	hidden bool // tomb mimic: disguised until sprung
-	ally   bool // raised by the necromancer scroll
+	sp        *species
+	floor     int
+	x, y      int
+	hp        int
+	rng       uint64 // per-actor combat PRNG: (week_seed, floor, spawn_index)
+	nextAt    time.Time
+	fuse      int  // bloat: consecutive acts adjacent to a delver (bursts at 2)
+	hidden    bool // tomb mimic: disguised until sprung
+	ally      bool // raised by the necromancer scroll
 	allyUntil time.Time
 }
 

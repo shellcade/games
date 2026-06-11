@@ -13,7 +13,7 @@ mod game;
 mod render;
 
 use shellcade_kit::prelude::*;
-use shellcade_kit::Lifecycle;
+use shellcade_kit::{Lifecycle, CTX_FEAT_CHARACTER};
 
 struct TicTacToe;
 
@@ -32,6 +32,10 @@ impl Game for TicTacToe {
             quick_mode_label: "Quick match",
             solo_mode_label: "Solo: play both sides",
             private_invite_line: "Share the code; your opponent joins your board.",
+            // Opt in to arcade player characters (kit v2.9.0): every roster
+            // member's Player.character arrives populated, and the render
+            // places each player's tile beside their name.
+            ctx_features: CTX_FEAT_CHARACTER,
             ..Meta::DEFAULT
         }
     }

@@ -5,7 +5,46 @@ import (
 	"time"
 
 	kit "github.com/shellcade/kit/v2"
+	"github.com/shellcade/kit/v2/kittest"
 )
+
+// TestSeatCharacterRendersBesideName verifies a seated player's character tile
+// lands between their colour swatch and their name (one cell + one space).
+func TestSeatCharacterRendersBesideName(t *testing.T) {
+	p := kittest.Player("p1")
+	p.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	r := kittest.NewRoom(p)
+	rm, ok := Game{}.NewRoom(r.Config(), r.Services()).(*room)
+	if !ok {
+		t.Fatal("NewRoom did not return *room")
+	}
+	rm.OnStart(r)
+	rm.OnJoin(r, p)
+
+	f := r.LastFrame(p)
+	if f == nil {
+		t.Fatal("no frame sent")
+	}
+	x := -1
+	for c := seatLeft; c <= seatRight; c++ {
+		if f.Cells[seatsRow][c].Rune == '*' {
+			x = c
+			break
+		}
+	}
+	if x < 0 {
+		t.Fatalf("no seat swatch on the seats row: %q", kittest.String(f, seatsRow))
+	}
+	if got, want := f.Cells[seatsRow][x+1], kit.CharacterCell(p.Character); got != want {
+		t.Errorf("cell after swatch = %+v, want character tile %+v", got, want)
+	}
+	if f.Cells[seatsRow][x+2].Rune != ' ' {
+		t.Error("no space between character tile and name")
+	}
+	if f.Cells[seatsRow][x+3].Rune != 'p' || f.Cells[seatsRow][x+4].Rune != '1' {
+		t.Errorf("name not beside the tile: %q", kittest.String(f, seatsRow))
+	}
+}
 
 // TestWinnerHighlightTiming pins the reveal sequence: dark through the spin and
 // the 1s pause after the ball lands, flashing on/off until settlement, then

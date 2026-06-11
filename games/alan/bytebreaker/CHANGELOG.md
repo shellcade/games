@@ -1,5 +1,10 @@
 # Changelog
 
+## Player characters
+
+Each rival's player character now renders beside their name in the live-scores
+strip, so you can spot who's who at a glance.
+
 ## Initial release
 
 Bytebreaker — a neon brick-breaker for the terminal, one cabinet per player.

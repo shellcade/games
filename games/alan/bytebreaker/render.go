@@ -217,12 +217,13 @@ func (rm *room) drawRivals(f *kit.Frame, v kit.Player) {
 		if len(name) > 6 {
 			name = name[:6]
 		}
-		w := len(name) + 1 + intWidth(ob.score)
+		w := 2 + len(name) + 1 + intWidth(ob.score) // character tile + space + name + score
 		col -= w
 		if col < 44 {
 			break
 		}
-		cc := f.Text(statusRow, col, name, stDim)
+		f.Set(statusRow, col, kit.CharacterCell(p.Character))
+		cc := f.Text(statusRow, col+2, name, stDim)
 		drawInt(f, statusRow, cc+1, ob.score, stScore)
 		col -= 2
 	}

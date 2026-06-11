@@ -16,6 +16,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       6,
 		Tags:             []string{"arcade", "breakout", "action", "retro"},
 
+		// Player characters: each rival's tile renders beside their name in
+		// the live-scores strip.
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		// A casual arcade cabinet: each player runs their own board, and when
 		// everyone leaves the room closes — no hibernation snapshot.
 		Lifecycle: kit.LifecycleEphemeral,

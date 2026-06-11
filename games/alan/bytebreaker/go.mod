@@ -2,7 +2,7 @@ module alan/bytebreaker
 
 go 1.25.0
 
-require github.com/shellcade/kit/v2 v2.8.0
+require github.com/shellcade/kit/v2 v2.9.0
 
 require (
 	github.com/extism/go-pdk v1.1.3 // indirect

@@ -6,3 +6,8 @@
 games/*/*/blackjack
 games/*/*/pokies
 games/*/*/shellracer
+# ... but the rule above also matches the shellracer SOURCE directory
+# (games/bcook/shellracer/shellracer/); re-include the directory so new
+# source files there are not silently ignored. The built binary is a file,
+# so it stays ignored.
+!games/*/*/shellracer/

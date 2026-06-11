@@ -30,7 +30,11 @@ func (Game) Meta() kit.GameMeta {
 			Format:      kit.Integer,
 		},
 
-		CtxFeatures: kit.CtxFeatRosterEpoch,
+		// Roster-epoch callbacks for the 100-seat world, plus per-member
+		// arcade characters (kit v2.9.0): each delver's tile is what they —
+		// and everyone else — see walking the floors, and what their corpse
+		// keeps on the memorial.
+		CtxFeatures: kit.CtxFeatRosterEpoch | kit.CtxFeatCharacter,
 		HeartbeatMS: 100,
 		Lifecycle:   kit.LifecycleResident,
 	}

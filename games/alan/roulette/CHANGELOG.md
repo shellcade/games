@@ -1,5 +1,10 @@
 # Changelog
 
+## Player characters
+
+Each player's character now renders beside their name in the seat strip under
+the table, next to their chip-colour swatch.
+
 ## Felt table makeover
 
 Reworked the table so it reads like a real felt, and made room for a full house.

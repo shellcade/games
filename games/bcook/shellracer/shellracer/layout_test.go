@@ -114,7 +114,7 @@ func TestInlineErrorFrame(t *testing.T) {
 	// no separate echo: spacer row 18 stays blank; the strip leads with the
 	// viewer's own row.
 	blankRows(t, f, rowSpacerBot, rowSpacerBot)
-	if got := frameText(f, rowStripTop); got[1:8] != "You (a)" {
+	if got := frameText(f, rowStripTop); got[3:10] != "You (a)" {
 		t.Fatalf("strip top row=%q, want viewer's own You (a) row", got)
 	}
 	blankRows(t, f, rowStripTop+1, rowStripBot)
@@ -182,7 +182,7 @@ func TestNoEchoRegionLayout(t *testing.T) {
 		t.Fatalf("header row=%q", frameText(f, rowHeader))
 	}
 	blankRows(t, f, rowSpacerBot, rowSpacerBot)
-	if got := frameText(f, rowStripTop); got[1:8] != "You (a)" {
+	if got := frameText(f, rowStripTop); got[3:10] != "You (a)" {
 		t.Fatalf("strip top row=%q, want viewer's own You (a) row", got)
 	}
 	blankRows(t, f, rowStripTop+1, rowStripBot)
@@ -266,10 +266,10 @@ func TestFivePlayerOpponentStrip(t *testing.T) {
 
 	// Viewer's own row first, labeled and accent-styled.
 	top := frameText(f, rowStripTop)
-	if top[1:8] != "You (a)" {
+	if top[3:10] != "You (a)" {
 		t.Fatalf("strip top row=%q, want You (a)", top)
 	}
-	if got := styleOf(f, rowStripTop, 1); got != stAccent {
+	if got := styleOf(f, rowStripTop, 3); got != stAccent {
 		t.Fatalf("You row style=%+v, want accent %+v", got, stAccent)
 	}
 
@@ -277,15 +277,15 @@ func TestFivePlayerOpponentStrip(t *testing.T) {
 	seen := map[string]bool{}
 	for row := rowStripTop + 1; row <= rowStripBot; row++ {
 		line := frameText(f, row)
-		if line[1] == ' ' {
+		if line[3] == ' ' { // name now starts at col 3, after the character tile + space
 			t.Fatalf("opponent row %d is blank: %q", row, line)
 		}
 		for _, id := range []string{"b", "c", "d", "e"} {
-			if line[1:1+len(id)] == id && line[1+len(id)] == ' ' {
+			if line[3:3+len(id)] == id && line[3+len(id)] == ' ' {
 				seen[id] = true
 			}
 		}
-		if line[1] == 'a' && line[2] == ' ' {
+		if line[3] == 'a' && line[4] == ' ' {
 			t.Fatalf("viewer 'a' appears as an opponent on row %d: %q", row, line)
 		}
 	}
@@ -383,13 +383,13 @@ func TestOwnWPMRowLive(t *testing.T) {
 
 	f := d.r.LastFrame(a)
 	line := frameText(f, rowStripTop)
-	if line[1:8] != "You (a)" {
+	if line[3:10] != "You (a)" {
 		t.Fatalf("strip top row=%q, want You (a)", line)
 	}
 	if !strings.Contains(line, "WPM: 20") {
 		t.Fatalf("own row=%q, want live WPM: 20", line)
 	}
-	if got := styleOf(f, rowStripTop, 1); got != stAccent {
+	if got := styleOf(f, rowStripTop, 3); got != stAccent {
 		t.Fatalf("own row style=%+v, want accent %+v", got, stAccent)
 	}
 }
@@ -407,5 +407,68 @@ func TestCountdownRendered(t *testing.T) {
 	f := d.frameFor(a)
 	if !frameContains(f, "Starting in 8") {
 		t.Fatalf("countdown not rendered with remaining count; row9=%q", frameText(f, 9))
+	}
+}
+
+// The arcade character contract (kit v2.9.0): each racer's tile renders as
+// one styled cell + one space immediately before their name — on the racer
+// strip (own row AND opponents) and on the results table.
+func TestRacerStripRendersCharacterTiles(t *testing.T) {
+	d := newDriver(kit.ModeQuick, 2)
+	a, b := player("a"), player("b")
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	b.Character = kit.Character{Glyph: "@", InkR: 1, InkG: 2, InkB: 3, BgR: 4, BgG: 5, BgB: 6, Fallback: '@'}
+	d.join(a)
+	d.join(b) // capacity reached -> racing
+	if d.rm.phase != phRacing {
+		t.Fatalf("phase=%q after 2 joins, want racing", d.rm.phase)
+	}
+
+	f := d.frameFor(a)
+	// Own row: tile at col 1, space at col 2, "You (a)" from col 3. Slice by
+	// RUNES: the tile glyph is multi-byte, so byte offsets drift past it.
+	if top := []rune(frameText(f, rowStripTop)); string(top[3:10]) != "You (a)" {
+		t.Fatalf("strip top row=%q, want You (a) at col 3", string(top))
+	}
+	if got, want := f.Cells[rowStripTop][1], kit.CharacterCell(a.Character); got != want {
+		t.Errorf("own tile cell = %+v, want %+v", got, want)
+	}
+	// Opponent row: b's tile before b's name.
+	if line := []rune(frameText(f, rowStripTop+1)); string(line[3:5]) != "b " {
+		t.Fatalf("opponent row=%q, want b at col 3", string(line))
+	}
+	if got, want := f.Cells[rowStripTop+1][1], kit.CharacterCell(b.Character); got != want {
+		t.Errorf("opponent tile cell = %+v, want %+v", got, want)
+	}
+}
+
+func TestResultsRenderCharacterTiles(t *testing.T) {
+	d := newDriver(kit.ModeQuick, 5)
+	a, b := player("a"), player("b")
+	a.Character = kit.Character{Glyph: "λ", InkR: 9, Fallback: 'L'}
+	b.Character = kit.Character{Glyph: "@", InkR: 7, Fallback: '@'}
+	d.join(a)
+	d.join(b)
+	d.advance(countdownDur + time.Second) // racing
+	d.advance(2 * time.Second)
+	for _, r := range d.rm.passage {
+		d.input(a, runeIn(r)) // A finishes; B will be DNF
+	}
+	d.advance(stragglerDur + time.Second) // -> results
+	if d.rm.phase != phResults {
+		t.Fatalf("phase=%q, want results", d.rm.phase)
+	}
+
+	f := d.frameFor(a)
+	// Row 5 is rank 1 (A), row 6 rank 2 (B): tile at col 7, name from col 9.
+	// Slice by RUNES: the tile glyph is multi-byte.
+	if row := []rune(frameText(f, 5)); string(row[9:11]) != "a " {
+		t.Fatalf("results rank-1 row=%q, want name a at col 9", string(row))
+	}
+	if got, want := f.Cells[5][7], kit.CharacterCell(a.Character); got != want {
+		t.Errorf("rank-1 tile = %+v, want %+v", got, want)
+	}
+	if got, want := f.Cells[6][7], kit.CharacterCell(b.Character); got != want {
+		t.Errorf("rank-2 tile = %+v, want %+v", got, want)
 	}
 }

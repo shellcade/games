@@ -669,7 +669,7 @@ func (rm *room) wheelDisplayIndex(now time.Time) int {
 // --- the seats (players, under the table) -----------------------------------
 
 const (
-	seatW     = 8        // each seat is a narrow column: swatch + name, chips/status stacked
+	seatW     = 10       // each seat is a narrow column: swatch + character tile + space + name, chips/status stacked
 	seatLeft  = zeroLeft // the strip spans the board…
 	seatRight = colBoxCol + colBoxW - 1
 )
@@ -700,17 +700,18 @@ func (rm *room) drawSeats(f *kit.Frame, v kit.Player) {
 			x = seatLeft
 		}
 		f.SetRune(seatsRow, x, '*', chipStyle(pl.colorIdx))
+		f.Set(seatsRow, x+1, kit.CharacterCell(pl.p.Character)) // character tile + a space before the name
 		name := pl.p.Handle
-		if len(name) > seatW-1 {
-			name = name[:seatW-1]
+		if len(name) > seatW-3 {
+			name = name[:seatW-3]
 		}
 		nameSt := kit.Style{FG: chipColors[pl.colorIdx]}
 		if id == v.AccountID {
 			nameSt.Attr |= kit.AttrBold
 		}
-		f.Text(seatsRow, x+1, name, nameSt)               // name
+		f.Text(seatsRow, x+3, name, nameSt)                       // name
 		f.Text(seatsRow+1, x+1, strconv.Itoa(pl.balance), stHead) // chips, underneath
-		rm.drawSeatStatus(f, seatsRow+2, x+1, pl)         // status, under that
+		rm.drawSeatStatus(f, seatsRow+2, x+1, pl)                 // status, under that
 	}
 }
 

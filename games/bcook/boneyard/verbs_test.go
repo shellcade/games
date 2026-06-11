@@ -126,7 +126,7 @@ func TestScrolls(t *testing.T) {
 
 	f3 := rm.floorAt(3)
 	d.floor, d.x, d.y = 3, f3.shrineX, f3.shrineY
-	d.bank(rm, tr)              // sets the recall anchor
+	d.bank(rm, tr) // sets the recall anchor
 	f6 := rm.floorAt(6)
 	d.floor, d.x, d.y = 6, f6.upX, f6.upY
 	d.recalls = 1

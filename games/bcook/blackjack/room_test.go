@@ -332,6 +332,95 @@ func TestWalletSeedsPersistsAndPostsPeak(t *testing.T) {
 	}
 }
 
+// colIndex returns the COLUMN (rune) index of sub in row, or -1 — unlike
+// strings.Index, whose byte offsets drift once a character glyph (e.g. λ)
+// occupies a cell to the left.
+func colIndex(row, sub string) int {
+	rs, ss := []rune(row), []rune(sub)
+	for i := 0; i+len(ss) <= len(rs); i++ {
+		match := true
+		for j := range ss {
+			if rs[i+j] != ss[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestSeatRendersCharacterTile asserts the arcade character tile (kit v2.9.0)
+// lands on the seat rail immediately before the player's name — one styled
+// cell plus one space — on the frames BOTH players receive.
+func TestSeatRendersCharacterTile(t *testing.T) {
+	a, b := mkPlayer("alice"), mkPlayer("bob")
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	b.Character = kit.Character{Glyph: "@", InkR: 1, InkG: 2, InkB: 3, BgR: 4, BgG: 5, BgB: 6, Fallback: '@'}
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+
+	for _, viewer := range []kit.Player{a, b} {
+		f := tr.LastFrame(viewer)
+		if f == nil {
+			t.Fatalf("no frame for %s", viewer.Handle)
+		}
+		row := kittest.String(f, seatNameRow)
+		for _, p := range []kit.Player{a, b} {
+			idx := colIndex(row, p.Handle)
+			if idx < 2 {
+				t.Fatalf("%s's seat name not on row %d: %q", p.Handle, seatNameRow, row)
+			}
+			want := kit.CharacterCell(p.Character)
+			got := f.Cells[seatNameRow][idx-2]
+			if got != want {
+				t.Errorf("viewer %s: cell before %q = %+v, want character tile %+v", viewer.Handle, p.Handle, got, want)
+			}
+			if sp := f.Cells[seatNameRow][idx-1].Rune; sp != ' ' && sp != 0 {
+				t.Errorf("viewer %s: no space between %q's tile and name (got %q)", viewer.Handle, p.Handle, sp)
+			}
+		}
+	}
+}
+
+// TestWaitLineRendersCharacterTile asserts the turn-wait line carries the
+// active player's character tile right before their name.
+func TestWaitLineRendersCharacterTile(t *testing.T) {
+	a, b := mkPlayer("alice"), mkPlayer("bob")
+	a.Character = kit.Character{Glyph: "λ", InkR: 9, Fallback: 'L'}
+	rm, tr, _, _ := func() (*room, *kittest.Room, kit.Player, kit.Player) {
+		rm, tr := newGame(t, a, b)
+		rm.what = pendNone
+		rm.OnJoin(tr, a)
+		rm.OnJoin(tr, b)
+		rm.seats[a.AccountID].placed = true
+		rm.seats[b.AccountID].placed = true
+		rm.seats[a.AccountID].hands = []*phand{{cards: hand{{10, suitSpade}, {5, suitHeart}}, bet: 50}}
+		rm.seats[b.AccountID].hands = []*phand{{cards: hand{{10, suitClub}, {6, suitDiamond}}, bet: 50}}
+		rm.dealer = hand{{10, suitSpade}, {7, suitHeart}}
+		rm.phase = phTurns
+		return rm, tr, a, b
+	}()
+	rm.render(tr) // a is first unresolved: b's frame shows "waiting on alice..."
+
+	f := tr.LastFrame(b)
+	row := kittest.String(f, actionRow)
+	idx := colIndex(row, "waiting on")
+	if idx < 0 {
+		t.Fatalf("no wait line on row %d: %q", actionRow, row)
+	}
+	nameIdx := colIndex(row, a.Handle)
+	if nameIdx < 0 {
+		t.Fatalf("active player's name missing from wait line: %q", row)
+	}
+	if got, want := f.Cells[actionRow][nameIdx-2], kit.CharacterCell(a.Character); got != want {
+		t.Errorf("cell before active name = %+v, want character tile %+v", got, want)
+	}
+}
+
 // TestHibernationStableDealReplays asserts the deal is reconstructable from guest
 // memory + the room clock: a deal recorded, then re-composed after the schedule
 // settles, draws every card settled (no RNG re-consult).

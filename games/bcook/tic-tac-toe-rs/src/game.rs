@@ -44,7 +44,7 @@ pub struct Match {
 }
 
 impl Match {
-    fn new(solo: bool) -> Self {
+    pub(crate) fn new(solo: bool) -> Self {
         Match {
             players: HashMap::new(),
             solo,
@@ -360,6 +360,13 @@ impl Match {
     /// carries the "(guest)" marker logic).
     pub fn display_name(&self, id: &str) -> String {
         self.players.get(id).map_or(String::new(), Player::display_name)
+    }
+
+    /// Resolve an account id to its arcade character (populated for every
+    /// roster member because the meta declares CTX_FEAT_CHARACTER); None for
+    /// an id with no roster entry.
+    pub fn character(&self, id: &str) -> Option<&Character> {
+        self.players.get(id).map(|p| &p.character)
     }
 }
 

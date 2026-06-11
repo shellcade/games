@@ -19,7 +19,7 @@ on:
 # go install / cargo install --locked verify against the module/crate
 # checksum databases.
 env:
-  GO_VERSION: "1.25"
+  GO_VERSION: "1.26"
   GOVULNCHECK_VERSION: "1.1.4"   # golang.org/x/vuln/cmd/govulncheck
   CARGO_AUDIT_VERSION: "0.21.1"  # rustsec cargo-audit
 

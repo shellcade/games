@@ -124,13 +124,16 @@ func (rm *room) compose(d *delver) {
 	}
 
 	// Other delvers on this floor (live co-presence), then self on top.
+	// Each delver renders as their arcade character tile (kit v2.9.0) — the
+	// same glyph the player and everyone else sees — falling back to the
+	// classic '@' when no character rides the connection.
 	for _, o := range rm.delvers {
 		if o == d || o.floor != d.floor || !o.online {
 			continue
 		}
-		rm.plot(d, o.x, o.y, '@', stOther, true)
+		rm.plotCell(d, o.x, o.y, delverCell(o, stOther), true)
 	}
-	rm.plot(d, d.x, d.y, '@', stSelf, true)
+	rm.plotCell(d, d.x, d.y, delverCell(d, stSelf), true)
 
 	rm.hud(d)
 }
@@ -139,6 +142,12 @@ func (rm *room) compose(d *delver) {
 // marks (bones, the disguised mimic) render from explored MEMORY; live
 // entities additionally require current torch sight (live=true).
 func (rm *room) plot(d *delver, wx, wy int, g rune, st kit.Style, live bool) {
+	rm.plotCell(d, wx, wy, kit.Cell{Rune: g, FG: st.FG, Attr: st.Attr}, live)
+}
+
+// plotCell is plot for a ready-made cell (a character tile keeps its own
+// ink AND background, which the rune path has no slot for).
+func (rm *room) plotCell(d *delver, wx, wy int, cell kit.Cell, live bool) {
 	ox, oy := d.camera()
 	vx, vy := wx-ox, wy-oy
 	if vx < 0 || vx >= kit.Cols || vy < 0 || vy >= mapRows {
@@ -150,7 +159,16 @@ func (rm *room) plot(d *delver, wx, wy int, g rune, st kit.Style, live bool) {
 	if live && cheb(wx-d.x, wy-d.y) > d.sightRadius() {
 		return
 	}
-	rm.frame.Cells[vy][vx] = kit.Cell{Rune: g, FG: st.FG, Attr: st.Attr}
+	rm.frame.Cells[vy][vx] = cell
+}
+
+// delverCell is the one map cell a delver occupies: their arcade character
+// tile when the connection carries one, else '@' in the classic style.
+func delverCell(o *delver, fallback kit.Style) kit.Cell {
+	if o.p.Character.Glyph != "" {
+		return kit.CharacterCell(o.p.Character)
+	}
+	return kit.Cell{Rune: '@', FG: fallback.FG, Attr: fallback.Attr}
 }
 
 // hud writes rows 21..23: vitals, world line, message log.
@@ -246,6 +264,11 @@ func (rm *room) memorial(d *delver) {
 			return
 		}
 		fr.Text(row, 2, label, stShrine)
+		// The dead's character tile (frozen at death) rides immediately
+		// before their name; ancestral bones carry none and leave the gap.
+		if c.ch.Glyph != "" {
+			fr.Cells[row][16] = kit.CharacterCell(c.ch)
+		}
 		fr.Text(row, 18, clampCols(c.name()+" — "+c.killer+", B"+itoa(c.floor), 58), stHUD)
 		row++
 		fr.Text(row, 18, clampCols("\""+c.words+"\"", 58), stMsg)
@@ -268,6 +291,7 @@ type deathSummary struct {
 	respects, avenges int
 	deepestThisWeek   int
 	deepestHandle     string
+	deepestCh         kit.Character // the deepest fallen's character tile (zero if none)
 }
 
 // deathCardScreen renders the artboard's YOU DIED card.
@@ -287,7 +311,7 @@ func (rm *room) deathCardScreen(d *delver) {
 	center(9, "banked B"+itoa(c.banked)+"   "+itoa(c.kills)+" kills   "+itoa(c.gold)+" gold", stMsg)
 	center(10, itoa(c.respects)+" mourned   "+itoa(c.avenges)+" avenged", stMsg)
 	if c.deepestHandle != "" {
-		center(13, "deepest this week: B"+itoa(c.deepestThisWeek)+" by "+clampCols(c.deepestHandle, 20), stShrine)
+		centerWithTile(fr, 13, "deepest this week: B"+itoa(c.deepestThisWeek)+" by ", c.deepestCh, clampCols(c.deepestHandle, 20), stShrine)
 	}
 	center(16, "the Gate calls you back", stHUDDim)
 	center(kit.Rows-2, "press any key", stHUDDim)
@@ -307,17 +331,41 @@ func (rm *room) gateScreen(d *delver) {
 	center(2, "T H E   G A T E", stTitle)
 	center(3, "The Sunken Ossuary  —  collapses in "+rm.cdCache, stHUDDim)
 	deep, who := 0, ""
+	var whoCh kit.Character
 	for _, c := range rm.bones {
 		if c.floor > deep {
-			deep, who = c.floor, c.name()
+			deep, who, whoCh = c.floor, c.name(), c.ch
 		}
 	}
-	center(6, "deepest descent:  B"+itoa(deep)+"  ("+who+")", stShrine)
+	centerWithTile(fr, 6, "deepest descent:  B"+itoa(deep)+"  (", whoCh, who+")", stShrine)
 	center(7, itoa(len(rm.bones))+" bones rest below.  Your best: B"+itoa(d.banked), stMsg)
 	center(10, "[1] BLADE    [2] LANTERN    [3] FLASK", stHUD)
 	center(11, "choose your kit, then step off the stairs to descend", stHUDDim)
 	center(14, "[m] the Roll of the Dead", stHUDDim)
 	center(kit.Rows-2, "wasd to move   >  to descend", stHUDDim)
+}
+
+// centerWithTile centres "<pre><character tile> <post>" on a row — the tile
+// (one styled cell + one space) rides immediately before the name in post.
+// A zero character degrades to the plain centered string, gap-free.
+func centerWithTile(fr *kit.Frame, row int, pre string, ch kit.Character, post string, st kit.Style) {
+	if ch.Glyph == "" {
+		s := pre + post
+		col := (kit.Cols - len([]rune(s))) / 2
+		if col < 0 {
+			col = 0
+		}
+		fr.Text(row, col, s, st)
+		return
+	}
+	w := len([]rune(pre)) + 2 + len([]rune(post))
+	col := (kit.Cols - w) / 2
+	if col < 0 {
+		col = 0
+	}
+	col = fr.Text(row, col, pre, st)
+	fr.Cells[row][col] = kit.CharacterCell(ch)
+	fr.Text(row, col+2, post, st)
 }
 
 func clearFrame(fr *kit.Frame) {

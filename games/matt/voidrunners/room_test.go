@@ -252,6 +252,46 @@ func TestComposeRendersFrame(t *testing.T) {
 	}
 }
 
+// TestScoreboardCharacterRendersBesideName asserts each pilot's character tile
+// lands one cell + one space before their name on the scoreboard, for every
+// pilot in join order.
+func TestScoreboardCharacterRendersBesideName(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice", "bob")
+	a, b := tr.Players[0], tr.Players[1]
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	b.Character = kit.Character{Glyph: "@", InkR: 1, InkG: 2, InkB: 3, BgR: 4, BgG: 5, BgB: 6, Fallback: '@'}
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+
+	f := kit.NewFrame()
+	rm.composeFor(f, a)
+
+	// Each scoreboard segment is "● " then the tile, a space, and the name.
+	want := []struct {
+		ch       kit.Character
+		nameRune rune
+	}{{a.Character, 'a'}, {b.Character, 'b'}}
+	i := 0
+	for c := 0; c < kit.Cols && i < len(want); c++ {
+		if f.Cells[0][c].Rune != '●' {
+			continue
+		}
+		if got := f.Cells[0][c+2]; got != kit.CharacterCell(want[i].ch) {
+			t.Errorf("pilot %d: cell after marker = %+v, want character tile", i, got)
+		}
+		if f.Cells[0][c+3].Rune != ' ' {
+			t.Errorf("pilot %d: no space between character tile and name", i)
+		}
+		if f.Cells[0][c+4].Rune != want[i].nameRune {
+			t.Errorf("pilot %d: name does not follow the tile (got %q)", i, f.Cells[0][c+4].Rune)
+		}
+		i++
+	}
+	if i != len(want) {
+		t.Fatalf("found %d scoreboard segments, want %d", i, len(want))
+	}
+}
+
 // TestSteadyStateWakeAllocs guards the OOM that quarantined v1. Production runs
 // -gc=leaking: every byte allocated is permanent for the room's life, so a
 // per-tick allocation grows without bound until the guest OOMs. The original
