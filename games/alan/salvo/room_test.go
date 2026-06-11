@@ -58,6 +58,36 @@ func TestLobbyGathersBeforeStart(t *testing.T) {
 	}
 }
 
+func TestCpuCountSelectable(t *testing.T) {
+	r, rm := newGame(t, "p1")
+	rm.cpuWanted = 4 // 1 human + 4 CPUs = 5 tanks (within the 6 cap)
+	rm.clampCpu()
+	rm.startMatch(r)
+	cpus := 0
+	for _, tk := range rm.tanks {
+		if tk.cpu {
+			cpus++
+		}
+	}
+	if cpus != 4 || len(rm.tanks) != 5 {
+		t.Errorf("CPU count not honoured: %d CPUs, %d tanks (want 4 / 5)", cpus, len(rm.tanks))
+	}
+}
+
+func TestCpuCountClamps(t *testing.T) {
+	_, rm := newGame(t, "p1")
+	rm.cpuWanted = 99
+	rm.clampCpu()
+	if rm.cpuWanted != len(tankPalette)-1 { // one human leaves room for five CPUs
+		t.Errorf("cpuWanted = %d, want %d", rm.cpuWanted, len(tankPalette)-1)
+	}
+	rm.cpuWanted = -5
+	rm.clampCpu()
+	if rm.cpuWanted != 1 { // still need at least one opponent
+		t.Errorf("cpuWanted = %d, want 1", rm.cpuWanted)
+	}
+}
+
 func TestSoloMatchSetup(t *testing.T) {
 	_, rm := newGame(t, "p1")
 	if rm.phase != phAim {

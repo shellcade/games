@@ -76,6 +76,7 @@ type room struct {
 	msg          string
 	msgUntil     time.Time
 	cpuSeq       int
+	cpuWanted    int    // CPU opponents to add, chosen in the lobby
 	randState    uint32 // LCG state for cosmetic scatter + CPU jitter
 
 	frame *kit.Frame
@@ -83,13 +84,28 @@ type room struct {
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 	return &room{
-		cfg:     cfg,
-		svc:     svc,
-		players: map[string]kit.Player{},
-		wins:    map[string]int{},
-		phase:   phLobby,
-		frame:   kit.NewFrame(),
+		cfg:       cfg,
+		svc:       svc,
+		players:   map[string]kit.Player{},
+		wins:      map[string]int{},
+		phase:     phLobby,
+		cpuWanted: soloTanks - 1, // a lone player defaults to two CPU foes
+		frame:     kit.NewFrame(),
 	}
+}
+
+// clampCpu keeps the chosen CPU count to a sane range: at least enough to make
+// two tanks, and never more than the table holds.
+func (rm *room) clampCpu() {
+	lo := 2 - len(rm.order)
+	if lo < 0 {
+		lo = 0
+	}
+	hi := len(tankPalette) - len(rm.order)
+	if hi < 0 {
+		hi = 0
+	}
+	rm.cpuWanted = clampI(rm.cpuWanted, lo, hi)
 }
 
 // --- lifecycle ---------------------------------------------------------------
@@ -112,6 +128,7 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	if rm.phase == phLobby {
 		rm.lobbyUntil = rm.now.Add(lobbyWait)
 	}
+	rm.clampCpu()
 	rm.render(r)
 }
 
@@ -130,6 +147,7 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 		rm.kaboom(float64(t.col), t.y, t.color, 14)
 		rm.checkMatchEnd(r)
 	}
+	rm.clampCpu()
 	rm.render(r)
 }
 
@@ -140,10 +158,17 @@ func (rm *room) OnClose(r kit.Room) {}
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	rm.now = r.Now()
 	if rm.phase == phLobby {
-		if kit.Resolve(in, kit.CtxNav) == kit.ActConfirm {
+		switch kit.Resolve(in, kit.CtxNav) {
+		case kit.ActConfirm:
 			rm.startMatch(r) // anyone can start the battle
-			rm.render(r)
+		case kit.ActUp:
+			rm.cpuWanted++
+			rm.clampCpu()
+		case kit.ActDown:
+			rm.cpuWanted--
+			rm.clampCpu()
 		}
+		rm.render(r)
 		return
 	}
 	if rm.phase == phOver {
@@ -253,11 +278,8 @@ func (rm *room) startMatch(r kit.Room) {
 	rm.parts = rm.parts[:0]
 	rm.winner = nil
 
-	total := len(rm.order)
-	if total < 2 {
-		total = soloTanks
-	}
-	total = clampI(total, 2, len(tankPalette))
+	rm.clampCpu()
+	total := clampI(len(rm.order)+rm.cpuWanted, 2, len(tankPalette))
 	cols := spreadCols(total)
 
 	rm.tanks = rm.tanks[:0]

@@ -54,7 +54,7 @@ func (rm *room) drawLobby(f *kit.Frame) {
 	center(f, 5, "turn-based tank artillery", stDim)
 	center(f, 7, "- BATTLE LOBBY -", stMsg)
 
-	row := 10
+	row := 9
 	if len(rm.order) == 0 {
 		center(f, row, "waiting for commanders to roll in...", stDim)
 	}
@@ -78,6 +78,13 @@ func (rm *room) drawLobby(f *kit.Frame) {
 		row++
 	}
 
+	// CPU-opponent selector.
+	label, hint := "CPU opponents:  ", "   (up/down)"
+	x := (scrW - (len(label) + intWidth(rm.cpuWanted) + len(hint))) / 2
+	c := f.Text(16, x, label, stDim)
+	c = drawInt(f, 16, c, rm.cpuWanted, kit.Style{FG: kit.RGB(0xff, 0x9f, 0x1c), Attr: kit.AttrBold})
+	f.Text(16, c, hint, stDim)
+
 	center(f, 18, "press SPACE to start the battle", stMsg)
 	if !rm.lobbyUntil.IsZero() {
 		rem := int(math.Ceil(rm.lobbyUntil.Sub(rm.now).Seconds()))
@@ -85,13 +92,10 @@ func (rm *room) drawLobby(f *kit.Frame) {
 			rem = 0
 		}
 		s := "auto-starts in "
-		x := (scrW - (len(s) + intWidth(rem) + 1)) / 2
-		c := f.Text(20, x, s, stDim)
-		c = drawInt(f, 20, c, rem, stDim)
-		f.Text(20, c, "s", stDim)
-	}
-	if len(rm.order) <= 1 {
-		center(f, 22, "(solo: you'll battle two CPU tanks)", stDim)
+		sx := (scrW - (len(s) + intWidth(rem) + 1)) / 2
+		cc := f.Text(20, sx, s, stDim)
+		cc = drawInt(f, 20, cc, rem, stDim)
+		f.Text(20, cc, "s", stDim)
 	}
 }
 
