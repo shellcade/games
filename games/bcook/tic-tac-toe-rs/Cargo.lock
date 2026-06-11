@@ -304,8 +304,8 @@ dependencies = [
 
 [[package]]
 name = "shellcade-kit"
-version = "2.9.0"
-source = "git+https://github.com/shellcade/kit?tag=v2.9.0#b5ca242708b3fbedcb1d5f24fe1c1aef5f55f41d"
+version = "2.10.0"
+source = "git+https://github.com/shellcade/kit?tag=v2.10.0#cfb2bffd8e005cc30225f9138033c693d6091024"
 dependencies = [
  "extism-pdk",
 ]
