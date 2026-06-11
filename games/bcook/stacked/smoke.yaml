@@ -1,0 +1,44 @@
+seed: 7
+seats: 2
+heartbeat: 50ms
+steps:
+  # (a) Opening: two players just joined, each with a fresh well and a piece at
+  # the top. One heartbeat settles the first frame.
+  - advance: 50ms
+  - shot: opening
+
+  # Seat 0 slides and rotates the falling piece, then lets gravity carry it down
+  # a few rows — the piece should be visibly mid-fall, off-center, rotated.
+  - seat: 0
+  - key: left
+  - key: left
+  - key: up
+  - key: right
+  - advance: 600ms
+  - shot: mid-fall
+
+  # Hard drop slams the piece to the floor and locks it; a new piece spawns at
+  # the top. The settled block sits on the bottom of the well.
+  - key: space
+  - advance: 100ms
+  - shot: hard-drop
+
+  # Build toward a line clear: drop several more pieces. Across this stretch a
+  # row should fill and flash/collapse at least once.
+  - key: space
+  - advance: 100ms
+  - key: left
+  - key: space
+  - advance: 100ms
+  - key: right
+  - key: space
+  - advance: 100ms
+  - key: space
+  - advance: 300ms
+  - shot: line-clear
+
+  # (b) Seat 1's own view: the same match from the other player's seat, showing
+  # the rival miniature panel with seat 0's well rendered live on the right.
+  - seat: 1
+  - advance: 50ms
+  - shot: rival-panel
