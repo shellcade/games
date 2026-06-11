@@ -1,0 +1,6 @@
+*.wasm
+*.out
+# native dev binary (`go build` drops it, named after the module dir)
+/putt
+# smoke output (`go run . -smoke` / `shellcade-kit smoke`)
+/smoke-out
