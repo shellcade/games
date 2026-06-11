@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -74,8 +75,7 @@ func TestFrictionStopsBall(t *testing.T) {
 
 	g.x, g.y = 40, 11
 	g.aim = 0 // due east
-	g.power = 0.6
-	g.state = stateCharge
+	g.notch = 6
 	rm.launch(g)
 	if g.state != stateRoll {
 		t.Fatalf("ball should be rolling after launch, state=%d", g.state)
@@ -312,38 +312,111 @@ func TestWindmillBlocksAndSpins(t *testing.T) {
 	}
 }
 
-// TestChargeAndReleaseLaunches: holding space ramps power, releasing fires.
-func TestChargeAndReleaseLaunches(t *testing.T) {
+// TestPowerDialStepsAndClamps: Up/Down step the notch one at a time, clamped
+// to [1, powerNotches], and a fresh golfer starts at the mid-range default.
+func TestPowerDialStepsAndClamps(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0]
+	rm.OnJoin(tr, a)
+	g := rm.golfers[a.AccountID]
+
+	if g.notch != defaultNotch {
+		t.Fatalf("fresh golfer notch = %d, want default %d", g.notch, defaultNotch)
+	}
+	rm.OnInput(tr, a, keyNamed(kit.KeyUp))
+	if g.notch != defaultNotch+1 {
+		t.Fatalf("Up should step one notch: got %d, want %d", g.notch, defaultNotch+1)
+	}
+	rm.OnInput(tr, a, keyNamed(kit.KeyDown))
+	rm.OnInput(tr, a, keyNamed(kit.KeyDown))
+	if g.notch != defaultNotch-1 {
+		t.Fatalf("Down should step one notch: got %d, want %d", g.notch, defaultNotch-1)
+	}
+	// Clamp at the top…
+	for i := 0; i < powerNotches*2; i++ {
+		rm.OnInput(tr, a, keyNamed(kit.KeyUp))
+	}
+	if g.notch != powerNotches {
+		t.Fatalf("dial should clamp at %d, got %d", powerNotches, g.notch)
+	}
+	// …and at the bottom.
+	for i := 0; i < powerNotches*2; i++ {
+		rm.OnInput(tr, a, keyNamed(kit.KeyDown))
+	}
+	if g.notch != 1 {
+		t.Fatalf("dial should clamp at 1, got %d", g.notch)
+	}
+}
+
+// TestSpacePuttsImmediatelyAtDialedPower: space fires the putt on the spot (no
+// charge phase) with launch speed exactly matching the dialed notch.
+func TestSpacePuttsImmediatelyAtDialedPower(t *testing.T) {
 	rm, tr := newTestRoom(t, "alice")
 	a := tr.Players[0]
 	rm.OnJoin(tr, a)
 	g := rm.golfers[a.AccountID]
 	g.x, g.y = 40, 11
+	g.aim = 0 // due east
+	g.notch = 7
 
-	// Press space -> charging.
 	rm.OnInput(tr, a, keyRune(' '))
-	if g.state != stateCharge {
-		t.Fatalf("space should start charging, state=%d", g.state)
-	}
-	// Hold across a few wakes (re-press to simulate auto-repeat) -> power rises.
-	for i := 0; i < 6; i++ {
-		rm.OnInput(tr, a, keyRune(' '))
-		tr.Advance(50 * time.Millisecond)
-		rm.OnWake(tr)
-	}
-	if g.power <= 0 {
-		t.Fatal("power did not rise while space held")
-	}
-	// Stop observing; the held state lingers out and the putt fires.
-	for i := 0; i < 12 && g.state == stateCharge; i++ {
-		tr.Advance(50 * time.Millisecond)
-		rm.OnWake(tr)
-	}
-	if g.state == stateCharge {
-		t.Fatal("releasing space should launch the putt")
+	if g.state != stateRoll {
+		t.Fatalf("space should putt immediately, state=%d", g.state)
 	}
 	if g.strokes != 1 {
-		t.Fatalf("a launched putt should count 1 stroke, got %d", g.strokes)
+		t.Fatalf("a putt should count 1 stroke, got %d", g.strokes)
+	}
+	want := notchSpeed(7)
+	if math.Abs(g.vx-want) > 1e-9 || g.vy != 0 {
+		t.Fatalf("launch velocity (%.2f,%.2f), want (%.2f,0) for notch 7", g.vx, g.vy, want)
+	}
+	// While rolling, space does nothing (no double-hit).
+	rm.OnInput(tr, a, keyRune(' '))
+	if g.strokes != 1 {
+		t.Fatalf("space mid-roll must not putt again, strokes=%d", g.strokes)
+	}
+}
+
+// TestPowerDialPersistsAcrossShotsAndHoles: the dial keeps its setting through
+// a putt-and-settle and through a tee reset — the scroll-wheel feel.
+func TestPowerDialPersistsAcrossShotsAndHoles(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0]
+	rm.OnJoin(tr, a)
+	g := rm.golfers[a.AccountID]
+	g.x, g.y = 40, 11
+	g.aim = 0
+	g.notch = 3
+
+	rm.OnInput(tr, a, keyRune(' '))
+	runUntilRest(rm, tr, g, 200)
+	if g.notch != 3 {
+		t.Fatalf("dial changed across a shot: %d, want 3", g.notch)
+	}
+	rm.holeIdx = 1
+	rm.placeAtTee(g)
+	if g.notch != 3 {
+		t.Fatalf("dial reset by the next tee: %d, want 3", g.notch)
+	}
+}
+
+// TestNotchSpeedMapping: the dial maps monotonically from a feather at notch 1
+// to the full launch speed at the top, clamping out-of-range notches.
+func TestNotchSpeedMapping(t *testing.T) {
+	if got := notchSpeed(powerNotches); got != maxLaunch {
+		t.Fatalf("top notch speed = %.2f, want maxLaunch %.2f", got, maxLaunch)
+	}
+	lo := notchSpeed(1)
+	if lo <= minLaunch || lo > minLaunch+(maxLaunch-minLaunch)*0.05 {
+		t.Fatalf("notch 1 speed = %.2f, want a feather just above minLaunch %.2f", lo, minLaunch)
+	}
+	for n := 2; n <= powerNotches; n++ {
+		if notchSpeed(n) <= notchSpeed(n-1) {
+			t.Fatalf("notch speeds not strictly increasing at %d", n)
+		}
+	}
+	if notchSpeed(0) != notchSpeed(1) || notchSpeed(powerNotches+5) != notchSpeed(powerNotches) {
+		t.Fatal("out-of-range notches should clamp to the dial ends")
 	}
 }
 

@@ -129,22 +129,18 @@ func (rm *room) drawOwnBall(f *kit.Frame, viewer kit.Player) {
 	}
 	f.SetRune(roundCell(g.y), roundCell(g.x), g.glyph, st)
 
-	// Aim + power overlay only while the viewer is setting up a shot.
-	if g.state == stateAim || g.state == stateCharge {
+	// Aim overlay only while the viewer is setting up a shot.
+	if g.state == stateAim {
 		rm.drawAim(f, g)
 	}
 }
 
-// drawAim renders dotted aim pips marching out from the ball along the heading,
-// plus a charging power meter when the player is winding up.
+// drawAim renders dotted aim pips marching out from the ball along the heading.
+// The line lengthens with the dialed power notch so you feel the dial as range.
 func (rm *room) drawAim(f *kit.Frame, g *golfer) {
 	dx, dy := math.Cos(g.aim), math.Sin(g.aim)*aspect
 	st := kit.Style{FG: g.color}
-	pips := 6
-	if g.state == stateCharge {
-		// The aim line grows with charge so you can feel the power as range.
-		pips = 3 + int(g.power*9)
-	}
+	pips := 2 + g.notch
 	for i := 1; i <= pips; i++ {
 		px := roundCell(g.x + dx*float64(i))
 		py := roundCell(g.y + dy*float64(i))
@@ -161,42 +157,34 @@ func (rm *room) drawAim(f *kit.Frame, g *golfer) {
 		}
 		f.SetRune(py, px, ch, st)
 	}
-
-	if g.state == stateCharge {
-		rm.drawPowerMeter(f, g)
-	}
 }
 
 func arrowGlyph(ang float64) rune {
 	return [8]rune{'→', '↘', '↓', '↙', '←', '↖', '↑', '↗'}[headingSector(ang)]
 }
 
-// drawPowerMeter shows a charging bar low on the screen, filling and shifting
-// color cool→hot as power rises.
-func (rm *room) drawPowerMeter(f *kit.Frame, g *golfer) {
-	const barW = 24
-	col0 := (cols - (barW + 8)) / 2
-	row := bottom
-	f.Text(row, col0, "PWR [", kit.Style{FG: kit.White, Attr: kit.AttrBold})
-	filled := int(g.power * barW)
-	for i := 0; i < barW; i++ {
-		ch := ' '
-		col := kit.DimGray
-		if i < filled {
-			ch = '█'
-			frac := float64(i) / float64(barW)
+// drawPowerDial renders the always-visible notched power meter on the controls
+// bar: one cell per notch, filled up to the dial setting, shifting cool→hot.
+func (rm *room) drawPowerDial(f *kit.Frame, g *golfer, row, col int) {
+	col = f.Text(row, col, "PWR ", kit.Style{FG: kit.White, Attr: kit.AttrBold})
+	for i := 1; i <= powerNotches; i++ {
+		ch := '▯'
+		fg := kit.DimGray
+		if i <= g.notch {
+			ch = '▮'
+			frac := float64(i) / powerNotches
 			switch {
 			case frac > 0.75:
-				col = kit.Red
+				fg = kit.Red
 			case frac > 0.45:
-				col = kit.RGB(0xff, 0xa5, 0x33)
+				fg = kit.RGB(0xff, 0xa5, 0x33)
 			default:
-				col = kit.Green
+				fg = kit.Green
 			}
 		}
-		f.SetRune(row, col0+5+i, ch, kit.Style{FG: col, Attr: kit.AttrBold})
+		f.SetRune(row, col, ch, kit.Style{FG: fg, Attr: kit.AttrBold})
+		col++
 	}
-	f.Text(row, col0+5+barW, "]", kit.Style{FG: kit.White, Attr: kit.AttrBold})
 }
 
 // --- HUD ---------------------------------------------------------------------
@@ -213,9 +201,12 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player) {
 			kit.Style{FG: vg.color, Attr: kit.AttrBold})
 	}
 
-	// Bottom controls bar.
-	f.Text(bottom+1, 1, "←/→ aim  ↑/↓ fine aim  hold SPACE power  release putt  Q quit",
+	// Bottom controls bar + the always-visible power dial.
+	f.Text(bottom+1, 1, "←/→ aim  ↑/↓ power  SPACE putt  Q quit",
 		kit.Style{FG: kit.DimGray})
+	if vg := rm.golfers[viewer.AccountID]; vg != nil {
+		rm.drawPowerDial(f, vg, bottom+1, 42)
+	}
 
 	if vg := rm.golfers[viewer.AccountID]; vg != nil && rm.phase == phasePlay {
 		switch vg.state {

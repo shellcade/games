@@ -21,28 +21,44 @@ const (
 	aspect  = 0.5 // vertical cells per horizontal cell of "real" distance
 )
 
-// Putt physics (units are horizontal cells / second unless noted). A putt's
-// launch speed scales with the charged power; friction bleeds it off until the
-// ball settles. Sand multiplies friction; water is a hazard, not a surface.
+// Putt physics (units are horizontal cells / second unless noted). Power is a
+// notched dial: Up/Down step it, the setting persists between shots, and Space
+// putts immediately at the dialed notch (no hold-to-charge — over SSH, latency
+// jitter made a release-timed charge unplayable). Friction bleeds the launch
+// off until the ball settles. Sand multiplies friction; water is a hazard, not
+// a surface.
 const (
-	maxPower   = 1.0          // full charge (0..1)
-	minLaunch  = 8.0          // launch speed at a feather tap
-	maxLaunch  = 200.0        // launch speed at full charge (curve is quadratic)
-	rollFric   = 0.06         // fraction of velocity retained per second on the green
-	sandFric   = 0.002        // much heavier drag in the sand
-	stopSpeed  = 3.0          // below this the ball is considered at rest
-	wallDamp   = 0.74         // speed retained after a wall bounce
-	trailSpeed = 40.0         // ball draws a motion trail above this speed
-	chargeRate = 1.4          // power gained per second while space is held
-	aimStepRad = math.Pi / 16 // radians the aim turns per arrow press
+	powerNotches = 10           // dial steps; notch 1 = feather, notch 10 = full send
+	defaultNotch = 5            // a fresh golfer's dial starts mid-range
+	minLaunch    = 8.0          // launch speed at notch 1 (approaching zero power)
+	maxLaunch    = 200.0        // launch speed at full dial (curve is quadratic)
+	rollFric     = 0.06         // fraction of velocity retained per second on the green
+	sandFric     = 0.002        // much heavier drag in the sand
+	stopSpeed    = 3.0          // below this the ball is considered at rest
+	wallDamp     = 0.74         // speed retained after a wall bounce
+	trailSpeed   = 40.0         // ball draws a motion trail above this speed
+	aimStepRad   = math.Pi / 16 // radians the aim turns per arrow press
 )
+
+// notchSpeed maps a dial notch (1..powerNotches) to a launch speed. The curve
+// is quadratic so the low notches stay genuinely soft for delicate finishes
+// while the top of the dial still drives most of the way across the course.
+func notchSpeed(notch int) float64 {
+	if notch < 1 {
+		notch = 1
+	}
+	if notch > powerNotches {
+		notch = powerNotches
+	}
+	frac := float64(notch) / powerNotches
+	return minLaunch + (maxLaunch-minLaunch)*frac*frac
+}
 
 // Round structure.
 const (
-	strokeCapOverPar = 4                      // a hole ends for you at par + this many strokes
-	scorecardDwell   = 3 * time.Second        // how long the per-hole scorecard lingers
-	finalDwell       = 8 * time.Second        // final scorecard before the room settles
-	holdLinger       = 350 * time.Millisecond // keyhold linger for the charge meter
+	strokeCapOverPar = 4               // a hole ends for you at par + this many strokes
+	scorecardDwell   = 3 * time.Second // how long the per-hole scorecard lingers
+	finalDwell       = 8 * time.Second // final scorecard before the room settles
 )
 
 // phase is the room's high-level state.
@@ -58,10 +74,9 @@ const (
 type ballState uint8
 
 const (
-	stateAim    ballState = iota // resting, aiming
-	stateCharge                  // holding space, power meter rising
-	stateRoll                    // ball in motion
-	stateSunk                    // holed out this hole
+	stateAim  ballState = iota // resting: aim and dial, ready to putt
+	stateRoll                  // ball in motion
+	stateSunk                  // holed out this hole
 )
 
 // palette assigns each golfer a distinct bright color by join order.
@@ -88,19 +103,18 @@ var (
 // don't).
 type golfer struct {
 	// Live ball on the current hole.
-	x, y      float64
-	vx, vy    float64
-	state     ballState
-	aim       float64 // aim heading in radians (0 = east, clockwise, y-down)
-	power     float64 // charge level 0..1 while charging / at release
-	preX      float64 // pre-shot position (water reset target)
-	preY      float64
-	prevX     float64 // last-frame position, for the motion trail
-	prevY     float64
-	strokes   int // strokes on the current hole
-	holeIdx   int // which hole's scores are recorded (for safety)
-	sunkAt    time.Time
-	lastSpace time.Time // last space event, per-golfer (charge held-ness)
+	x, y    float64
+	vx, vy  float64
+	state   ballState
+	aim     float64 // aim heading in radians (0 = east, clockwise, y-down)
+	notch   int     // power dial setting (1..powerNotches); persists between shots
+	preX    float64 // pre-shot position (water reset target)
+	preY    float64
+	prevX   float64 // last-frame position, for the motion trail
+	prevY   float64
+	strokes int // strokes on the current hole
+	holeIdx int // which hole's scores are recorded (for safety)
+	sunkAt  time.Time
 
 	// Round totals.
 	scores []int // strokes per completed hole (len grows as holes finish)

@@ -17,16 +17,15 @@ func TestSnapshot(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 
-	// Pose hole 7 (windmill) with the viewer charging a putt, the spinning arm
-	// part-way round, and a rival ghost bogged down in... well, on the fairway,
-	// for a lively frame that exercises the windmill, aim line, and ghost ball.
+	// Pose hole 7 (windmill) with the viewer's dial at a high notch, the
+	// spinning arm part-way round, and a rival ghost on the fairway, for a
+	// lively frame that exercises the windmill, aim line, dial, and ghost ball.
 	rm.holeIdx = 6
 	rm.placeAtTee(rm.golfers[a.AccountID])
 	rm.placeAtTee(rm.golfers[b.AccountID])
 	rm.hub = 0.7 // turn the arm off-axis so it reads as a diagonal blade
 	ga := rm.golfers[a.AccountID]
-	ga.state = stateCharge
-	ga.power = 0.55
+	ga.notch = 7
 	ga.strokes = 1
 	gb := rm.golfers[b.AccountID]
 	gb.x, gb.y = 40, 12

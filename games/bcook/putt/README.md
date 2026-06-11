@@ -4,7 +4,7 @@ ASCII mini-golf for the terminal, built on the
 [shellcade/kit](https://github.com/shellcade/kit) developer kit and playable
 over SSH at [shellcade.com](https://shellcade.com).
 
-Nine handcrafted holes of rising mischief on an 80×24 green. Aim, charge your
+Nine handcrafted holes of rising mischief on an 80×24 green. Aim, dial your
 power, and putt — the ball rolls with real friction, bounces off the rails,
 bogs down in the sand, and a splash in the water costs you a stroke. Everyone
 plays the **same hole at the same time** — no turn waiting. Your ball is bright;
@@ -23,12 +23,12 @@ rivals are dim ghosts you roll right through. Lowest total over the round wins.
 |#...........~~~~~..........::::::::::::::::............~~~~~...................#|
 |#...........~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~.................#|
 |#..............................................................................#|
-| ←/→ aim  ↑/↓ fine aim  hold SPACE power  release putt  Q quit                  |
+| ←/→ aim  ↑/↓ power  SPACE putt  Q quit   PWR ▮▮▮▮▮▮▮▯▯▯                        |
 +--------------------------------------------------------------------------------+
 ```
 
 Your ball is `●` (bright, reverse-video); the aim line `·····→` shows where the
-putt will go and grows longer as you charge. Rivals show as dim `○` ghosts —
+putt will go and lengthens as you dial up power. Rivals show as dim `○` ghosts —
 you pass straight through them. `P` is the flag, `H` is the cup; `:` is sand and
 `~` is water.
 
@@ -37,13 +37,17 @@ you pass straight through them. `P` is the flag, `H` is the cup; `:` is sand and
 | Key            | Action                                                       |
 |----------------|--------------------------------------------------------------|
 | `←` / `→` (or `h` / `l`) | Swing the aim indicator around your ball           |
-| `↑` / `↓` (or `k` / `j`) | Fine-tune the aim a quarter step at a time         |
-| **hold** `Space` | Charge the power meter (cool → hot as it fills)             |
-| **release** `Space` | Putt — launch speed scales with the charge you held      |
+| `↑` / `↓` (or `k` / `j`) | Step the power dial up/down a notch                |
+| `Space`        | Putt — fires immediately at the dialed power                 |
 | `Q` / `Esc`    | Leave the course                                             |
 
-Power is a **quadratic** curve: a feather tap nudges the ball a few cells for a
-delicate finish, while a full charge drives it most of the way across the green.
+Power is a **notched dial**, not a hold-and-release charge: dial it once and it
+**stays put between shots** — like a scroll wheel. (In fact, many terminals
+translate mouse scroll into arrow up/down, so you can literally scroll the
+dial.) The always-visible `PWR ▮▮▮▮▮▯▯▯▯▯` meter shows your setting, and the
+notch→speed curve is **quadratic**: the low notches nudge the ball a few cells
+for a delicate finish, while the top of the dial drives it most of the way
+across the green.
 
 ## Gameplay
 
@@ -113,10 +117,10 @@ arcade invokes one at a time:
 - `OnJoin` / `OnLeave` add and remove golfers (state is keyed by `AccountID` so
   it survives room hibernation); a late joiner is backfilled at par for holes
   already completed so totals stay comparable.
-- `OnInput` swings the aim and tracks the space-hold per golfer (terminals have
-  no key-up, so "held" is derived from the auto-repeat stream).
-- `OnWake` is the heartbeat: it spins the windmill, integrates charging and
-  rolling balls against elapsed time (`r.Now()`) with sub-stepped wall bounces,
+- `OnInput` swings the aim, steps the per-golfer power dial, and fires the putt
+  on Space — all discrete events, so SSH latency jitter can't move a shot.
+- `OnWake` is the heartbeat: it spins the windmill, integrates the rolling
+  balls against elapsed time (`r.Now()`) with sub-stepped wall bounces,
   resolves hazards and hole-outs, drives the scorecard timers, and renders a
   per-player frame. The round settles with `r.End`, submitting each golfer's
   total to the leaderboard.
