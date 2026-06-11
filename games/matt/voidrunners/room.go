@@ -82,12 +82,37 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	rm.names[p.AccountID] = p
 	if _, ok := rm.ships[p.AccountID]; !ok {
 		s := &ship{
+			glyph: '◆',
 			color: palette[len(rm.order)%len(palette)],
 			best:  rm.loadBest(r, p),
 		}
 		rm.ships[p.AccountID] = s
 		rm.order = append(rm.order, p.AccountID)
 		rm.spawnShip(r, s)
+	}
+	// The pilot's character IS the spacecraft: their glyph becomes the hull and
+	// their character's BACKGROUND colour becomes the ship colour everywhere it
+	// shows (hull + nose, bullets, scoreboard ● and name; explosions keep their
+	// own fire ramp). A zero Character (a host that doesn't declare the feature,
+	// or test doubles) reverts to the '◆' hull and join-order palette colour.
+	// Characters are width-1 single code points, so the first rune is the whole
+	// glyph; applied on every join so a pilot reconnecting after hibernation
+	// carries their current look — including a cleared character.
+	s := rm.ships[p.AccountID]
+	if c := p.Character; c.Glyph != "" {
+		for _, ru := range c.Glyph {
+			s.glyph = ru
+			break
+		}
+		s.color = kit.RGB(c.BgR, c.BgG, c.BgB)
+	} else {
+		s.glyph = '◆'
+		for i, id := range rm.order {
+			if id == p.AccountID {
+				s.color = palette[i%len(palette)]
+				break
+			}
+		}
 	}
 	rm.render(r)
 }

@@ -292,6 +292,100 @@ func TestScoreboardCharacterRendersBesideName(t *testing.T) {
 	}
 }
 
+// TestShipRendersCharacterGlyphInBgColour asserts the pilot's character IS the
+// spacecraft: the hull cell carries the character glyph drawn with FG = the
+// character's BACKGROUND colour (the owner's "ship colour"), and the
+// directional nose keeps the same colour. Composed for the rival so the cell
+// is free of the viewer's reverse-video highlight.
+func TestShipRendersCharacterGlyphInBgColour(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice", "bob")
+	a, b := tr.Players[0], tr.Players[1]
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+
+	want := kit.RGB(a.Character.BgR, a.Character.BgG, a.Character.BgB)
+	sa, sb := rm.ships[a.AccountID], rm.ships[b.AccountID]
+	if sa.color != want {
+		t.Fatalf("ship colour = %v, want character bg %v", sa.color, want)
+	}
+	sa.x, sa.y, sa.heading = 20, 8, 0 // facing east; nose at (8, 21)
+	sa.invulnUntil = tr.Clock         // no invuln blink
+	sb.x, sb.y = 60, 18               // park the rival well clear
+	sb.invulnUntil = tr.Clock
+
+	f := kit.NewFrame()
+	rm.composeFor(f, b)
+	hull := f.Cells[8][20]
+	if hull.Rune != 'λ' {
+		t.Fatalf("hull rune = %q, want the character glyph 'λ'", hull.Rune)
+	}
+	if hull.FG != want {
+		t.Fatalf("hull FG = %v, want character bg colour %v", hull.FG, want)
+	}
+	if nose := f.Cells[8][21]; nose.Rune != '→' || nose.FG != want {
+		t.Fatalf("nose = %q FG %v, want '→' in ship colour %v", nose.Rune, nose.FG, want)
+	}
+
+	// Shots carry the same colour, so fire stays attributable to the pilot.
+	rm.fire(tr, a, sa)
+	if len(rm.bullets) != 1 || rm.bullets[0].color != want {
+		t.Fatalf("bullet colour = %v, want ship colour %v", rm.bullets[0].color, want)
+	}
+}
+
+// TestZeroCharacterShipRendersPaletteCraft is the regression guard: a pilot
+// with no character (test doubles, hosts that don't declare the feature) keeps
+// today's '◆' hull and join-order palette colour.
+func TestZeroCharacterShipRendersPaletteCraft(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0] // kittest player: zero Character
+	rm.OnJoin(tr, a)
+
+	s := rm.ships[a.AccountID]
+	if s.color != palette[0] {
+		t.Fatalf("ship colour = %v, want palette[0] %v", s.color, palette[0])
+	}
+	s.x, s.y, s.heading = 20, 8, 0
+	s.invulnUntil = tr.Clock
+
+	f := kit.NewFrame()
+	rm.composeFor(f, a)
+	hull := f.Cells[8][20]
+	if hull.Rune != '◆' {
+		t.Fatalf("hull rune = %q, want '◆' for a zero character", hull.Rune)
+	}
+	if hull.FG != palette[0] {
+		t.Fatalf("hull FG = %v, want palette[0] %v", hull.FG, palette[0])
+	}
+}
+
+// TestScoreboardMarkerMatchesShipColour asserts the scoreboard ● marker uses
+// the same bg-derived colour as the craft, so the strip identifies each ship.
+func TestScoreboardMarkerMatchesShipColour(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0]
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+	rm.OnJoin(tr, a)
+
+	f := kit.NewFrame()
+	rm.composeFor(f, a)
+	want := kit.RGB(a.Character.BgR, a.Character.BgG, a.Character.BgB)
+	found := false
+	for c := 0; c < kit.Cols; c++ {
+		if f.Cells[0][c].Rune != '●' {
+			continue
+		}
+		found = true
+		if got := f.Cells[0][c].FG; got != want {
+			t.Fatalf("scoreboard marker FG = %v, want ship colour %v", got, want)
+		}
+	}
+	if !found {
+		t.Fatal("no ● marker found on the scoreboard row")
+	}
+}
+
 // TestSteadyStateWakeAllocs guards the OOM that quarantined v1. Production runs
 // -gc=leaking: every byte allocated is permanent for the room's life, so a
 // per-tick allocation grows without bound until the guest OOMs. The original

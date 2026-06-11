@@ -105,11 +105,15 @@ func (rm *room) drawShips(f *kit.Frame, viewer kit.Player) {
 			attr |= kit.AttrReverse
 		}
 		// A two-cell craft: a hull with a directional nose, so the ship is big
-		// enough to see and to hit (the nose marks where shots come from).
+		// enough to see and to hit (the nose marks where shots come from). The
+		// hull is the pilot's character glyph ('◆' when they have none) drawn
+		// fg-only in the ship colour — the cell's background stays the space
+		// background, exactly as ships have always rendered; the character's BG
+		// colour shows up as the glyph colour, not as a painted cell.
 		st := kit.Style{FG: s.color, Attr: attr}
 		sec := headingSector(s.heading)
 		hr, hc := roundCell(s.y), roundCell(s.x)
-		f.SetRune(hr, hc, '◆', st)
+		f.SetRune(hr, hc, s.glyph, st)
 		f.SetRune(wrapRow(hr+noseOffset[sec][1]), wrapCol(hc+noseOffset[sec][0]), shipGlyphs[sec], st)
 	}
 }
