@@ -6,7 +6,7 @@ import "math"
 // a grid of angles and powers (the real flight physics, wind included) and
 // keeping the one that lands closest — then nudges it off perfect by a little so
 // the CPU is a worthy, not unbeatable, opponent.
-func cpuAim(t *tank, tanks []*tank, terrain []int, wind float64, jitter func() float64) {
+func cpuAim(t *tank, tanks []*tank, terrain []int, wind float64, jitter func() float64, missMul float64) {
 	target := nearestEnemy(t, tanks)
 	if target == nil {
 		return
@@ -33,8 +33,9 @@ func cpuAim(t *tank, tanks []*tank, terrain []int, wind float64, jitter func() f
 		}
 	}
 
-	// A touch of inaccuracy — more when the shot is awkward (longer range).
-	miss := 4.0 + math.Min(8, bestD)
+	// A touch of inaccuracy — more when the shot is awkward (longer range), and
+	// scaled by difficulty (easy lobs wide, hard is nearly dead-on).
+	miss := (4.0 + math.Min(8, bestD)) * missMul
 	bestA += (jitter()*2 - 1) * miss
 	bestP += (jitter()*2 - 1) * (miss + 2)
 

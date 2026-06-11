@@ -35,6 +35,11 @@ const (
 	fallDmgPerR = 5                // health lost per row fallen (beyond a freebie)
 )
 
+// CPU difficulty scales how far the aimer lets itself miss: easy lobs wide,
+// hard is nearly dead-on.
+var difficultyNames = []string{"EASY", "NORMAL", "HARD"}
+var difficultyMiss = []float64{2.4, 1.0, 0.3}
+
 // boom is an expanding blast ring; particle is flung debris. Both are eye-candy.
 type boom struct {
 	x, y, radius float64
@@ -77,6 +82,7 @@ type room struct {
 	msgUntil     time.Time
 	cpuSeq       int
 	cpuWanted    int    // CPU opponents to add, chosen in the lobby
+	difficulty   int    // CPU difficulty, chosen in the lobby (index into difficultyNames)
 	randState    uint32 // LCG state for cosmetic scatter + CPU jitter
 
 	frame *kit.Frame
@@ -84,13 +90,14 @@ type room struct {
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 	return &room{
-		cfg:       cfg,
-		svc:       svc,
-		players:   map[string]kit.Player{},
-		wins:      map[string]int{},
-		phase:     phLobby,
-		cpuWanted: soloTanks - 1, // a lone player defaults to two CPU foes
-		frame:     kit.NewFrame(),
+		cfg:        cfg,
+		svc:        svc,
+		players:    map[string]kit.Player{},
+		wins:       map[string]int{},
+		phase:      phLobby,
+		cpuWanted:  soloTanks - 1, // a lone player defaults to two CPU foes
+		difficulty: 1,             // NORMAL
+		frame:      kit.NewFrame(),
 	}
 }
 
@@ -167,6 +174,14 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 		case kit.ActDown:
 			rm.cpuWanted--
 			rm.clampCpu()
+		case kit.ActLeft:
+			if rm.difficulty > 0 {
+				rm.difficulty--
+			}
+		case kit.ActRight:
+			if rm.difficulty < len(difficultyNames)-1 {
+				rm.difficulty++
+			}
 		}
 		rm.render(r)
 		return
@@ -222,7 +237,7 @@ func (rm *room) OnWake(r kit.Room) {
 		}
 		if t.cpu {
 			if rm.now.After(rm.cpuActAt) {
-				cpuAim(t, rm.tanks, rm.terrain, rm.wind, rm.frand)
+				cpuAim(t, rm.tanks, rm.terrain, rm.wind, rm.frand, difficultyMiss[rm.difficulty])
 				rm.fire(r)
 			}
 		} else if rm.now.After(rm.turnEndsAt) {

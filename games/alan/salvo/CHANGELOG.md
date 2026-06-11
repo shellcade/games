@@ -1,5 +1,15 @@
 # Changelog
 
+## A muster lobby, CPU setup, and battlefield readouts
+
+- Joining drops you into a lobby where everyone gathers and starts the battle
+  together — no more landing as a spectator because someone else's join
+  auto-started a match, and the match is sized for everyone present.
+- Pick the number of CPU opponents (up/down) and their difficulty (left/right)
+  in the lobby; easy CPUs lob wide, hard ones are nearly dead-on.
+- A small health bar floats over any wounded tank so you can spot the cripples,
+  and a turn clock surfaces in the last seconds of a turn.
+
 ## Initial release
 
 Salvo — turn-based tank artillery for the terminal.

@@ -2,12 +2,32 @@ package main
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
 	kit "github.com/shellcade/kit/v2"
 	"github.com/shellcade/kit/v2/kittest"
 )
+
+func TestHealthBarShowsOnlyWhenHurt(t *testing.T) {
+	r, rm := newGame(t, "p1")
+	tk := rm.tanks[1]
+	row := int(math.Round(tk.y)) - 1
+
+	rm.render(r)
+	full := r.LastFrame(kittest.Player("p1"))
+	if full.Cells[row][tk.col].BG == hpBandColor(tk.health) {
+		t.Error("a full-health tank should not show a health bar")
+	}
+
+	tk.health = 50 // amber band
+	rm.render(r)
+	hurt := r.LastFrame(kittest.Player("p1"))
+	if hurt.Cells[row][tk.col-2].BG != hpBandColor(50) {
+		t.Errorf("hurt tank bar cell BG = %v, want amber band %v", hurt.Cells[row][tk.col-2].BG, hpBandColor(50))
+	}
+}
 
 func newGame(t *testing.T, ids ...string) (*kittest.Room, *room) {
 	t.Helper()

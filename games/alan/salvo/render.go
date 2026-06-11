@@ -79,11 +79,20 @@ func (rm *room) drawLobby(f *kit.Frame) {
 	}
 
 	// CPU-opponent selector.
-	label, hint := "CPU opponents:  ", "   (up/down)"
-	x := (scrW - (len(label) + intWidth(rm.cpuWanted) + len(hint))) / 2
-	c := f.Text(16, x, label, stDim)
-	c = drawInt(f, 16, c, rm.cpuWanted, kit.Style{FG: kit.RGB(0xff, 0x9f, 0x1c), Attr: kit.AttrBold})
-	f.Text(16, c, hint, stDim)
+	cl, ch := "CPU opponents:  ", "   (up/down)"
+	x := (scrW - (len(cl) + intWidth(rm.cpuWanted) + len(ch))) / 2
+	c := f.Text(15, x, cl, stDim)
+	c = drawInt(f, 15, c, rm.cpuWanted, kit.Style{FG: kit.RGB(0xff, 0x9f, 0x1c), Attr: kit.AttrBold})
+	f.Text(15, c, ch, stDim)
+
+	// Difficulty selector — only relevant with CPUs in the mix.
+	if rm.cpuWanted > 0 {
+		dl, name, dh := "difficulty:  ", difficultyNames[rm.difficulty], "   (left/right)"
+		x = (scrW - (len(dl) + len(name) + len(dh))) / 2
+		c = f.Text(16, x, dl, stDim)
+		c = f.Text(16, c, name, difficultyStyle(rm.difficulty))
+		f.Text(16, c, dh, stDim)
+	}
 
 	center(f, 18, "press SPACE to start the battle", stMsg)
 	if !rm.lobbyUntil.IsZero() {
@@ -149,6 +158,7 @@ func (rm *room) drawTanks(f *kit.Frame) {
 			f.SetRune(row, col, 'x', kit.Style{FG: kit.Gray(0x55)}) // a wreck
 			continue
 		}
+		drawHealthBar(f, t)
 		if t.player.Character.Glyph != "" {
 			f.Set(row, col, kit.CharacterCell(t.player.Character))
 		} else {
@@ -157,6 +167,54 @@ func (rm *room) drawTanks(f *kit.Frame) {
 		if t == cur && (rm.phase == phAim || rm.phase == phFlight) {
 			rm.drawBarrel(f, t)
 		}
+	}
+}
+
+// drawHealthBar floats a small bar over a wounded tank (full-health tanks show
+// none, so the field stays calm until shots start landing).
+func drawHealthBar(f *kit.Frame, t *tank) {
+	if t.health >= startHealth {
+		return
+	}
+	row := int(math.Round(t.y)) - 1
+	if row < skyTop {
+		return
+	}
+	const w = 5
+	filled := (t.health*w + startHealth - 1) / startHealth // ceil so 1hp still shows a sliver
+	col := t.col - w/2
+	for i := 0; i < w; i++ {
+		cc := col + i
+		if cc < 0 || cc >= scrW {
+			continue
+		}
+		bg := kit.Gray(0x24)
+		if i < filled {
+			bg = hpBandColor(t.health)
+		}
+		f.SetRune(row, cc, ' ', kit.Style{BG: bg})
+	}
+}
+
+func hpBandColor(hp int) kit.Color {
+	switch {
+	case hp > 60:
+		return kit.RGB(0x49, 0xe2, 0x6a) // green
+	case hp > 30:
+		return kit.RGB(0xff, 0xe0, 0x3a) // amber
+	default:
+		return kit.RGB(0xff, 0x49, 0x6b) // red
+	}
+}
+
+func difficultyStyle(d int) kit.Style {
+	switch d {
+	case 0:
+		return kit.Style{FG: kit.RGB(0x49, 0xe2, 0x6a), Attr: kit.AttrBold} // EASY
+	case 2:
+		return kit.Style{FG: kit.RGB(0xff, 0x49, 0x6b), Attr: kit.AttrBold} // HARD
+	default:
+		return kit.Style{FG: kit.RGB(0xff, 0xe0, 0x3a), Attr: kit.AttrBold} // NORMAL
 	}
 }
 
@@ -292,6 +350,23 @@ func (rm *room) drawParticles(f *kit.Frame) {
 
 func (rm *room) drawHUD(f *kit.Frame, v kit.Player) {
 	f.Text(hudRow, 2, "SALVO", stTitle)
+
+	// Turn clock: only surfaces in the last stretch, as a gentle "wrap it up"
+	// nudge rather than a constant ticking pressure.
+	if t := rm.currentTank(); t != nil && !t.cpu && rm.phase == phAim {
+		if rem := int(rm.turnEndsAt.Sub(rm.now).Seconds()); rem <= 15 {
+			if rem < 0 {
+				rem = 0
+			}
+			st := stDim
+			if rem <= 5 {
+				st = stWarn
+			}
+			c := f.Text(hudRow, 9, "turn ", stDim)
+			c = drawInt(f, hudRow, c, rem, st)
+			f.SetRune(hudRow, c, 's', st)
+		}
+	}
 
 	// Wind gauge, centred.
 	n := clampI(int(math.Round(math.Abs(rm.wind)/3.0)), 0, 6)
