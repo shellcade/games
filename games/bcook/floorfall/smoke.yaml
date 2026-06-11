@@ -1,0 +1,58 @@
+seed: 7
+seats: 1
+heartbeat: 50ms
+steps:
+  # (a) Opening arena: a fresh, fully-solid top floor with the lone contestant
+  # just spawned (their reverse-video glyph near the top-left). One heartbeat
+  # settles the first frame.
+  - advance: 50ms
+  - shot: arena
+
+  # Movement crumbling the floor: walk a short trail. Each tile stepped off
+  # begins aging a beat later (█ → ▓ → ░ → gone), so a wake of crumbling
+  # footprints trails behind. Advance past the grace beat so the trail shows.
+  - key: right
+  - key: right
+  - key: right
+  - key: right
+  - key: down
+  - key: down
+  - advance: 700ms
+  - shot: footsteps
+
+  # Solo crumble pressure: with one player the ambient wave is busy and keeps
+  # accelerating. Sweep a couple of seconds — random tiles across the floor
+  # crack, wear, and open into holes (the `·` dark of the floor below).
+  - advance: 1s
+  - advance: 1s
+  - shot: crumble
+
+  # A layer fall: pace a tight box so the contestant steps back onto tiles they
+  # already crumbled — one gives way and they drop a floor. The accelerating
+  # wave helps. The HUD then reads FLOOR 2/3.
+  - key: left
+  - advance: 300ms
+  - key: left
+  - advance: 300ms
+  - key: up
+  - advance: 300ms
+  - key: right
+  - advance: 300ms
+  - key: down
+  - advance: 600ms
+  - key: left
+  - advance: 600ms
+  - key: up
+  - advance: 1s
+  - shot: deeper
+
+  # Run it out: the crumble is frantic now. Eventually the floors give way under
+  # the lone survivor, the solo run ends, and the intermission banner shows the
+  # survival time that feeds the leaderboard before a fresh arena spins up.
+  - advance: 2s
+  - advance: 2s
+  - advance: 2s
+  - advance: 2s
+  - advance: 2s
+  - advance: 2s
+  - shot: result
