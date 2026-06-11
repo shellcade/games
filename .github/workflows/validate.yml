@@ -39,7 +39,9 @@ jobs:
           # org membership is PUBLIC, so a private-membership org admin would
           # read as a plain contributor. The permission endpoint needs only the
           # metadata read every workflow token has (fork PRs included).
-          outside=$(git diff --name-only "$base"...HEAD | grep -v '^games/' || true)
+          # .gitignore is contributor-safe (it cannot publish a game or alter
+          # the build) so it is exempt from the maintainer-only gate.
+          outside=$(git diff --name-only "$base"...HEAD | grep -vE '^(games/|\.gitignore$)' || true)
           if [ -n "$outside" ]; then
             author="${{ github.event.pull_request.user.login }}"
             level=$(gh api "repos/${{ github.repository }}/collaborators/${author}/permission" \
