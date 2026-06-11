@@ -117,13 +117,15 @@ func TestPaddleCentreShowsViewerCharacter(t *testing.T) {
 	if got, want := f.Cells[paddleRow][center], kit.CharacterCell(p1.Character); got != want {
 		t.Errorf("paddle centre cell = %+v, want character tile %+v", got, want)
 	}
-	// The rest of the run is still the plain board.
+	// The rest of the run wears the character's BACKGROUND colour (the bar
+	// is the player's colour, not the stock cyan).
+	barBG := kit.RGB(p1.Character.BgR, p1.Character.BgG, p1.Character.BgB)
 	for c := center - half; c <= center+half; c++ {
 		if c == center {
 			continue
 		}
-		if cell := f.Cells[paddleRow][c]; cell.Rune != ' ' || cell.BG != stPaddle.BG {
-			t.Errorf("paddle cell %d = %+v, want a plain paddle cell", c, cell)
+		if cell := f.Cells[paddleRow][c]; cell.Rune != ' ' || cell.BG != barBG {
+			t.Errorf("paddle cell %d = %+v, want bar in character bg %v", c, cell, barBG)
 		}
 	}
 }

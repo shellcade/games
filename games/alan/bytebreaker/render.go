@@ -138,6 +138,12 @@ func drawPaddle(f *kit.Frame, b *board, ch kit.Character) {
 	if b.wide {
 		st = stPaddleW
 	}
+	// The bar wears the character's BACKGROUND colour; the wide power-up
+	// still reads from the longer run. Players without a character keep the
+	// stock cyan (green when wide).
+	if ch.Glyph != "" {
+		st = kit.Style{BG: kit.RGB(ch.BgR, ch.BgG, ch.BgB)}
+	}
 	half := b.paddleHalf()
 	center := int(math.Round(b.paddleX))
 	for c := center - half; c <= center+half; c++ {
