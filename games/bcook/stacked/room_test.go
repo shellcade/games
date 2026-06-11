@@ -415,3 +415,125 @@ func pieceIndex(name string) int {
 	}
 	panic("no piece named " + name)
 }
+
+// --- character feature -------------------------------------------------------
+
+func testCharacter() kit.Character {
+	return kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
+}
+
+// TestCharacterSetsWellAccent asserts a player's character becomes their well
+// tag: the glyph replaces '◆' and the character's BACKGROUND color becomes the
+// well accent color.
+func TestCharacterSetsWellAccent(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	a := tr.Players[0]
+	a.Character = testCharacter()
+	rm.OnJoin(tr, a)
+
+	w := rm.wells[a.AccountID]
+	if w.glyph != 'λ' {
+		t.Fatalf("well glyph = %q, want the character glyph 'λ'", w.glyph)
+	}
+	want := kit.RGB(a.Character.BgR, a.Character.BgG, a.Character.BgB)
+	if w.color != want {
+		t.Fatalf("well accent = %v, want character bg %v", w.color, want)
+	}
+}
+
+// TestZeroCharacterKeepsPaletteTag is the regression guard: a player with no
+// character (test doubles, hosts that don't deliver the feature) keeps the '◆'
+// tag and join-order palette color.
+func TestZeroCharacterKeepsPaletteTag(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	rm.OnJoin(tr, tr.Players[0]) // kittest player: zero Character
+	w := rm.wells[tr.Players[0].AccountID]
+	if w.glyph != '◆' {
+		t.Fatalf("well glyph = %q, want '◆' for a zero character", w.glyph)
+	}
+	if w.color != palette[0] {
+		t.Fatalf("well accent = %v, want palette[0] %v", w.color, palette[0])
+	}
+}
+
+// TestScoreboardCharacterTileBesideName asserts each player's character tile
+// lands one cell + one space before their name on the scoreboard.
+func TestScoreboardCharacterTileBesideName(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice", "bob")
+	a, b := tr.Players[0], tr.Players[1]
+	a.Character = testCharacter()
+	b.Character = kit.Character{Glyph: "@", InkR: 1, InkG: 2, InkB: 3, BgR: 4, BgG: 5, BgB: 6, Fallback: '@'}
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+
+	f := kit.NewFrame()
+	rm.composeFor(f, a)
+
+	// Each scoreboard segment is "● " then the tile, a space, and the name.
+	want := []struct {
+		ch       kit.Character
+		nameRune rune
+	}{{a.Character, 'a'}, {b.Character, 'b'}}
+	i := 0
+	for c := 0; c < kit.Cols && i < len(want); c++ {
+		if f.Cells[0][c].Rune != '●' {
+			continue
+		}
+		if got := f.Cells[0][c+2]; got != kit.CharacterCell(want[i].ch) {
+			t.Errorf("player %d: cell after marker = %+v, want character tile", i, got)
+		}
+		if f.Cells[0][c+3].Rune != ' ' {
+			t.Errorf("player %d: no space between character tile and name", i)
+		}
+		if f.Cells[0][c+4].Rune != want[i].nameRune {
+			t.Errorf("player %d: name does not follow the tile (got %q)", i, f.Cells[0][c+4].Rune)
+		}
+		i++
+	}
+	if i != len(want) {
+		t.Fatalf("found %d scoreboard segments, want %d", i, len(want))
+	}
+}
+
+// TestWellHeaderAndMiniCarryCharacterTile asserts the big-well header carries
+// the viewer's character tile as its one-cell tag and the rival miniature
+// label carries the rival's, each followed by the label text.
+func TestWellHeaderAndMiniCarryCharacterTile(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice", "bob")
+	a, b := tr.Players[0], tr.Players[1]
+	a.Character = testCharacter()
+	b.Character = kit.Character{Glyph: "@", InkR: 1, InkG: 2, InkB: 3, BgR: 4, BgG: 5, BgB: 6, Fallback: '@'}
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+
+	f := kit.NewFrame()
+	rm.composeFor(f, a)
+
+	// Big-well header: the tile is the one-cell tag, with the label after it.
+	if got := f.Cells[bigTop-1][bigLeft]; got != kit.CharacterCell(a.Character) {
+		t.Fatalf("well header cell = %+v, want alice's character tile", got)
+	}
+	if got := f.Cells[bigTop-1][bigLeft+2].Rune; got != 'Y' {
+		t.Fatalf("well header label = %q, want 'Y' of YOUR WELL", got)
+	}
+
+	// First rival miniature label: tile at (2, miniLeft), name after it.
+	if got := f.Cells[2][miniLeft]; got != kit.CharacterCell(b.Character) {
+		t.Fatalf("mini label cell = %+v, want bob's character tile", got)
+	}
+	if got := f.Cells[2][miniLeft+2].Rune; got != 'b' {
+		t.Fatalf("mini label name = %q, want 'b' of bob", got)
+	}
+}
+
+// TestZeroCharacterTagFallsBackToGlyph asserts the header tag for a player
+// with no character is the '◆' accent glyph (the tile would be blank).
+func TestZeroCharacterTagFallsBackToGlyph(t *testing.T) {
+	rm, tr := newTestRoom(t, "alice")
+	rm.OnJoin(tr, tr.Players[0]) // zero Character
+	f := kit.NewFrame()
+	rm.composeFor(f, tr.Players[0])
+	if got := f.Cells[bigTop-1][bigLeft].Rune; got != '◆' {
+		t.Fatalf("zero-character header tag = %q, want '◆'", got)
+	}
+}

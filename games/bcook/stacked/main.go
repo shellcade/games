@@ -37,6 +37,11 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       6,
 		Tags:             []string{"puzzle", "battle", "arcade"},
 
+		// Player characters: each player's tile renders on the scoreboard, the
+		// big-well header, and every rival miniature label, and the character's
+		// background color becomes the well's accent color.
+		CtxFeatures: kit.CtxFeatCharacter,
+
 		QuickModeLabel:    "Quick battle",
 		SoloModeLabel:     "Score attack",
 		PrivateInviteLine: "Friends drop into your match when they enter the code.",

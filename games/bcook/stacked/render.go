@@ -84,10 +84,10 @@ func (rm *room) drawScoreboard(f *kit.Frame, viewer kit.Player) {
 // --- the big well ------------------------------------------------------------
 
 func (rm *room) drawBigWell(f *kit.Frame, viewer kit.Player, w *well) {
-	// Header: the owner's character tile + label above the well.
-	f.Set(bigTop-1, bigLeft, kit.CharacterCell(viewer.Character))
-	f.SetRune(bigTop-1, bigLeft+1, w.glyph, kit.Style{FG: w.color, Attr: kit.AttrBold})
-	f.Text(bigTop-1, bigLeft+3, "YOUR WELL", kit.Style{FG: w.color, Attr: kit.AttrBold})
+	// Header: the owner's tag + label above the well. The tag is the player's
+	// character tile when they have one, or the '◆' accent glyph otherwise.
+	drawOwnerTag(f, bigTop-1, bigLeft, viewer, w, w.color)
+	f.Text(bigTop-1, bigLeft+2, "YOUR WELL", kit.Style{FG: w.color, Attr: kit.AttrBold})
 
 	// Border box around a wellW*2-wide interior (cells are drawn double-wide so
 	// the well looks square-ish on a terminal).
@@ -234,9 +234,8 @@ func (rm *room) drawMini(f *kit.Frame, top, left int, w *well, p kit.Player) {
 	if !w.alive {
 		tag = dimText
 	}
-	f.Set(top, left, kit.CharacterCell(p.Character))
-	f.SetRune(top, left+1, w.glyph, kit.Style{FG: tag, Attr: kit.AttrBold})
-	f.Text(top, left+3, name, kit.Style{FG: tag})
+	drawOwnerTag(f, top, left, p, w, tag)
+	f.Text(top, left+2, name, kit.Style{FG: tag})
 
 	// Inbound-garbage warning marker beside the name.
 	if w.alive && !w.garbageAt.IsZero() {
@@ -275,6 +274,17 @@ func (rm *room) drawMini(f *kit.Frame, top, left int, w *well, p kit.Player) {
 	if !w.alive {
 		f.Text(top+2, left+1, "OUT", kit.Style{FG: kit.Red, Attr: kit.AttrBold})
 	}
+}
+
+// drawOwnerTag draws a player's one-cell well tag at (row, col): their
+// character tile when they have one, or the well's '◆'-style accent glyph in
+// the given color when they don't.
+func drawOwnerTag(f *kit.Frame, row, col int, p kit.Player, w *well, fg kit.Color) {
+	if p.Character.Glyph != "" {
+		f.Set(row, col, kit.CharacterCell(p.Character))
+		return
+	}
+	f.SetRune(row, col, w.glyph, kit.Style{FG: fg, Attr: kit.AttrBold})
 }
 
 // --- chrome ------------------------------------------------------------------

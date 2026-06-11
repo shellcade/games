@@ -75,11 +75,12 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 		rm.order = append(rm.order, p.AccountID)
 		rm.startWell(r, w)
 	}
-	// Each well's accent is its owner's join-order palette color and a '◆' tag.
-	// If a player carries an arcade character, its glyph heads the well and its
-	// background color becomes the accent instead; a zero Character (the default)
-	// keeps the palette look. Re-applied on every join so a reconnecting player
-	// carries their current look.
+	// The player's character tags their well: the character glyph heads the
+	// well and every miniature, and the character's BACKGROUND color becomes
+	// the well's accent color. A zero Character (a host that doesn't deliver
+	// the feature, or test doubles) reverts to the '◆' tag and join-order
+	// palette. Re-applied on every join so a reconnecting player carries their
+	// current look — including a cleared character.
 	w := rm.wells[p.AccountID]
 	if c := p.Character; c.Glyph != "" {
 		for _, ru := range c.Glyph {
