@@ -38,11 +38,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       6,
 		Tags:             []string{"sports", "golf", "casual", "party"},
 
-		// Each golfer's identity on the course is their distinct color (ball +
-		// scorecard row). The scorecard already places each player's character
-		// tile via kit.CharacterCell when one is present, so opting into
-		// CtxFeatCharacter is a one-line addition here when desired; it is left
-		// off so the game is self-contained color-coded identity.
+		// Player characters: each golfer's tile renders beside their name on
+		// the scorecard, their glyph becomes their ball, and their character's
+		// background colour becomes their colour everywhere it shows.
+		CtxFeatures: kit.CtxFeatCharacter,
 
 		QuickModeLabel:    "Quick 9",
 		SoloModeLabel:     "Round of 9",
