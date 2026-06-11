@@ -41,6 +41,19 @@ func (Game) Meta() kit.GameMeta {
 			Aggregation: kit.BestResult,
 			Format:      kit.Integer,
 		},
+
+		// Touch deck chips (kit v2.10.0): the turn actions and the insurance
+		// answers are all letter commands (CtxCommand), so every one needs a
+		// chip. Betting stays on the canonical Up/Down + Confirm.
+		Controls: []kit.ControlDecl{
+			kit.RuneControl('h', "HIT"),
+			kit.RuneControl('s', "STAND"),
+			kit.RuneControl('d', "DOUBLE"),
+			kit.RuneControl('p', "SPLIT"),
+			kit.RuneControl('r', "SURRENDER"),
+			kit.RuneControl('y', "YES"),
+			kit.RuneControl('n', "NO"),
+		},
 	}
 }
 

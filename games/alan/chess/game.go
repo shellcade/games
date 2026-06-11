@@ -30,6 +30,18 @@ func (Game) Meta() kit.GameMeta {
 		QuickModeLabel:    "Quick match",
 		SoloModeLabel:     "Solo: play both sides",
 		PrivateInviteLine: "Your opponent takes the other colour when they enter the code.",
+
+		// Touch deck chips (kit v2.10.0): the inputs beyond the canonical
+		// vocabulary — letter commands and the Backspace selection-cancel —
+		// surfaced as tappable chips on devices without a physical keyboard.
+		// Movement and select stay on the canonical arrows + Confirm.
+		Controls: []kit.ControlDecl{
+			kit.RuneControl('r', "RESIGN"),
+			kit.RuneControl('d', "DRAW"),
+			kit.RuneControl('y', "YES"),
+			kit.RuneControl('n', "NO"),
+			kit.KeyControl(kit.KeyBackspace, "CANCEL"),
+		},
 	}
 }
 

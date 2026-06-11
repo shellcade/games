@@ -36,6 +36,20 @@ impl Game for TicTacToe {
             // member's Player.character arrives populated, and the render
             // places each player's tile beside their name.
             ctx_features: CTX_FEAT_CHARACTER,
+            // Touch deck chips (kit v2.10.0): the board is played with the
+            // digit keys, so declare all nine — on a phone they render as a
+            // tappable 1-9 chip grid mirroring the cells.
+            controls: &[
+                ControlDecl { input: Input::Char('1'), label: "1" },
+                ControlDecl { input: Input::Char('2'), label: "2" },
+                ControlDecl { input: Input::Char('3'), label: "3" },
+                ControlDecl { input: Input::Char('4'), label: "4" },
+                ControlDecl { input: Input::Char('5'), label: "5" },
+                ControlDecl { input: Input::Char('6'), label: "6" },
+                ControlDecl { input: Input::Char('7'), label: "7" },
+                ControlDecl { input: Input::Char('8'), label: "8" },
+                ControlDecl { input: Input::Char('9'), label: "9" },
+            ],
             ..Meta::DEFAULT
         }
     }

@@ -36,6 +36,17 @@ func (Game) Meta() kit.GameMeta {
 			Aggregation: kit.BestResult,
 			Format:      kit.Integer,
 		},
+
+		// Touch deck chips (kit v2.10.0): the betting modifiers beyond the
+		// canonical vocabulary. Cursor movement and bet placement stay on
+		// the canonical arrows + Confirm.
+		Controls: []kit.ControlDecl{
+			kit.RuneControl('+', "BET+"),
+			kit.RuneControl('-', "BET-"),
+			kit.RuneControl('c', "CLEAR"),
+			kit.RuneControl('r', "READY"),
+			kit.KeyControl(kit.KeyBackspace, "UNDO"),
+		},
 	}
 }
 
