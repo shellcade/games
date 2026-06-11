@@ -1,0 +1,28 @@
+seed: 7
+seats: 2
+heartbeat: 50ms
+steps:
+  # (a) The reactor at start: the hull and bulkheads drawn around the glowing
+  # core at full integrity, stations dotted through the bays. One heartbeat
+  # settles the opening frame.
+  - advance: 50ms
+  - shot: reactor
+
+  # The first faults erupt at the stations and begin gnawing the core.
+  - advance: 8s
+  - shot: first-faults
+
+  # The faults pile up and the core slides toward critical — several hazards
+  # glow at once and the integrity readout falls.
+  - advance: 8s
+  - shot: many-faults
+
+  # Core critical: the klaxon header flashes !! ALARM !! over the readout.
+  - advance: 6s
+  - shot: alarm
+
+  # The reactor finishes dying: the meltdown end screen with the crew's
+  # survival time.
+  - advance: 6s
+  - advance: 6s
+  - shot: meltdown
