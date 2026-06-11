@@ -29,9 +29,10 @@ const (
 	impactDur   = 480 * time.Millisecond
 	settleHold  = 250 * time.Millisecond
 	overDur     = 5 * time.Second
-	fallSpeed   = 14.0 // rows/sec a tank tumbles into a crater
-	soloTanks   = 3    // a lone human battles this many tanks total (rest are CPU)
-	fallDmgPerR = 5    // health lost per row fallen (beyond a freebie)
+	lobbyWait   = 20 * time.Second // the lobby auto-starts after this if nobody hits SPACE
+	fallSpeed   = 14.0             // rows/sec a tank tumbles into a crater
+	soloTanks   = 3                // a lone human battles this many tanks total (rest are CPU)
+	fallDmgPerR = 5                // health lost per row fallen (beyond a freebie)
 )
 
 // boom is an expanding blast ring; particle is flung debris. Both are eye-candy.
@@ -69,6 +70,7 @@ type room struct {
 
 	now, lastNow time.Time
 	phaseUntil   time.Time
+	lobbyUntil   time.Time // fallback auto-start while gathering in the lobby
 	turnEndsAt   time.Time
 	cpuActAt     time.Time
 	msg          string
@@ -102,13 +104,13 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	rm.players[p.AccountID] = p
 	if _, seen := rm.wins[p.AccountID]; !seen {
 		rm.order = append(rm.order, p.AccountID)
-		rm.wins[p.AccountID] = rm.loadWins(r, p)
-	} else {
-		rm.wins[p.AccountID] = rm.loadWins(r, p)
 	}
-	// First arrival (or a battle that fizzled out) kicks off a fresh match.
+	rm.wins[p.AccountID] = rm.loadWins(r, p)
+	// Gather in the lobby and start together (on SPACE, or the fallback timer) so
+	// everyone arriving at once lands in the same battle, sized for all of them —
+	// rather than the first arrival auto-starting and locking the rest out.
 	if rm.phase == phLobby {
-		rm.startMatch(r)
+		rm.lobbyUntil = rm.now.Add(lobbyWait)
 	}
 	rm.render(r)
 }
@@ -137,6 +139,13 @@ func (rm *room) OnClose(r kit.Room) {}
 
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	rm.now = r.Now()
+	if rm.phase == phLobby {
+		if kit.Resolve(in, kit.CtxNav) == kit.ActConfirm {
+			rm.startMatch(r) // anyone can start the battle
+			rm.render(r)
+		}
+		return
+	}
 	if rm.phase == phOver {
 		if kit.Resolve(in, kit.CtxNav) == kit.ActConfirm {
 			rm.startMatch(r) // skip the wait, rematch now
@@ -177,6 +186,10 @@ func (rm *room) OnWake(r kit.Room) {
 	dt := rm.step()
 
 	switch rm.phase {
+	case phLobby:
+		if !rm.lobbyUntil.IsZero() && rm.now.After(rm.lobbyUntil) {
+			rm.startMatch(r)
+		}
 	case phAim:
 		t := rm.currentTank()
 		if t == nil {
@@ -229,6 +242,11 @@ func (rm *room) step() float64 {
 // --- match setup -------------------------------------------------------------
 
 func (rm *room) startMatch(r kit.Room) {
+	rm.lobbyUntil = time.Time{}
+	if len(rm.order) == 0 {
+		rm.phase = phLobby // nobody to fight — wait (an empty ephemeral room closes)
+		return
+	}
 	rm.terrain = genTerrain(r.Rand())
 	rm.shell = nil
 	rm.booms = rm.booms[:0]

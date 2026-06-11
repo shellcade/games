@@ -24,13 +24,44 @@ func newGame(t *testing.T, ids ...string) (*kittest.Room, *room) {
 	for _, p := range players {
 		rm.OnJoin(r, p)
 	}
+	rm.startMatch(r) // skip the lobby wait — most tests want a live battle
 	return r, rm
 }
 
-func TestJoinStartsSoloMatch(t *testing.T) {
+func TestLobbyGathersBeforeStart(t *testing.T) {
+	r := kittest.NewRoom(kittest.Player("p1"), kittest.Player("p2"))
+	rm := (Game{}).NewRoom(r.Config(), r.Services()).(*room)
+	rm.OnStart(r)
+	rm.OnJoin(r, kittest.Player("p1"))
+	rm.OnJoin(r, kittest.Player("p2"))
+	if rm.phase != phLobby {
+		t.Fatalf("phase = %v, want lobby — joining must not auto-start", rm.phase)
+	}
+	if len(rm.tanks) != 0 {
+		t.Errorf("tanks were created before the battle started: %d", len(rm.tanks))
+	}
+	// The lobby auto-starts after its window — and BOTH members get a tank, not
+	// just whoever arrived first.
+	r.Advance(lobbyWait + time.Second)
+	rm.OnWake(r)
+	if rm.phase != phAim {
+		t.Fatalf("lobby did not start: phase = %v", rm.phase)
+	}
+	humans := 0
+	for _, tk := range rm.tanks {
+		if !tk.cpu {
+			humans++
+		}
+	}
+	if humans != 2 {
+		t.Errorf("started with %d human tanks, want both lobby members", humans)
+	}
+}
+
+func TestSoloMatchSetup(t *testing.T) {
 	_, rm := newGame(t, "p1")
 	if rm.phase != phAim {
-		t.Fatalf("phase = %v, want aim after the first join", rm.phase)
+		t.Fatalf("phase = %v, want aim once the solo battle starts", rm.phase)
 	}
 	if len(rm.tanks) != soloTanks {
 		t.Fatalf("solo match has %d tanks, want %d (1 human + CPUs)", len(rm.tanks), soloTanks)

@@ -30,6 +30,10 @@ func (rm *room) render(r kit.Room) {
 
 func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	drawSky(f)
+	if rm.phase == phLobby {
+		rm.drawLobby(f)
+		return
+	}
 	rm.drawTerrain(f)
 	rm.drawTanks(f)
 	if rm.phase == phAim {
@@ -41,6 +45,54 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	rm.drawHUD(f, v)
 	rm.drawPanel(f, v)
 	rm.drawOverlay(f)
+}
+
+// --- the muster lobby --------------------------------------------------------
+
+func (rm *room) drawLobby(f *kit.Frame) {
+	center(f, 3, "S A L V O", stTitle)
+	center(f, 5, "turn-based tank artillery", stDim)
+	center(f, 7, "- BATTLE LOBBY -", stMsg)
+
+	row := 10
+	if len(rm.order) == 0 {
+		center(f, row, "waiting for commanders to roll in...", stDim)
+	}
+	for i, id := range rm.order {
+		if i >= len(tankPalette) {
+			break
+		}
+		p := rm.players[id]
+		name := handleOf(p)
+		wins := rm.wins[id]
+		bodyW := 2 + len(name) + 2 + intWidth(wins) + 1
+		x := (scrW - bodyW) / 2
+		if p.Character.Glyph != "" {
+			f.Set(row, x, kit.CharacterCell(p.Character))
+		} else {
+			f.SetRune(row, x, '#', kit.Style{FG: kit.Gray(0x10), BG: tankPalette[i], Attr: kit.AttrBold})
+		}
+		c := f.Text(row, x+2, name, kit.Style{FG: tankPalette[i], Attr: kit.AttrBold})
+		c = drawInt(f, row, c+2, wins, stDim)
+		f.Text(row, c, "w", stDim)
+		row++
+	}
+
+	center(f, 18, "press SPACE to start the battle", stMsg)
+	if !rm.lobbyUntil.IsZero() {
+		rem := int(math.Ceil(rm.lobbyUntil.Sub(rm.now).Seconds()))
+		if rem < 0 {
+			rem = 0
+		}
+		s := "auto-starts in "
+		x := (scrW - (len(s) + intWidth(rem) + 1)) / 2
+		c := f.Text(20, x, s, stDim)
+		c = drawInt(f, 20, c, rem, stDim)
+		f.Text(20, c, "s", stDim)
+	}
+	if len(rm.order) <= 1 {
+		center(f, 22, "(solo: you'll battle two CPU tanks)", stDim)
+	}
 }
 
 // --- scenery -----------------------------------------------------------------

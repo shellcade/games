@@ -1,15 +1,20 @@
 seed: 7
 seats: 1
 heartbeat: 50ms
-# A solo battle: one human tank plus two CPUs on fresh, destructible hills. The
-# player nudges the angle (a faint trajectory stub shows the aim), then fires —
-# the shell arcs across the field, craters the ground, and the blast goes off.
-# Terrain, wind, and CPU aim all replay identically from the seeded RNG.
+# Players gather in the lobby and start the battle together (SPACE, or a fallback
+# timer) — so everyone arriving at once is in the same match. Here a lone player
+# starts a solo battle vs two CPUs on fresh, destructible hills, nudges the aim
+# (a faint trajectory stub shows the launch), and fires. Terrain, wind, and CPU
+# aim all replay identically from the seeded RNG.
 steps:
   - advance: 50ms
-  - shot: battlefield    # hills, three tanks, the player lining up a shot
+  - shot: lobby          # the muster lobby — who's here, press SPACE to start
 
   - seat: 0
+  - key: space           # start the battle
+  - advance: 50ms
+  - shot: battlefield     # hills, three tanks, the player lining up a shot
+
   - key: right
   - key: right
   - advance: 50ms
