@@ -2,12 +2,32 @@ package main
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
 	kit "github.com/shellcade/kit/v2"
 	"github.com/shellcade/kit/v2/kittest"
 )
+
+func TestHealthBarShowsOnlyWhenHurt(t *testing.T) {
+	r, rm := newGame(t, "p1")
+	tk := rm.tanks[1]
+	row := int(math.Round(tk.y)) - 1
+
+	rm.render(r)
+	full := r.LastFrame(kittest.Player("p1"))
+	if full.Cells[row][tk.col].BG == hpBandColor(tk.health) {
+		t.Error("a full-health tank should not show a health bar")
+	}
+
+	tk.health = 50 // amber band
+	rm.render(r)
+	hurt := r.LastFrame(kittest.Player("p1"))
+	if hurt.Cells[row][tk.col-2].BG != hpBandColor(50) {
+		t.Errorf("hurt tank bar cell BG = %v, want amber band %v", hurt.Cells[row][tk.col-2].BG, hpBandColor(50))
+	}
+}
 
 func newGame(t *testing.T, ids ...string) (*kittest.Room, *room) {
 	t.Helper()
@@ -24,13 +44,74 @@ func newGame(t *testing.T, ids ...string) (*kittest.Room, *room) {
 	for _, p := range players {
 		rm.OnJoin(r, p)
 	}
+	rm.startMatch(r) // skip the lobby wait — most tests want a live battle
 	return r, rm
 }
 
-func TestJoinStartsSoloMatch(t *testing.T) {
+func TestLobbyGathersBeforeStart(t *testing.T) {
+	r := kittest.NewRoom(kittest.Player("p1"), kittest.Player("p2"))
+	rm := (Game{}).NewRoom(r.Config(), r.Services()).(*room)
+	rm.OnStart(r)
+	rm.OnJoin(r, kittest.Player("p1"))
+	rm.OnJoin(r, kittest.Player("p2"))
+	if rm.phase != phLobby {
+		t.Fatalf("phase = %v, want lobby — joining must not auto-start", rm.phase)
+	}
+	if len(rm.tanks) != 0 {
+		t.Errorf("tanks were created before the battle started: %d", len(rm.tanks))
+	}
+	// The lobby auto-starts after its window — and BOTH members get a tank, not
+	// just whoever arrived first.
+	r.Advance(lobbyWait + time.Second)
+	rm.OnWake(r)
+	if rm.phase != phAim {
+		t.Fatalf("lobby did not start: phase = %v", rm.phase)
+	}
+	humans := 0
+	for _, tk := range rm.tanks {
+		if !tk.cpu {
+			humans++
+		}
+	}
+	if humans != 2 {
+		t.Errorf("started with %d human tanks, want both lobby members", humans)
+	}
+}
+
+func TestCpuCountSelectable(t *testing.T) {
+	r, rm := newGame(t, "p1")
+	rm.cpuWanted = 4 // 1 human + 4 CPUs = 5 tanks (within the 6 cap)
+	rm.clampCpu()
+	rm.startMatch(r)
+	cpus := 0
+	for _, tk := range rm.tanks {
+		if tk.cpu {
+			cpus++
+		}
+	}
+	if cpus != 4 || len(rm.tanks) != 5 {
+		t.Errorf("CPU count not honoured: %d CPUs, %d tanks (want 4 / 5)", cpus, len(rm.tanks))
+	}
+}
+
+func TestCpuCountClamps(t *testing.T) {
+	_, rm := newGame(t, "p1")
+	rm.cpuWanted = 99
+	rm.clampCpu()
+	if rm.cpuWanted != len(tankPalette)-1 { // one human leaves room for five CPUs
+		t.Errorf("cpuWanted = %d, want %d", rm.cpuWanted, len(tankPalette)-1)
+	}
+	rm.cpuWanted = -5
+	rm.clampCpu()
+	if rm.cpuWanted != 1 { // still need at least one opponent
+		t.Errorf("cpuWanted = %d, want 1", rm.cpuWanted)
+	}
+}
+
+func TestSoloMatchSetup(t *testing.T) {
 	_, rm := newGame(t, "p1")
 	if rm.phase != phAim {
-		t.Fatalf("phase = %v, want aim after the first join", rm.phase)
+		t.Fatalf("phase = %v, want aim once the solo battle starts", rm.phase)
 	}
 	if len(rm.tanks) != soloTanks {
 		t.Fatalf("solo match has %d tanks, want %d (1 human + CPUs)", len(rm.tanks), soloTanks)

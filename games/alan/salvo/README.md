@@ -34,7 +34,9 @@ friends.
 | Space / Enter | fire — and start a rematch after a battle |
 
 A faint dotted **trajectory stub** shows your launch direction; the rest of the
-arc you learn by ranging your shots.
+arc you learn by ranging your shots. In the **lobby**, ↑/↓ set how many CPU
+opponents to field and ←/→ set their difficulty; SPACE starts the battle for
+everyone gathered.
 
 ## Gameplay
 
@@ -45,8 +47,10 @@ arc you learn by ranging your shots.
   flight — the gauge up top shows which way and how hard.
 - **Three weapons:** `SHELL` (steady, unlimited), `HEAVY` (a huge blast, three
   rounds a battle), and `TRACER` (precise but feeble, unlimited).
-- **Solo or social.** Alone you battle two CPU tanks; with friends, 2–6 of you
-  take turns on the same field. Each match win bumps your career total on the
+- **Solo or social.** Gather in the lobby, choose how many CPU opponents you want
+  (and how sharp they shoot), then deploy together — solo against the CPU, or 2–6
+  of you taking turns on one field. A small bar floats over any wounded tank so
+  you can gang up on the cripples; each match win bumps your career total on the
   shared leaderboard.
 
 ## Develop

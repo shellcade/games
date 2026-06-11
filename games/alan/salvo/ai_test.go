@@ -26,7 +26,7 @@ func TestCpuAimsTowardEnemy(t *testing.T) {
 	foe.y = surfaceAt(terr, foe.col)
 	tanks := []*tank{me, foe}
 
-	cpuAim(me, tanks, terr, 0, zeroJitter)
+	cpuAim(me, tanks, terr, 0, zeroJitter, 1.0)
 	// The foe is to the right, so the barrel should lean right (angle < 90).
 	if me.angle >= 90 {
 		t.Errorf("CPU aiming right-side enemy at angle %.0f, want < 90", me.angle)
@@ -41,7 +41,7 @@ func TestCpuSolutionLandsNearTarget(t *testing.T) {
 	foe.y = surfaceAt(terr, foe.col)
 	tanks := []*tank{me, foe}
 
-	cpuAim(me, tanks, terr, 0, zeroJitter)
+	cpuAim(me, tanks, terr, 0, zeroJitter, 1.0)
 	ix, _, ok := simImpact(me, me.angle, me.power, 0, terr, tanks)
 	if !ok {
 		t.Fatal("CPU picked a shot that sails off the field")

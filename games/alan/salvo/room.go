@@ -29,10 +29,16 @@ const (
 	impactDur   = 480 * time.Millisecond
 	settleHold  = 250 * time.Millisecond
 	overDur     = 5 * time.Second
-	fallSpeed   = 14.0 // rows/sec a tank tumbles into a crater
-	soloTanks   = 3    // a lone human battles this many tanks total (rest are CPU)
-	fallDmgPerR = 5    // health lost per row fallen (beyond a freebie)
+	lobbyWait   = 20 * time.Second // the lobby auto-starts after this if nobody hits SPACE
+	fallSpeed   = 14.0             // rows/sec a tank tumbles into a crater
+	soloTanks   = 3                // a lone human battles this many tanks total (rest are CPU)
+	fallDmgPerR = 5                // health lost per row fallen (beyond a freebie)
 )
+
+// CPU difficulty scales how far the aimer lets itself miss: easy lobs wide,
+// hard is nearly dead-on.
+var difficultyNames = []string{"EASY", "NORMAL", "HARD"}
+var difficultyMiss = []float64{2.4, 1.0, 0.3}
 
 // boom is an expanding blast ring; particle is flung debris. Both are eye-candy.
 type boom struct {
@@ -69,11 +75,14 @@ type room struct {
 
 	now, lastNow time.Time
 	phaseUntil   time.Time
+	lobbyUntil   time.Time // fallback auto-start while gathering in the lobby
 	turnEndsAt   time.Time
 	cpuActAt     time.Time
 	msg          string
 	msgUntil     time.Time
 	cpuSeq       int
+	cpuWanted    int    // CPU opponents to add, chosen in the lobby
+	difficulty   int    // CPU difficulty, chosen in the lobby (index into difficultyNames)
 	randState    uint32 // LCG state for cosmetic scatter + CPU jitter
 
 	frame *kit.Frame
@@ -81,13 +90,29 @@ type room struct {
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 	return &room{
-		cfg:     cfg,
-		svc:     svc,
-		players: map[string]kit.Player{},
-		wins:    map[string]int{},
-		phase:   phLobby,
-		frame:   kit.NewFrame(),
+		cfg:        cfg,
+		svc:        svc,
+		players:    map[string]kit.Player{},
+		wins:       map[string]int{},
+		phase:      phLobby,
+		cpuWanted:  soloTanks - 1, // a lone player defaults to two CPU foes
+		difficulty: 1,             // NORMAL
+		frame:      kit.NewFrame(),
 	}
+}
+
+// clampCpu keeps the chosen CPU count to a sane range: at least enough to make
+// two tanks, and never more than the table holds.
+func (rm *room) clampCpu() {
+	lo := 2 - len(rm.order)
+	if lo < 0 {
+		lo = 0
+	}
+	hi := len(tankPalette) - len(rm.order)
+	if hi < 0 {
+		hi = 0
+	}
+	rm.cpuWanted = clampI(rm.cpuWanted, lo, hi)
 }
 
 // --- lifecycle ---------------------------------------------------------------
@@ -102,14 +127,15 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	rm.players[p.AccountID] = p
 	if _, seen := rm.wins[p.AccountID]; !seen {
 		rm.order = append(rm.order, p.AccountID)
-		rm.wins[p.AccountID] = rm.loadWins(r, p)
-	} else {
-		rm.wins[p.AccountID] = rm.loadWins(r, p)
 	}
-	// First arrival (or a battle that fizzled out) kicks off a fresh match.
+	rm.wins[p.AccountID] = rm.loadWins(r, p)
+	// Gather in the lobby and start together (on SPACE, or the fallback timer) so
+	// everyone arriving at once lands in the same battle, sized for all of them —
+	// rather than the first arrival auto-starting and locking the rest out.
 	if rm.phase == phLobby {
-		rm.startMatch(r)
+		rm.lobbyUntil = rm.now.Add(lobbyWait)
 	}
+	rm.clampCpu()
 	rm.render(r)
 }
 
@@ -128,6 +154,7 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 		rm.kaboom(float64(t.col), t.y, t.color, 14)
 		rm.checkMatchEnd(r)
 	}
+	rm.clampCpu()
 	rm.render(r)
 }
 
@@ -137,6 +164,28 @@ func (rm *room) OnClose(r kit.Room) {}
 
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	rm.now = r.Now()
+	if rm.phase == phLobby {
+		switch kit.Resolve(in, kit.CtxNav) {
+		case kit.ActConfirm:
+			rm.startMatch(r) // anyone can start the battle
+		case kit.ActUp:
+			rm.cpuWanted++
+			rm.clampCpu()
+		case kit.ActDown:
+			rm.cpuWanted--
+			rm.clampCpu()
+		case kit.ActLeft:
+			if rm.difficulty > 0 {
+				rm.difficulty--
+			}
+		case kit.ActRight:
+			if rm.difficulty < len(difficultyNames)-1 {
+				rm.difficulty++
+			}
+		}
+		rm.render(r)
+		return
+	}
 	if rm.phase == phOver {
 		if kit.Resolve(in, kit.CtxNav) == kit.ActConfirm {
 			rm.startMatch(r) // skip the wait, rematch now
@@ -177,6 +226,10 @@ func (rm *room) OnWake(r kit.Room) {
 	dt := rm.step()
 
 	switch rm.phase {
+	case phLobby:
+		if !rm.lobbyUntil.IsZero() && rm.now.After(rm.lobbyUntil) {
+			rm.startMatch(r)
+		}
 	case phAim:
 		t := rm.currentTank()
 		if t == nil {
@@ -184,7 +237,7 @@ func (rm *room) OnWake(r kit.Room) {
 		}
 		if t.cpu {
 			if rm.now.After(rm.cpuActAt) {
-				cpuAim(t, rm.tanks, rm.terrain, rm.wind, rm.frand)
+				cpuAim(t, rm.tanks, rm.terrain, rm.wind, rm.frand, difficultyMiss[rm.difficulty])
 				rm.fire(r)
 			}
 		} else if rm.now.After(rm.turnEndsAt) {
@@ -229,17 +282,19 @@ func (rm *room) step() float64 {
 // --- match setup -------------------------------------------------------------
 
 func (rm *room) startMatch(r kit.Room) {
+	rm.lobbyUntil = time.Time{}
+	if len(rm.order) == 0 {
+		rm.phase = phLobby // nobody to fight — wait (an empty ephemeral room closes)
+		return
+	}
 	rm.terrain = genTerrain(r.Rand())
 	rm.shell = nil
 	rm.booms = rm.booms[:0]
 	rm.parts = rm.parts[:0]
 	rm.winner = nil
 
-	total := len(rm.order)
-	if total < 2 {
-		total = soloTanks
-	}
-	total = clampI(total, 2, len(tankPalette))
+	rm.clampCpu()
+	total := clampI(len(rm.order)+rm.cpuWanted, 2, len(tankPalette))
 	cols := spreadCols(total)
 
 	rm.tanks = rm.tanks[:0]
