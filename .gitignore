@@ -11,3 +11,4 @@ games/*/*/shellracer
 # source files there are not silently ignored. The built binary is a file,
 # so it stays ignored.
 !games/*/*/shellracer/
+games/*/*/neon-snake

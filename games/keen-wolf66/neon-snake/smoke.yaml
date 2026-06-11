@@ -1,0 +1,27 @@
+# Neon Snake smoke screens: a deterministic tour of the duel under seed 1.
+# Both snakes spawn on row 9 facing each other (head gap 18), so with no
+# steering they meet head-on and the round ends on its own — no hand-computed
+# food coordinates to drift out of sync.
+seed: 1
+seats: 2
+heartbeat: 50ms
+steps:
+  # The opening board: two snakes, the pulsing food star, scores at 0000.
+  - wake:
+  - shot: start
+  # Cycle the colour theme from seat 0 (Cyberpunk -> Ocean).
+  - seat: 0
+  - rune: t
+  - shot: theme_cycled
+  # Hands off: the snakes drive straight into each other and the round ends.
+  - advance: 1500ms
+  - shot: game_over
+  # After game over, 'm' cycles the mode and starts a fresh round — here into
+  # HAZARDS, with neon sentinels patrolling fixed lanes.
+  - rune: m
+  - advance: 150ms
+  - shot: mode_hazards
+  # Pause and open the settings overlay (skins, dots, speed, shake, flash).
+  - key: space
+  - rune: s
+  - shot: settings_menu
