@@ -1,0 +1,35 @@
+seed: 7
+seats: 3
+heartbeat: 100ms
+# Three crewmates launch from the muster lobby. Seat 0's order names a dial on
+# seat 2's panel — the Spaceteam loop: hail it ([h]), the dial's owner spots it
+# on THEIR panel and cycles it home. Then the crew goes AFK: orders fumble, the
+# hull drains, and the run ends at the debrief. All of it replays identically
+# from the seeded RNG.
+steps:
+  - advance: 100ms
+  - shot: lobby          # crew muster: difficulty, auto-launch clock
+
+  - seat: 0
+  - key: space           # launch together
+  - advance: 100ms
+  - shot: bridge         # per-seat panels + each crew's first order
+
+  - rune: "h"            # seat 0 hails: SET THE KINETIC HOLOSPINDLE TO 1
+  - advance: 200ms
+  - shot: hail           # the hail lands on everyone's comms ticker
+    seats: [2]
+
+  - seat: 2
+  - rune: "s"            # the HOLOSPINDLE is seat 2's [S] dial at 4...
+  - rune: "s"            # ...two presses wrap it 4 -> 0 -> 1: order complete
+  - seat: 1
+  - rune: "e"            # seat 1 plucks their own FRACTAL CROUTON
+  - advance: 200ms
+  - shot: teamwork       # +2 warp charges, completion flashes, fresh orders
+
+  - advance: 11300ms     # nobody touches anything: every order expires
+  - shot: fumble         # FUMBLED banner, hull bar down to 7
+
+  - advance: 35s         # three more silent cycles drain the hull
+  - shot: debrief        # hull breach: co-op score + the crew log

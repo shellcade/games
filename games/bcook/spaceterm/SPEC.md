@@ -101,9 +101,14 @@ A panel is a 2×3 (sectors 1–2) or 2×4 (sector 3+) grid of widgets, hotkeyed 
 the physical key block:
 
 ```
-[Q] [W] [E] [R]
-[A] [S] [D] [F]
+[W] [E] [R] [T]
+[S] [D] [F] [G]
 ```
+
+(The block sits one column right of the corner: the platform's canonical
+vocabulary reserves `q` as Back in every non-text input context, so a `Q`
+hotkey would eject players from the room. Sector play runs in `CtxCommand`,
+where Esc/`q` leave and every other rune is the game's.)
 
 Pressing a hotkey actuates that control directly — **no cursor, no
 navigation**. This is the core terminal adaptation: the frantic feel comes
@@ -116,10 +121,10 @@ chips (§12).
 
 | Type | States | Actuation (hotkey press) | Render |
 |---|---|---|---|
-| **SWITCH** | OFF / ON | toggle | `●──╴ ON` / `╶──○ OFF` |
-| **DIAL** | 0…4 (5 positions) | cycle +1, wraps to 0 | `⟨ 2 ⟩` + `○─○─●─○─○` |
+| **SWITCH** | OFF / ON | toggle | `●───╴ ON` / `╶───○ OFF` |
+| **DIAL** | 0…4 (5 positions) | cycle +1, wraps to 0 | `( 2 )` + `○─○─●─○─○` |
 | **SLIDER** | 1…4 levels | cycle +1, wraps to 1 | `▰▰▱▱  LVL 2/4` |
-| **BUTTON** | momentary | press (1 s lit, then idle) | `( PRESS )` |
+| **BUTTON** | momentary | press (briefly lit) | `( PRESS )` |
 
 Wrong actuations cost nothing directly — but they *change ship state*, so
 mashing a dial past its demanded value means cycling all the way around again.
@@ -148,8 +153,8 @@ When a crewmate needs a new order, the generator picks:
    current state* (orders are never pre-satisfied). Buttons demand a press.
 3. **Phrasing:** template by type — `SET THE <name> TO <n>` (dial/slider),
    `ENGAGE THE <name>` / `DISENGAGE THE <name>` (switch), `PLUCK THE <name>`
-   (button). A small synonym pool (`CRANK`, `EASE`, `JIGGLE`) is mixed in at
-   higher sectors for flavor.
+   (button). A small synonym pool (`CRANK`, `EASE`) is mixed in at sector 4+
+   for flavor.
 
 ### 5.2 Timing
 
@@ -206,7 +211,7 @@ repeats.
 | **METEOR STORM** (AB-4) | Orders suspended; every crewmate must mash a personally assigned hotkey ×12 within 4 s. | Mash. | −1 hull per crewmate who misses (cap −2 per storm). |
 | **SOLAR FLARE** (AB-5) | All control *labels* render as static (`▒▒▒`) for 6 s; orders keep flowing. | Spatial memory; hail more. | None beyond expiries it causes. |
 | **WORMHOLE TRANSIT** (AB-6) | Panel layout is mirrored left↔right for 6 s. Hotkeys stay bound to their controls — only the drawing moves. | Read the key badges, not muscle memory. | None beyond expiries. |
-| **COOLANT LEAK** | 2–3 random widgets get fogged (`░░`); a fogged control cannot be actuated until its owner wipes it (3 presses of its hotkey). | Wipe before it's needed. | None beyond expiries. |
+| **COOLANT LEAK** | Two controls per panel fog over (`░░`); a fogged control cannot be actuated until its owner wipes it (3 presses of its hotkey). | Wipe before it's needed. | None beyond expiries. |
 
 Solo shift draws only METEOR STORM and SOLAR FLARE (mirroring and fog are
 boring without comms pressure).
@@ -241,15 +246,18 @@ proud, not cheesy, because the timers are identical.
 
 | Input | Context | Action |
 |---|---|---|
-| `q w e r a s d f` | sector | actuate that control |
+| `w e r t s d f g` | sector | actuate that control |
 | `h` | sector (2+ crew) | hail current order |
 | arrows + SPACE | lobby / sector | difficulty (lobby); fallback select+actuate (sector) |
 | SPACE | lobby / debrief | launch / new shift |
+| Esc (or `q` outside sector play) | any | leave the room |
 
-Declared controls (`Controls: []kit.ControlDecl`) so touch users get chips:
-`Q W E R A S D F` (labels mirror the on-widget key badges) plus
-`kit.RuneControl('h', "HAIL")`. During METEOR STORM the assigned mash key's
-chip is the only one that matters; the overlay names it explicitly (AB-4).
+The lobby and debrief run in `CtxNav`; sector play runs in `CtxCommand` so
+the panel runes stay the game's. Declared controls
+(`Controls: []kit.ControlDecl`) give touch users chips: `W E R T S D F G`
+(labels mirror the on-widget key badges) plus `kit.RuneControl('h', "HAIL")`.
+During METEOR STORM the assigned mash key's chip is the only one that
+matters; the overlay names it explicitly (AB-4).
 
 ## 13. Screen layouts
 
@@ -263,7 +271,7 @@ Shared chrome on every sector frame: status strip (row 0), order box
 (rows 2–5), panel grid (rows 7–19), comms ticker (rows 21–22), hint line
 (row 23).
 
-## 14. kit Meta (draft)
+## 14. kit Meta (as implemented in game.go)
 
 ```go
 func (Game) Meta() kit.GameMeta {
@@ -280,10 +288,10 @@ func (Game) Meta() kit.GameMeta {
         SoloModeLabel:    "Solo shift",
         PrivateInviteLine: "Crewmates beam aboard when they enter the code.",
         Controls: []kit.ControlDecl{
-            kit.RuneControl('q', "Q"), kit.RuneControl('w', "W"),
-            kit.RuneControl('e', "E"), kit.RuneControl('r', "R"),
-            kit.RuneControl('a', "A"), kit.RuneControl('s', "S"),
-            kit.RuneControl('d', "D"), kit.RuneControl('f', "F"),
+            kit.RuneControl('w', "W"), kit.RuneControl('e', "E"),
+            kit.RuneControl('r', "R"), kit.RuneControl('t', "T"),
+            kit.RuneControl('s', "S"), kit.RuneControl('d', "D"),
+            kit.RuneControl('f', "F"), kit.RuneControl('g', "G"),
             kit.RuneControl('h', "HAIL"),
         },
         Leaderboard: &kit.LeaderboardSpec{
@@ -323,26 +331,11 @@ All randomness (names, panel layouts, order routing, anomaly schedule) flows
 from one RNG seeded by the room seed — required for `smoke.yaml` and
 hibernation-free replay of bug reports.
 
-`smoke.yaml` sketch (solo, fixed seed so the scripted keys match the known
-generated orders):
-
-```yaml
-seed: 7
-seats: 1
-heartbeat: 100ms
-steps:
-  - advance: 100ms
-  - shot: lobby
-  - seat: 0
-  - key: space            # launch
-  - advance: 200ms
-  - shot: bridge
-  - key: <hotkey for seeded order #1>   # complete first order
-  - advance: 200ms
-  - shot: order-complete
-  - advance: 30s          # let orders expire → hull drains
-  - shot: hull-low
-```
+The shipped `smoke.yaml` drives three seats with seed 7: muster lobby →
+launch → seat 0 hails an order that lives on seat 2's panel → seat 2 cycles
+the named dial home (the cross-panel loop, on camera) → the crew goes AFK so
+orders fumble and the hull drains → debrief. The scripted keys were read off
+the seeded run, so the story replays byte-identically.
 
 CI gates per SCHEMA.md: TinyGo wasip1 build, `shellcade-kit check`, meta slug
 == dir, MIT LICENSE file, smoke shots posted as PR previews.
