@@ -173,13 +173,27 @@ func drawCell(f *Frame, ry, cx int, p Panel, focused bool) {
 		bst = stCoin
 	}
 	box(f, ry, cx, ry+2, cx+cellW-1, bst)
-	content := centre4(p.Reveal)
-	ist := p.Ink
 	if p.Hidden {
-		content = latexCells(p.Layers)
-		ist = stLatex
+		f.Text(ry+1, cx+1, latexCells(p.Layers), stLatex)
+		return
 	}
-	f.Text(ry+1, cx+1, content, ist)
+	if isWideGlyph(p.Reveal) {
+		// A width-2 emoji: clear the 4-col interior, then draw it centred
+		// (occupying the middle two columns) via the kit grapheme cell.
+		f.Text(ry+1, cx+1, "    ", p.Ink)
+		f.SetGraphemeWide(ry+1, cx+2, p.Reveal, p.Ink)
+		return
+	}
+	f.Text(ry+1, cx+1, centre4(p.Reveal), p.Ink)
+}
+
+// isWideGlyph reports whether s is a single width-2 glyph (an emoji), as opposed
+// to text like "$5" / "07" / "CROC" or the block-element latex "▓▓▓▓". Emoji and
+// the misc-symbol pictographs sit at/above U+2600; block elements (U+2580–U+259F)
+// and box drawing fall below it, so a single rune ≥ U+2600 is the wide case.
+func isWideGlyph(s string) bool {
+	r := []rune(s)
+	return len(r) == 1 && r[0] >= 0x2600
 }
 
 // drawRail draws the vertical scroll rail with a proportional thumb.

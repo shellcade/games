@@ -112,24 +112,24 @@ var tickets = []Ticket{
 	// --- $1 ---
 	{Slug: "lucky-7s", Name: "Lucky 7s", Price: 1, Mechanic: MechMatch3, Theme: themeDefault, Cols: 3, Rows: 3, Prizes: tier1Table(10000)},
 	{Slug: "coin-toss", Name: "Coin Toss", Price: 1, Mechanic: MechKeyNum, Theme: themeDefault, Cols: 3, Rows: 2, WinNumbers: 2, Prizes: tier1Table(10000)},
-	{Slug: "cherry-pop", Name: "Cherry Pop", Price: 1, Mechanic: MechFind, Theme: themeDefault, Cols: 3, Rows: 3, Symbol: "CHRY", Prizes: tier1Table(10000)},
+	{Slug: "cherry-pop", Name: "Cherry Pop", Price: 1, Mechanic: MechFind, Theme: themeDefault, Cols: 3, Rows: 3, Symbol: "🍒", Prizes: tier1Table(10000)},
 	{Slug: "tinnie-tripler", Name: "Tinnie Tripler", Price: 1, Mechanic: MechMult, Theme: themeDefault, Cols: 1, Rows: 2, MaxMult: 3, Prizes: tier1Table(12000)},
 
 	// --- $2 ---
 	{Slug: "gold-rush", Name: "Gold Rush", Price: 2, Mechanic: MechMatch3, Theme: themeDefault, Cols: 4, Rows: 4, Prizes: tier2Table(25000)},
 	{Slug: "lucky-numbers", Name: "Lucky Numbers", Price: 2, Mechanic: MechKeyNum, Theme: themeDefault, Cols: 3, Rows: 3, WinNumbers: 3, Prizes: tier2Table(25000)},
-	{Slug: "croc-cash", Name: "Croc Cash", Price: 2, Mechanic: MechFind, Theme: themeDefault, Cols: 4, Rows: 3, Symbol: "CROC", HasBust: true, Prizes: tier2Table(25000)},
+	{Slug: "croc-cash", Name: "Croc Cash", Price: 2, Mechanic: MechFind, Theme: themeDefault, Cols: 4, Rows: 3, Symbol: "🐊", HasBust: true, Prizes: tier2Table(25000)},
 	{Slug: "double-trouble", Name: "Double Trouble", Price: 2, Mechanic: MechMult, Theme: themeDefault, Cols: 1, Rows: 2, MaxMult: 5, Prizes: tier2Table(30000)},
 
 	// --- $5 ---
 	{Slug: "diamond-mine", Name: "Diamond Mine", Price: 5, Mechanic: MechMatch3, Theme: themeDefault, Cols: 5, Rows: 5, Prizes: tier5Table(100000)},
 	{Slug: "lotto-lanes", Name: "Lotto Lanes", Price: 5, Mechanic: MechKeyNum, Theme: themeDefault, Cols: 4, Rows: 4, WinNumbers: 4, Prizes: tier5Table(100000)},
-	{Slug: "treasure-hunt", Name: "Treasure Hunt", Price: 5, Mechanic: MechFind, Theme: themeDefault, Cols: 5, Rows: 4, Symbol: "GEM", Prizes: tier5Table(100000)},
+	{Slug: "treasure-hunt", Name: "Treasure Hunt", Price: 5, Mechanic: MechFind, Theme: themeDefault, Cols: 5, Rows: 4, Symbol: "💎", Prizes: tier5Table(100000)},
 	{Slug: "mega-multiplier", Name: "Mega Multiplier", Price: 5, Mechanic: MechMult, Theme: themeDefault, Cols: 1, Rows: 2, MaxMult: 10, Prizes: tier5Table(120000)},
 
 	// --- $10 ---
 	{Slug: "platinum-sevens", Name: "Platinum Sevens", Price: 10, Mechanic: MechMatch3, Theme: themeDefault, Cols: 6, Rows: 6, Prizes: tier10Table(250000)},
 	{Slug: "fortune-50", Name: "Fortune 50", Price: 10, Mechanic: MechKeyNum, Theme: themeDefault, Cols: 4, Rows: 6, WinNumbers: 6, Prizes: tier10Table(250000)},
-	{Slug: "outback-riches", Name: "Outback Riches", Price: 10, Mechanic: MechFind, Theme: themeDefault, Cols: 6, Rows: 5, Symbol: "PICK", HasBust: true, Prizes: tier10Table(250000)},
+	{Slug: "outback-riches", Name: "Outback Riches", Price: 10, Mechanic: MechFind, Theme: themeDefault, Cols: 6, Rows: 5, Symbol: "💰", HasBust: true, Prizes: tier10Table(250000)},
 	{Slug: "cash-explosion", Name: "Cash Explosion", Price: 10, Mechanic: MechMult, Theme: themeDefault, Cols: 1, Rows: 2, MaxMult: 20, Prizes: tier10Table(300000)},
 }

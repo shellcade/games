@@ -11,8 +11,10 @@ import (
 // symbol (t.Symbol) to win the prize. Some tickets (t.HasBust) hide a BUST
 // panel that ends a losing card with no win.
 
-// findDecoys is the fixed set of 4-char-safe non-target tokens used as filler.
-var findDecoys = []string{"fish", "star", "coin", "bell", "frog", "crab"}
+// findDecoys is the fixed set of non-target symbols used as filler. Each is a
+// single width-2 emoji (rendered via the kit grapheme cell); none collides with
+// any ticket's target symbol.
+var findDecoys = []string{"🐟", "⭐", "🔔", "🦀", "🍀", "🐸"}
 
 // findCard is the Card implementation for MechFind.
 type findCard struct {

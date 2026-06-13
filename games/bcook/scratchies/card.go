@@ -144,14 +144,16 @@ func (c *genericGridCard) Render(f *Frame, top int) {
 	f.Text(top+c.view*cellH+1, 3, c.prompt, stDim)
 }
 
-// viewportFor returns how many cell-rows fit in the card body (rows ~2–20).
+// viewportFor returns how many cell-rows are shown at once. Capped at 4 so the
+// tall grids ($5/$10: 5×5, 6×6, 4×6, 6×5) actually scroll and leave room for a
+// header line, the prompt, and the bottom ticker/hint chrome. A grid with fewer
+// rows than the cap shows in full (no scroll, no rail).
 func viewportFor(rows int) int {
-	const bodyRows = 18
-	v := bodyRows / cellH
-	if rows < v {
+	const maxVisible = 4
+	if rows < maxVisible {
 		return rows
 	}
-	return v
+	return maxVisible
 }
 
 // itoa is a tiny strconv.Itoa shim kept local so card.go needs no extra import.
