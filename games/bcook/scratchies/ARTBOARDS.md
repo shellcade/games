@@ -11,7 +11,7 @@ Color/style key (monochrome here; styles via `kit.Style`):
 
 | Element | Style |
 |---|---|
-| Latex wear `▓▓`→`▒▒`→`░░`→revealed | dim grey, lightening per rub (3→2→1 left) |
+| Latex `▓▓` (always full until revealed) | dim grey; identical for 1–3 rub panels |
 | Coin cursor / `◀ coin` | bold white ring on the focused panel |
 | Revealed cash `$5` / numbers | white |
 | A landed match / found symbol `★ ✦MATCH` | green |
@@ -98,25 +98,26 @@ but the stand you're browsing and the card you're scratching are yours alone.
 
            ┌──────────────────────────────────┐
            │   ┌────┐    ┌────┐    ┌────┐      │
-           │   │▓▓▓▓│    │░░░░│    │▒▒▒▒│  ◀ coin
+           │   │▓▓▓▓│    │▓▓▓▓│    │▓▓▓▓│  ◀ coin
            │   └────┘    └────┘    └────┘      │
            │   ┌────┐    ┌────┐    ┌────┐      │
-           │   │▒▒▒▒│    │▓▓▓▓│    │░░░░│      │
+           │   │▓▓▓▓│    │▓▓▓▓│    │▓▓▓▓│      │
            │   └────┘    └────┘    └────┘      │
            │   ┌────┐    ┌────┐    ┌────┐      │
-           │   │░░░░│    │▒▒▒▒│    │▓▓▓▓│      │
+           │   │▓▓▓▓│    │▓▓▓▓│    │▓▓▓▓│      │
            │   └────┘    └────┘    └────┘      │
            └──────────────────────────────────┘
-          fresh card — heavier latex (▓) takes more rubs
+          fresh card — every panel looks identical until you rub
 
 ───────────────────────────────────────────────────────────────────────────────
  ←↑↓→ move coin    [SPACE] scratch    [a] scratch all    [q] leave it
 ```
 
-- The bought ticket, all panels latexed but at **mixed starting wear**: each is
-  seeded to need 1–3 rubs, so `░░░░` panels lift in one rub, `▓▓▓▓` panels take
-  three. The coin-cursor rings the focused panel; arrows/`hjkl` move it, **SPACE**
-  rubs it down a stage (SPEC §4).
+- The bought ticket, every panel fully latexed (`▓▓▓▓`) and identical-looking.
+  Each is secretly seeded to need 1–3 rubs, but the latex never thins — a panel
+  stays opaque until the rub that pops it, so you never know which will give
+  first. The coin-cursor rings the focused panel; arrows/`hjkl` move it,
+  **SPACE** rubs it (SPEC §4).
 - The outcome was drawn at purchase (SPEC §7) — this card already knows it pays
   5, regardless of which panels are stubborn. Scratch order and depth are yours
   to enjoy; **`a`** scratches all and skips to the verdict.
@@ -130,13 +131,13 @@ but the stand you're browsing and the card you're scratching are yours alone.
 
            ┌──────────────────────────────────┐
            │   ┌────┐    ┌────┐    ┌────┐      │
-           │   │ $5 │    │ $1 │    │▒▒▒▒│  ◀ coin (rub again)
-           │   └────┘    └────┘    └▒▒▒▒┘      │
-           │   ┌────┐    ┌────┐    ┌────┐      │
-           │   │ $5 │    │░░░░│    │▓▓▓▓│      │
+           │   │ $5 │    │ $1 │    │▓▓▓▓│  ◀ coin (rub again)
            │   └────┘    └────┘    └────┘      │
            │   ┌────┐    ┌────┐    ┌────┐      │
-           │   │▓▓▓▓│    │ $2 │    │▒▒▒▒│      │
+           │   │ $5 │    │▓▓▓▓│    │▓▓▓▓│      │
+           │   └────┘    └────┘    └────┘      │
+           │   ┌────┐    ┌────┐    ┌────┐      │
+           │   │▓▓▓▓│    │ $2 │    │▓▓▓▓│      │
            │   └────┘    └────┘    └────┘      │
            └──────────────────────────────────┘
             two $5 so far — the coin panel needs another rub
@@ -145,12 +146,13 @@ but the stand you're browsing and the card you're scratching are yours alone.
  ←↑↓→ move coin    [SPACE] scratch    [a] scratch all    [q] leave it
 ```
 
-- Mid-rub: revealed cells (`$5 $1 $5 $2`) sit beside latex at different wear —
-  `░░░░` (one rub to go), `▒▒▒▒` (two), `▓▓▓▓` (untouched, three). The coin is on
-  a `▒▒▒▒` panel, so one more SPACE lightens it to `░░░░`, another reveals it.
+- Mid-rub: revealed cells (`$5 $1 $5 $2`) sit beside still-covered panels —
+  every covered panel looks identically full (`▓▓▓▓`), whether it needs one more
+  rub or three. The coin is parked on one that hasn't given yet; keep pressing
+  **SPACE** and it pops when its hidden depth runs out.
 - Decoys (`$1`, `$2`) never reach three-of-a-kind on a losing layout — here the
-  third `$5` is waiting under the latex. Scratch depth is cosmetic: a stubborn
-  panel is no likelier to win (SPEC §4, §7).
+  third `$5` is waiting under the latex. Rub depth is cosmetic: a stubborn panel
+  is no likelier to win (SPEC §4, §7).
 
 
 ## AB-5 · Winner reveal + collect

@@ -79,11 +79,11 @@ holds a virtual coin:
 - **Arrows / `hjkl`** move the coin-cursor over the grid; the focused panel is
   ringed.
 - **SPACE** rubs the focused panel once. Each panel is seeded to need **1–3
-  rubs** to come off; a rub wears the latex down one stage — `▓▓` (3 left) →
-  `▒▒` (2) → `░░` (1) → **revealed** — so a stubborn panel takes more digging.
-  The last rub flashes the symbol / number / amount. A 1-rub panel starts at
-  `░░`, a 3-rub panel at `▓▓`, so the latex's heaviness hints the effort (it's
-  cosmetic — depth is independent of whether the panel wins, §7).
+  rubs** to come off, but the latex always shows **fully opaque** (`▓▓`) until
+  the final rub pops it open — you can't tell a 1-rub panel from a stubborn
+  3-rub one by looking, so every panel is its own small suspense. The revealing
+  rub flashes the symbol / number / amount. Rub depth is cosmetic — independent
+  of whether the panel wins (§7).
 - **`a`** = **SCRATCH ALL**: wears every remaining panel fully through at once
   (the real-card "scratch all" affordance) and goes straight to resolution.
   Always available.
