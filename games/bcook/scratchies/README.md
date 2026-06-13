@@ -1,8 +1,8 @@
 # Scratchies
 
 Duck into the corner newsagent, browse the ticket stands, buy an instant
-scratch-it, and peel the latex off panel by panel. **16 tickets** across four
-price tiers ($1 / $2 / $5 / $10) ride on **four scratch-card games**; every card
+scratch-it, and peel the latex off panel by panel. **26 tickets** across four
+price tiers ($1 / $2 / $5 / $10) ride on **nine scratch-card games**; every card
 is already a winner or loser the moment you buy it — scratching is honest reveal
 theatre, just like the real thing.
 
@@ -20,7 +20,7 @@ and big wins flash on a shared ticker.
 4. **Collect** — a win credits your wallet; **ENTER** buys another, **`q`** heads
    back. Run out of credits and the newsagent spots you a fresh 1,000.
 
-## The four games
+## The nine games
 
 | Game | How you win |
 |---|---|
@@ -28,8 +28,13 @@ and big wins flash on a shared ticker.
 | **Key-number match** | Match any of your numbers to the winning numbers up top; matches sum |
 | **Multiplier** | Reveal a prize, then a multiplier (up to 2×–20×) that boosts it |
 | **Find-the-symbol** | Find three target emoji (🍒 🐊 💎 💰) — but mind the `BUST` |
+| **Lucky Lines** | Three equal amounts in a row, column, or diagonal |
+| **Cashword** | Scratch a letter bank; complete three or more listed words |
+| **Quick Bingo** | Reveal your card; complete a line of the called numbers |
+| **Showdown** | Beat the house, column by column — your value vs theirs |
+| **Triple Word** | Spell a listed bonus word; a `3×` tile triples it |
 
-## The catalog
+## The catalog (26 tickets)
 
 | $1 | $2 | $5 | $10 |
 |---|---|---|---|
@@ -37,6 +42,9 @@ and big wins flash on a shared ticker.
 | Coin Toss · key-num | Lucky Numbers · key-num | Lotto Lanes · key-num | Fortune 50 · key-num |
 | Cherry Pop · 🍒 find | Croc Cash · 🐊 find +BUST | Treasure Hunt · 💎 find | Outback Riches · 💰 find +BUST |
 | Tinnie Tripler · ×3 | Double Trouble · ×5 | Mega Multiplier · ×10 | Cash Explosion · ×20 |
+| Lucky Lines · lines | Quick Bingo · bingo | Cashword · words | Mega Lines · lines |
+| Showdown · showdown | Dealer's Bluff · showdown | Bingo Bonanza · bingo | Mega Crossword · words |
+| | | Triple Word · 3× words | Word Jackpot · 3× words |
 
 Higher tiers add more panels (and scroll), bigger jackpots ($1 → 10,000 credits
 up to $10 → 250,000), and slightly friendlier odds.
@@ -78,6 +86,6 @@ Representative table — **Lucky 7s** ($1, match-3), prize in credits · per-car
 - Built on `github.com/shellcade/kit/v2`. Native dev loop: `go run .`
   (`-seats 3` for hot-seat, `-smoke smoke.yaml -smoke-out shots/` for shots).
 - Tests: `go test ./...` — engine win/loss invariants, odds bands, and an
-  end-to-end pass over all 16 tickets.
+  end-to-end pass over all 26 tickets.
 
 MIT licensed — see [LICENSE](LICENSE).
