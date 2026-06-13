@@ -51,7 +51,7 @@ func match3TestTicket(cols, rows int) *Ticket {
 		Mechanic: MechMatch3,
 		Cols:     cols,
 		Rows:     rows,
-		Prizes:   tierTable(10000),
+		Prizes:   tier1Table(10000),
 	}
 }
 
@@ -255,7 +255,7 @@ func TestMatch3Title(t *testing.T) {
 		Mechanic: MechMatch3,
 		Cols:     3,
 		Rows:     3,
-		Prizes:   tierTable(10000),
+		Prizes:   tier1Table(10000),
 	}
 	c := match3Build(tk, Outcome{Win: 0}, rng)
 	want := "Lucky 7s · $1 · match three"
