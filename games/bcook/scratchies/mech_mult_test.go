@@ -305,3 +305,32 @@ func TestMultMoveAndScratch(t *testing.T) {
 		t.Fatal("Resolved() false after both panels revealed")
 	}
 }
+
+// TestMultMoveBothAxes guards the playtest fix: the two side-by-side panels must
+// be reachable with BOTH right and down (and back with left/up), not just the
+// grid's native axis.
+func TestMultMoveBothAxes(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	tk := &Ticket{Name: "Mega Multiplier", Price: 5, Mechanic: MechMult, MaxMult: 10, Prizes: tier5Table(100000)}
+	mc := multBuild(tk, Outcome{Win: 100}, rng).(*multCard)
+
+	if mc.grid.Cur != 0 {
+		t.Fatalf("start cursor = %d, want 0", mc.grid.Cur)
+	}
+	mc.Move(1, 0) // right
+	if mc.grid.Cur != 1 {
+		t.Fatal("right did not move to the second panel")
+	}
+	mc.Move(-1, 0) // left
+	if mc.grid.Cur != 0 {
+		t.Fatal("left did not move back to the first panel")
+	}
+	mc.Move(0, 1) // down
+	if mc.grid.Cur != 1 {
+		t.Fatal("down did not move to the second panel")
+	}
+	mc.Move(0, -1) // up
+	if mc.grid.Cur != 0 {
+		t.Fatal("up did not move back to the first panel")
+	}
+}
