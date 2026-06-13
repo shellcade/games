@@ -87,16 +87,13 @@ func box(f *Frame, r0, c0, r1, c1 int, st Style) {
 	}
 }
 
-// latexCells renders the 4-column latex interior by layers remaining.
-func latexCells(layers int) string {
-	switch {
-	case layers >= 3:
-		return "▓▓▓▓"
-	case layers == 2:
-		return "▒▒▒▒"
-	default:
-		return "░░░░"
-	}
+// latexCells renders the 4-column latex interior. The latex always shows fully
+// opaque (100%) regardless of how many rubs remain — a panel looks identically
+// covered until the final rub pops it open, so you can't tell a 1-rub panel
+// from a stubborn 3-rub one by looking. The `layers` count (1–3) still governs
+// how many SPACE presses it takes to reveal; it's just not telegraphed.
+func latexCells(int) string {
+	return "▓▓▓▓"
 }
 
 // centre4 pads s to a 4-column field, centred (e.g. "$5" -> " $5 ").
