@@ -1,0 +1,16 @@
+seed: 7
+seats: 2
+heartbeat: 50ms
+steps:
+  - shot: counter
+  - key: enter        # step into the $1 stand
+  - shot: stand
+  - key: enter        # buy the first ticket (Lucky 7s)
+  - shot: fresh-card
+  - rune: " "         # one rub on the focused panel
+  - shot: mid-scratch
+  - rune: "a"         # scratch all → resolve
+  - shot: result
+  - key: enter        # buy another
+  - rune: "a"
+  - shot: result-2
