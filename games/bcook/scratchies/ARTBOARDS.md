@@ -248,32 +248,36 @@ but the stand you're browsing and the card you're scratching are yours alone.
 ## AB-8 · Find-the-symbol — Croc Cash ($2, with BUST)
 
 ```text
- CROC CASH · $2 · find three crocs — mind the BUST!         ◉ you · 1,000 cr
+ CROC CASH · $2 · find three 🐊 — mind the BUST!            ◉ you · 1,000 cr
 ───────────────────────────────────────────────────────────────────────────────
-   FIND 3  ʕ•ᴥ•ʔ CROC  TO WIN                          PRIZE:  50
 
-        ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐
-        │ CROC │  │ fish │  │ ▓▓▓▓ │  │ CROC │
-        └──────┘  └──────┘  └──────┘  └──────┘
-        ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐
-        │ ▓▓▓▓ │  │ CROC │  │ fish │  │░░░░░░│  ◀ coin
-        └──────┘  └──────┘  └──────┘  └░░░░░░┘
-        ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐
-        │ fish │  │ ▓▓▓▓ │  │ BUST │  │ ▓▓▓▓ │
-        └──────┘  └──────┘  └──────┘  └──────┘
-         three crocs found — WON 50 CREDITS  (dodged the BUST!)
+        FIND 3  🐊  TO WIN
+
+        ┌────┐  ┌────┐  ┌────┐  ┌────┐
+        │ 🐊 │  │ 🐟 │  │▓▓▓▓│  │ 🐊 │
+        └────┘  └────┘  └────┘  └────┘
+        ┌────┐  ┌────┐  ┌────┐  ┌────┐
+        │▓▓▓▓│  │ 🐊 │  │ 🐟 │  │▓▓▓▓│  ◀ coin
+        └────┘  └────┘  └────┘  └────┘
+        ┌────┐  ┌────┐  ┌────┐  ┌────┐
+        │ 🐟 │  │▓▓▓▓│  │BUST│  │ ⭐ │
+        └────┘  └────┘  └────┘  └────┘
+         three 🐊 found — WON 50 CREDITS  (dodged the BUST!)
 
 ───────────────────────────────────────────────────────────────────────────────
  ←↑↓→ move coin    [SPACE] scratch    [a] scratch all    [q] leave it
 ```
 
-- Press-your-luck: hunt for three `CROC`. A `BUST` panel (red) ends a *losing*
-  card instantly with no win — so **scratch-all** is a real gamble here.
+- Press-your-luck: hunt for three target emoji (`🐊`). Decoys are other emoji
+  (`🐟 ⭐ 🔔 🦀 🍀 🐸`); a `BUST` panel (red text) ends a *losing* card instantly
+  with no win — so **scratch-all** is a real gamble here. Targets/decoys render
+  as width-2 grapheme cells; `BUST` stays plain text so it's unmistakable.
 - Because the outcome was drawn at purchase, a winning card places exactly three
-  crocs and keeps `BUST` off the path until resolution (SPEC §5.4, §7) — peeling
+  `🐊` and keeps `BUST` off the path until resolution (SPEC §5.4, §7) — peeling
   carefully or mashing `a` reaches the same honest verdict.
-- $5 **Treasure Hunt** drops the BUST for a gentler hunt; $10 **Outback Riches**
-  keeps it, on a 20-panel grid.
+- Each tier themes its target: `🍒` Cherry Pop ($1) · `🐊` Croc Cash ($2) · `💎`
+  Treasure Hunt ($5) · `💰` Outback Riches ($10). Treasure Hunt drops the BUST;
+  the others on bigger grids scroll (§4.1).
 
 
 ## AB-9 · No win — better luck next time
@@ -381,8 +385,9 @@ but the stand you're browsing and the card you're scratching are yours alone.
  ←↑↓→ move/scroll   [SPACE] scratch   [a] scratch all   [ [ ] ] page   [q] back
 ```
 
-- The $10 card is **6×6** — taller than the ~3 visible cell-rows, so it scrolls.
-  Here rows 2–4 are showing; the coin sits on the **bottom visible row**. Press
+- The $10 card is **6×6** — taller than the **4 visible cell-rows** (the board
+  shows a 3-row slice for brevity), so it scrolls. The coin sits on the **bottom
+  visible row**. Press
   **↓** and the coin holds that edge while the grid slides up to reveal row 5 —
   exactly the "scroll with the coin" feel. `[` / `]` page a viewport at a time.
 - The **scroll rail** (right edge) marks position: the `▓` thumb sits high

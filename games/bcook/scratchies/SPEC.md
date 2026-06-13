@@ -144,8 +144,9 @@ base×mult pair that's in-range for the ticket, so the product always lands clea
 
 ### 5.4 Find-the-symbol (AB-8)
 Press-your-luck on grids of 9 ($1) · 12 ($2) · 20 ($5) · 30 ($10) panels (the
-$5/$10 grids scroll, §4.1). Panels hide theme symbols; **find 3 of the target
-symbol** to win the prize printed alongside. Some tickets ($2 Croc Cash, $10
+$5/$10 grids scroll, §4.1). Panels hide theme symbols, rendered as width-2
+**emoji** (`🍒` Cherry Pop · `🐊` Croc Cash · `💎` Treasure Hunt · `💰` Outback
+Riches; decoys `🐟 ⭐ 🔔 🦀 🍀 🐸`); **find 3 of the target symbol** to win the prize printed alongside. Some tickets ($2 Croc Cash, $10
 Outback Riches)
 salt in a **BUST** symbol — revealing it ends the card immediately with no win,
 so SCRATCH-ALL is a gamble. Loser layouts never reach 3 targets; winners place
