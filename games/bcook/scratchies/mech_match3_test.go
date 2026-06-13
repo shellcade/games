@@ -3,7 +3,56 @@ package main
 import (
 	"math/rand"
 	"testing"
+
+	kit "github.com/shellcade/kit/v2"
 )
+
+// TestMatch3NoSpoiler guards the playtest bug: the winning amount must not be
+// highlighted (green / stMatch) before the card resolves — otherwise the first
+// revealed winner gives the answer away. The triple goes green only once three
+// are matched (at resolution, applied in Render).
+func TestMatch3NoSpoiler(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	tk := match3TestTicket(6, 6)
+	c := match3Build(tk, Outcome{Win: 10}, rng)
+
+	// Nothing green at build time.
+	for i, p := range c.grid.Panels {
+		if p.Ink == stMatch {
+			t.Fatalf("panel %d pre-highlighted green at build", i)
+		}
+	}
+
+	// Reveal a single winning panel and render — still must not be green.
+	winLabel := match3Fmt(10)
+	wi := -1
+	for i := range c.grid.Panels {
+		if c.grid.Panels[i].Reveal == winLabel {
+			wi = i
+			break
+		}
+	}
+	c.grid.Cur = wi
+	c.grid.Panels[wi].Layers = 1
+	c.Scratch()
+	c.Render(kit.NewFrame(), 3)
+	if c.grid.Panels[wi].Ink == stMatch {
+		t.Fatal("winning panel highlighted green before three matched")
+	}
+
+	// After full resolution + render, exactly the three winners are green.
+	c.ScratchAll()
+	c.Render(kit.NewFrame(), 3)
+	greens := 0
+	for _, p := range c.grid.Panels {
+		if p.Reveal == winLabel && p.Ink == stMatch {
+			greens++
+		}
+	}
+	if greens != 3 {
+		t.Fatalf("want 3 green winners after resolution, got %d", greens)
+	}
+}
 
 // TestMatch3Fmt checks that match3Fmt produces the correct 4-char-or-fewer labels.
 func TestMatch3Fmt(t *testing.T) {

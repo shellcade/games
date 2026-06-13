@@ -95,14 +95,13 @@ func match3Build(t *Ticket, out Outcome, rng *rand.Rand) *match3Card {
 		}
 	}
 
-	// Assign Reveal and Ink to each panel.
+	// Assign Reveal to each panel. Ink stays neutral white — the winning amount
+	// must NOT be pre-highlighted, or the first revealed winner would give the
+	// answer away before three are matched. The winning triple goes green only
+	// at resolution (see Render).
 	for i := range g.Panels {
 		g.Panels[i].Reveal = match3Fmt(amounts[i])
-		if out.Win > 0 && amounts[i] == out.Win {
-			g.Panels[i].Ink = stMatch
-		} else {
-			g.Panels[i].Ink = stReveal
-		}
+		g.Panels[i].Ink = stReveal
 	}
 
 	winAmt := ""
@@ -221,6 +220,15 @@ func (c *match3Card) Prompt() string {
 }
 
 func (c *match3Card) Render(f *Frame, top int) {
+	// Only once the card has resolved as a winner do the three matching panels
+	// turn green — never before, so the win isn't telegraphed mid-scratch.
+	if c.Resolved() && c.win > 0 {
+		for i := range c.grid.Panels {
+			if c.grid.Panels[i].Reveal == c.winAmt {
+				c.grid.Panels[i].Ink = stMatch
+			}
+		}
+	}
 	drawGrid(f, c.grid, top, 10, c.view)
 	f.Text(top+c.view*cellH+1, 3, c.Prompt(), stDim)
 }

@@ -94,7 +94,21 @@ func (c *multCard) Prompt() string {
 		commaInt(c.base), c.mult, commaInt(c.base*c.mult))
 }
 
-func (c *multCard) Move(dx, dy int) { c.grid.Move(dx, dy) }
+// Move steps between the two panels (PRIZE ↔ MULTIPLIER). They render
+// side-by-side, so either right/down moves forward and left/up moves back —
+// both axes work regardless of how the underlying grid is shaped.
+func (c *multCard) Move(dx, dy int) {
+	switch {
+	case dx > 0 || dy > 0:
+		if c.grid.Cur < len(c.grid.Panels)-1 {
+			c.grid.Cur++
+		}
+	case dx < 0 || dy < 0:
+		if c.grid.Cur > 0 {
+			c.grid.Cur--
+		}
+	}
+}
 func (c *multCard) Scratch() bool   { return c.grid.Scratch() }
 func (c *multCard) ScratchAll()     { c.grid.ScratchAll() }
 func (c *multCard) Resolved() bool  { return c.grid.AllRevealed() }
