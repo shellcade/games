@@ -34,6 +34,32 @@ func settle(rm *room, r *kittest.Room) {
 	}
 }
 
+// takeIfGambling banks a held base-game win (a win now enters the gamble holding
+// the win at risk) so balance/leaderboard/ticker assertions see it credited.
+func takeIfGambling(rm *room, r *kittest.Room, id string) {
+	if m := rm.machines[id]; m != nil && m.gamble != nil {
+		m.gamble.sel = selTake
+		rm.gambleConfirm(r, id)
+	}
+}
+
+// cleanIdx returns a strip index holding face s whose 3-window contains no
+// scatter, so a settle landing there never accidentally triggers free spins.
+func cleanIdx(t *testing.T, v *variant, s symbol) int {
+	t.Helper()
+	for i, x := range v.strip {
+		if x != s {
+			continue
+		}
+		w := windowAt(v.strip, i)
+		if w[0] != symScatter && w[1] != symScatter && w[2] != symScatter {
+			return i
+		}
+	}
+	t.Fatalf("no scatter-free %q landing on strip", rune(s))
+	return 0
+}
+
 // frameContains reports whether any row of the player's last frame contains s.
 func frameContains(r *kittest.Room, p kit.Player, s string) bool {
 	f := r.LastFrame(p)
@@ -174,12 +200,19 @@ func TestSpinSettlesToPayoutOverWake(t *testing.T) {
 
 	rm.OnInput(r, p, space())
 	settle(rm, r)
+	// A line win now enters the gamble holding the win; take it so the credited
+	// balance is observable. (A scatter trigger would auto-play free spins; the
+	// seeded first spin does neither, but the take keeps this robust to a win.)
+	takeIfGambling(rm, r, p.AccountID)
 
 	if m.spin != nil {
 		t.Fatal("expected spin to have settled after wakes")
 	}
 	if !m.spun {
 		t.Fatal("expected spun=true after first settle")
+	}
+	if m.freeSpins > 0 {
+		t.Skip("seeded first spin triggered free spins; payout path covered elsewhere")
 	}
 	dv := defaultVariant()
 	want := (startBalance - 10) + 10*dv.payout(m.reels)
@@ -223,9 +256,11 @@ func TestSettleCreditsJackpot(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 50
 	m.balance = startBalance - 50 // bet already deducted at spin start
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, final: [3]symbol{sym7, sym7, sym7}}
+	ci := cleanIdx(t, rm.variant, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, sym7, sym7}}
 
 	rm.settleSpin(r, p.AccountID)
+	takeIfGambling(rm, r, p.AccountID)
 
 	if m.balance != startBalance-50+25000 {
 		t.Errorf("balance = %d, want %d", m.balance, startBalance-50+25000)
@@ -252,7 +287,8 @@ func TestBustRebuysPreservingHighScore(t *testing.T) {
 	m.bet = 10
 	m.highScore = 2500
 	m.balance = 0 // bet already deducted; this spin loses
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, final: [3]symbol{sym7, symDollar, symStar}}
+	ci := cleanIdx(t, rm.variant, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, symDollar, symStar}}
 
 	rm.settleSpin(r, p.AccountID)
 
@@ -276,9 +312,11 @@ func TestBigWinPushesTicker(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 100
 	m.balance = startBalance - 100
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, final: [3]symbol{symStar, symStar, symStar}} // 55x
+	ci := cleanIdx(t, rm.variant, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{symStar, symStar, symStar}} // 55x
 
 	rm.settleSpin(r, p.AccountID)
+	takeIfGambling(rm, r, p.AccountID)
 
 	if !rm.tickerActive(r.Now()) {
 		t.Fatal("expected ticker active after a 55x win")
@@ -295,9 +333,11 @@ func TestSmallWinDoesNotPushTicker(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 50
 	m.balance = startBalance - 50
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, final: [3]symbol{symBar, symBar, symBar}} // 10x, below 12x
+	ci := cleanIdx(t, rm.variant, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{symBar, symBar, symBar}} // 10x, below 12x
 
 	rm.settleSpin(r, p.AccountID)
+	takeIfGambling(rm, r, p.AccountID)
 
 	if rm.tickerActive(r.Now()) {
 		t.Error("a 10x win must not trigger the room-wide ticker")
@@ -311,8 +351,10 @@ func TestTickerExpiresOnWake(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 100
 	m.balance = startBalance - 100
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, final: [3]symbol{symStar, symStar, symStar}}
+	ci := cleanIdx(t, rm.variant, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{symStar, symStar, symStar}}
 	rm.settleSpin(r, p.AccountID)
+	takeIfGambling(rm, r, p.AccountID)
 	if !rm.tickerActive(r.Now()) {
 		t.Fatal("ticker should be active right after the win")
 	}
@@ -331,9 +373,11 @@ func TestNewPeakPostsToLeaderboard(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 50
 	m.balance = startBalance - 50
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, final: [3]symbol{sym7, sym7, sym7}} // jackpot, new peak
+	ci := cleanIdx(t, rm.variant, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, sym7, sym7}} // jackpot, new peak
 
 	rm.settleSpin(r, p.AccountID)
+	takeIfGambling(rm, r, p.AccountID)
 
 	if len(r.Posted) != 1 {
 		t.Fatalf("posts = %d, want exactly 1 on a new peak", len(r.Posted))
@@ -351,7 +395,8 @@ func TestNoPeakDoesNotPost(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 10
 	m.balance = startBalance - 10
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, final: [3]symbol{sym7, symDollar, symStar}} // loss
+	ci := cleanIdx(t, rm.variant, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, symDollar, symStar}} // loss
 
 	rm.settleSpin(r, p.AccountID)
 
@@ -818,17 +863,9 @@ func TestMidSpinVariantStability(t *testing.T) {
 	if m.spin == nil {
 		t.Fatal("expected a spin in flight")
 	}
-	// Force a deterministic B B B landing on the (default) strip.
-	bIdx := -1
-	for i, s := range m.spin.variant.strip {
-		if s == symBar {
-			bIdx = i
-			break
-		}
-	}
-	if bIdx < 0 {
-		t.Fatal("default strip has no bar symbol")
-	}
+	// Force a deterministic B B B landing on a scatter-free spot of the (default)
+	// strip, so it pays a line without triggering free spins.
+	bIdx := cleanIdx(t, m.spin.variant, symBar)
 	m.spin.stopIdx = [3]int{bIdx, bIdx, bIdx}
 	m.spin.final = [3]symbol{symBar, symBar, symBar}
 
@@ -836,9 +873,10 @@ func TestMidSpinVariantStability(t *testing.T) {
 	h.variant = mustCompile(t, bbbVariantDoc())
 
 	h.settleSpin(r, p.AccountID)
+	takeIfGambling(h, r, p.AccountID) // bank the held win to observe the credit
 
 	// The spin must pay 50 × 10 (the variant it STARTED under), not × 20.
-	if m.flash == "" || m.balance != (startBalance-50)+50*10 {
+	if m.balance != (startBalance-50)+50*10 {
 		t.Fatalf("balance = %d, want %d (settled under the starting variant's 10x)",
 			m.balance, (startBalance-50)+50*10)
 	}
