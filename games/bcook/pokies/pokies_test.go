@@ -489,15 +489,29 @@ func soloFaceCol(reel int) int { return soloCardCol() + 2 + 1 + reel*2 }
 
 // settleKnownFaces drives a deterministic landing: 7 on reel 0, cherry on reel
 // 1, dollar on reel 2 (indices on the default strip), then renders.
+// firstIdx returns the first strip position holding face s (fatal if absent).
+func firstIdx(t *testing.T, strip []symbol, s symbol) int {
+	t.Helper()
+	for i, x := range strip {
+		if x == s {
+			return i
+		}
+	}
+	t.Fatalf("strip has no %q", rune(s))
+	return 0
+}
+
 func settleKnownFaces(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
 	t.Helper()
 	m := rm.machines[p.AccountID]
 	m.bet = 10
 	m.balance = startBalance - 10
+	strip := rm.variant.strip
+	i7, iC, iD := firstIdx(t, strip, sym7), firstIdx(t, strip, symCherry), firstIdx(t, strip, symDollar)
 	m.spin = &spinState{
 		startedAt: r.Now(),
 		variant:   rm.variant,
-		stopIdx:   [3]int{0, 11, 1}, // default strip: [0]=7, [11]=C, [1]=$
+		stopIdx:   [3]int{i7, iC, iD},
 		final:     [3]symbol{sym7, symCherry, symDollar},
 	}
 	rm.settleSpin(r, p.AccountID)
@@ -644,14 +658,17 @@ func TestPayout(t *testing.T) {
 
 func TestDefaultVariantTuning(t *testing.T) {
 	v := defaultVariant()
-	if len(v.strip) != 18 {
-		t.Fatalf("default strip length = %d, want 18 (1+2+3+5+7)", len(v.strip))
+	if len(v.strip) != 28 { // 1+2+3+6+13+1+2
+		t.Fatalf("default strip length = %d, want 28", len(v.strip))
 	}
-	if v.weightSummary() != "7:1 $:2 *:3 B:5 C:7" {
-		t.Fatalf("weight summary = %q, want 7:1 $:2 *:3 B:5 C:7", v.weightSummary())
+	if v.weightSummary() != "7:1 $:2 *:3 B:6 C:13 W:1 S:2" {
+		t.Fatalf("weight summary = %q, want 7:1 $:2 *:3 B:6 C:13 W:1 S:2", v.weightSummary())
 	}
 	if _, ok := v.triples[symCherry]; ok {
 		t.Fatal("cherries must pay nothing in the default variant")
+	}
+	if v.topMult != 500 {
+		t.Fatalf("topMult = %d, want 500", v.topMult)
 	}
 }
 

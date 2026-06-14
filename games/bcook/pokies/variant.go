@@ -179,14 +179,16 @@ func (v *variant) scatterAward(w [3][3]symbol) int {
 }
 
 // defaultDoc is the compiled-in tuning the machine uses when no config is stored
-// (or a stored variant fails to parse): the original strip weights
-// (7:1 $:2 *:3 B:5 C:7) and paytable (500/150/55/10, cherries pay nothing), a
-// high-variance ~75% RTP profile matching native pokies.
+// (or a stored variant fails to parse): strip weights 7:1 $:2 *:3 B:6 C:13 W:1
+// S:2 and paytable 500/150/55/10 (cherries pay nothing), one wild and two
+// scatters per strip, free spins at 3/4/5 scatters (8/15/25) and a 5-rung gamble.
+// A high-variance ~73% total RTP profile (line + free-spin EV) matching native
+// pokies.
 func defaultDoc() oddsVariant {
 	return oddsVariant{
 		Name: "Default",
 		Weights: map[string]int{
-			"7": 1, "$": 2, "*": 3, "B": 5, "C": 7,
+			"7": 1, "$": 2, "*": 3, "B": 6, "C": 13, "W": 1, "S": 2,
 		},
 		Paytable: []payEntry{
 			{Faces: "7", Multiplier: 500},
@@ -194,6 +196,12 @@ func defaultDoc() oddsVariant {
 			{Faces: "*", Multiplier: 55},
 			{Faces: "B", Multiplier: 10},
 		},
+		Scatter: []scatterEntry{
+			{Count: 3, Spins: 8},
+			{Count: 4, Spins: 15},
+			{Count: 5, Spins: 25},
+		},
+		Gamble: &gambleConfig{MaxRungs: 5, MaxWin: 1_000_000},
 	}
 }
 
@@ -412,7 +420,7 @@ func (v *variant) weightSummary() string {
 		counts[s]++
 	}
 	out := ""
-	for _, s := range stripOrder {
+	for _, s := range append(append([]symbol{}, stripOrder...), specialOrder...) {
 		if out != "" {
 			out += " "
 		}
