@@ -73,3 +73,30 @@ func TestWildCompletesLine(t *testing.T) {
 		})
 	}
 }
+
+func TestScatterAwardThresholds(t *testing.T) {
+	v := &variant{scatter: []scatterEntry{{Count: 5, Spins: 25}, {Count: 4, Spins: 15}, {Count: 3, Spins: 8}}}
+	// build a 3x3 window [reel][row] with `n` scatters placed.
+	win := func(n int) (w [3][3]symbol) {
+		for reel := 0; reel < 3; reel++ {
+			for row := 0; row < 3; row++ {
+				w[reel][row] = sym7
+			}
+		}
+		placed := 0
+		for reel := 0; reel < 3 && placed < n; reel++ {
+			for row := 0; row < 3 && placed < n; row++ {
+				w[reel][row] = symScatter
+				placed++
+			}
+		}
+		return w
+	}
+	for _, c := range []struct{ scatters, spins int }{
+		{2, 0}, {3, 8}, {4, 15}, {5, 25}, {7, 25},
+	} {
+		if got := v.scatterAward(win(c.scatters)); got != c.spins {
+			t.Errorf("%d scatters -> %d spins, want %d", c.scatters, got, c.spins)
+		}
+	}
+}

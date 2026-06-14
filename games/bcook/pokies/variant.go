@@ -63,12 +63,28 @@ type oddsVariant struct {
 	Name     string         `json:"name"`
 	Weights  map[string]int `json:"weights"`
 	Paytable []payEntry     `json:"paytable"`
+	Scatter  []scatterEntry `json:"scatter,omitempty"`
+	Gamble   *gambleConfig  `json:"gamble,omitempty"`
 }
 
 // payEntry is one paytable row: three of `faces` pays `multiplier` × the bet.
 type payEntry struct {
 	Faces      string `json:"faces"`
 	Multiplier int    `json:"multiplier"`
+}
+
+// scatterEntry: `count` scatters anywhere in the 3x3 window award `spins` free
+// spins. Highest matching count wins.
+type scatterEntry struct {
+	Count int `json:"count"`
+	Spins int `json:"spins"`
+}
+
+// gambleConfig caps the double-up ladder: at most MaxRungs doubles, and an
+// at-risk win reaching MaxWin forces an auto-take.
+type gambleConfig struct {
+	MaxRungs int `json:"maxRungs"`
+	MaxWin   int `json:"maxWin"`
 }
 
 // variant is the compiled, validated runtime form: an ordered weighted strip
@@ -79,6 +95,8 @@ type variant struct {
 	strip   []symbol
 	triples map[symbol]int // three-of-a-kind multiplier per symbol (absent = pays 0)
 	topMult int            // largest paytable multiplier (all-wild line pays this)
+	scatter []scatterEntry // free-spin trigger table, sorted by Count descending
+	gamble  gambleConfig   // double-up ladder caps (defaults applied at compile)
 
 	// Paytable display, computed ONCE at compile time (compilePayTable). The
 	// paytable is static for a variant's life, but drawPaytable runs every render
@@ -125,6 +143,35 @@ func (v *variant) payout(center [3]symbol) int {
 		return v.topMult
 	}
 	return v.triples[anchor] // wilds + matching regulars complete the triple
+}
+
+// scatterWindow is the [reel][row] face grid (top/center/bottom per reel) when
+// reels are stopped at the given landing indices.
+func scatterWindow(strip []symbol, idx [3]int) (w [3][3]symbol) {
+	for reel := 0; reel < 3; reel++ {
+		w[reel] = windowAt(strip, idx[reel]) // [top, center, bottom]
+	}
+	return w
+}
+
+// scatterAward counts scatters across all nine visible cells and returns the free
+// spins for the highest matching threshold (0 if below the lowest, or no table).
+// v.scatter is kept sorted by Count descending at compile time.
+func (v *variant) scatterAward(w [3][3]symbol) int {
+	count := 0
+	for reel := 0; reel < 3; reel++ {
+		for row := 0; row < 3; row++ {
+			if w[reel][row] == symScatter {
+				count++
+			}
+		}
+	}
+	for _, se := range v.scatter {
+		if count >= se.Count {
+			return se.Spins
+		}
+	}
+	return 0
 }
 
 // defaultDoc is the compiled-in tuning the machine uses when no config is stored
