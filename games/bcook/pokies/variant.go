@@ -78,6 +78,7 @@ type variant struct {
 	name    string
 	strip   []symbol
 	triples map[symbol]int // three-of-a-kind multiplier per symbol (absent = pays 0)
+	topMult int            // largest paytable multiplier (all-wild line pays this)
 
 	// Paytable display, computed ONCE at compile time (compilePayTable). The
 	// paytable is static for a variant's life, but drawPaytable runs every render
@@ -87,13 +88,43 @@ type variant struct {
 	payLabels    []string
 }
 
-// payout returns the bet multiplier for three settled center faces under this
-// variant: only a three-of-a-kind whose symbol is in the paytable pays.
-func (v *variant) payout(reels [3]symbol) int {
-	if reels[0] == reels[1] && reels[1] == reels[2] {
-		return v.triples[reels[0]]
+// topMultiplier returns the largest three-of-a-kind multiplier in the paytable
+// (what an all-wild line, and the wild's own top line, pays).
+func topMultiplier(triples map[symbol]int) int {
+	max := 0
+	for _, m := range triples {
+		if m > max {
+			max = m
+		}
 	}
-	return 0
+	return max
+}
+
+// payout returns the bet multiplier for the three center (payline) faces. Wilds
+// substitute to complete the best three-of-a-kind; an all-wild line pays the top
+// multiplier. A scatter on the payline does not form a line. Only a completed
+// three-of-a-kind whose symbol is in the paytable pays.
+func (v *variant) payout(center [3]symbol) int {
+	anchor := symBlank
+	wilds := 0
+	for _, s := range center {
+		switch {
+		case s == symWild:
+			wilds++
+		case s == symScatter:
+			return 0 // scatters never form a line
+		default:
+			if anchor == symBlank {
+				anchor = s
+			} else if s != anchor {
+				return 0 // two distinct regular symbols
+			}
+		}
+	}
+	if wilds == 3 {
+		return v.topMult
+	}
+	return v.triples[anchor] // wilds + matching regulars complete the triple
 }
 
 // defaultDoc is the compiled-in tuning the machine uses when no config is stored
@@ -182,6 +213,7 @@ func compileVariant(doc oddsVariant) (*variant, error) {
 	}
 
 	v := &variant{name: doc.Name, strip: strip, triples: triples}
+	v.topMult = topMultiplier(triples)
 	v.payRowsCache, v.payLabels = compilePayTable(triples)
 	rtp, _ := v.stats()
 	if rtp < minRTP-rtpEpsilon || rtp > maxRTP+rtpEpsilon {

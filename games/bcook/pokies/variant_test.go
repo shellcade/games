@@ -48,3 +48,28 @@ func TestDistributeZeroCountIsNoop(t *testing.T) {
 		t.Fatalf("len = %d, want 2 (no-op)", len(got))
 	}
 }
+
+func TestWildCompletesLine(t *testing.T) {
+	v := defaultVariant() // 7=500 $=150 *=55 B=10, top=500
+	cases := []struct {
+		name  string
+		reels [3]symbol
+		want  int
+	}{
+		{"7 W 7 pays as 777", [3]symbol{sym7, symWild, sym7}, 500},
+		{"W W B pays as BBB", [3]symbol{symWild, symWild, symBar}, 10},
+		{"W W W pays top", [3]symbol{symWild, symWild, symWild}, 500},
+		{"W $ 7 no line", [3]symbol{symWild, symDollar, sym7}, 0},
+		{"scatter on line breaks combo", [3]symbol{sym7, symScatter, sym7}, 0},
+		{"W C W is cherries (pays 0)", [3]symbol{symWild, symCherry, symWild}, 0},
+		{"plain 777 still 500", [3]symbol{sym7, sym7, sym7}, 500},
+		{"plain no-match", [3]symbol{sym7, symDollar, symStar}, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := v.payout(c.reels); got != c.want {
+				t.Fatalf("payout(%v) = %d, want %d", c.reels, got, c.want)
+			}
+		})
+	}
+}
