@@ -368,6 +368,16 @@ func mechanicBlurb(m MechanicKind) string {
 		return "find a prize, then multiply"
 	case MechFind:
 		return "find three symbols"
+	case MechLines:
+		return "three in a line"
+	case MechCrossword:
+		return "complete the words"
+	case MechBingo:
+		return "mark a bingo line"
+	case MechShowdown:
+		return "beat the house"
+	case MechTriple:
+		return "spell the bonus words"
 	}
 	return ""
 }

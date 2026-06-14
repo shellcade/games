@@ -132,4 +132,21 @@ var tickets = []Ticket{
 	{Slug: "fortune-50", Name: "Fortune 50", Price: 10, Mechanic: MechKeyNum, Theme: themeDefault, Cols: 4, Rows: 6, WinNumbers: 6, Prizes: tier10Table(250000)},
 	{Slug: "outback-riches", Name: "Outback Riches", Price: 10, Mechanic: MechFind, Theme: themeDefault, Cols: 6, Rows: 5, Symbol: "💰", HasBust: true, Prizes: tier10Table(250000)},
 	{Slug: "cash-explosion", Name: "Cash Explosion", Price: 10, Mechanic: MechMult, Theme: themeDefault, Cols: 1, Rows: 2, MaxMult: 20, Prizes: tier10Table(300000)},
+
+	// --- five new game types (reuse the tuned tier tables, so they stay in band) ---
+	// Lucky Lines — three equal amounts in a row/column/diagonal.
+	{Slug: "lucky-lines", Name: "Lucky Lines", Price: 1, Mechanic: MechLines, Theme: themeDefault, Cols: 3, Rows: 3, Prizes: tier1Table(10000)},
+	{Slug: "mega-lines", Name: "Mega Lines", Price: 10, Mechanic: MechLines, Theme: themeDefault, Cols: 5, Rows: 5, Prizes: tier10Table(250000)},
+	// Cashword — scratch a letter bank; complete listed words.
+	{Slug: "cashword", Name: "Cashword", Price: 5, Mechanic: MechCrossword, Theme: themeDefault, Cols: 4, Rows: 4, WordList: []string{"GOLD", "CASH", "LUCKY", "RICH", "COIN", "WIN"}, Prizes: tier5Table(100000)},
+	{Slug: "mega-crossword", Name: "Mega Crossword", Price: 10, Mechanic: MechCrossword, Theme: themeDefault, Cols: 5, Rows: 4, WordList: []string{"JACKPOT", "FORTUNE", "RICHES", "GOLDEN", "MONEY", "PRIZE", "LUCKY", "CASH"}, Prizes: tier10Table(250000)},
+	// Quick Bingo — reveal your card; complete a line of called numbers.
+	{Slug: "quick-bingo", Name: "Quick Bingo", Price: 2, Mechanic: MechBingo, Theme: themeDefault, Cols: 5, Rows: 5, WinNumbers: 10, Prizes: tier2Table(25000)},
+	{Slug: "bingo-bonanza", Name: "Bingo Bonanza", Price: 5, Mechanic: MechBingo, Theme: themeDefault, Cols: 5, Rows: 5, WinNumbers: 12, Prizes: tier5Table(100000)},
+	// Showdown — beat the house column by column.
+	{Slug: "showdown", Name: "Showdown", Price: 1, Mechanic: MechShowdown, Theme: themeDefault, Cols: 3, Rows: 2, Prizes: tier1Table(10000)},
+	{Slug: "dealers-bluff", Name: "Dealer's Bluff", Price: 2, Mechanic: MechShowdown, Theme: themeDefault, Cols: 4, Rows: 2, Prizes: tier2Table(25000)},
+	// Triple Word — spell listed bonus words; a 3× tile triples one.
+	{Slug: "triple-word", Name: "Triple Word", Price: 5, Mechanic: MechTriple, Theme: themeDefault, Cols: 6, Rows: 4, WordList: []string{"WIN", "CASH", "GOLD", "LUCK", "RICH", "MONEY", "BONUS"}, Prizes: tier5Table(100000)},
+	{Slug: "word-jackpot", Name: "Word Jackpot", Price: 10, Mechanic: MechTriple, Theme: themeDefault, Cols: 6, Rows: 6, WordList: []string{"WINNER", "RICHES", "GOLDEN", "BONUS", "MONEY", "LUCKY", "CASH"}, Prizes: tier10Table(250000)},
 }

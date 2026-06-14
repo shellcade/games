@@ -56,6 +56,16 @@ func TestCatalogTopPrize(t *testing.T) {
 		"fortune-50":      250000,
 		"outback-riches":  250000,
 		"cash-explosion":  300000,
+		"lucky-lines":     10000,
+		"mega-lines":      250000,
+		"cashword":        100000,
+		"mega-crossword":  250000,
+		"quick-bingo":     25000,
+		"bingo-bonanza":   100000,
+		"showdown":        10000,
+		"dealers-bluff":   25000,
+		"triple-word":     100000,
+		"word-jackpot":    250000,
 	}
 	for _, tk := range tickets {
 		tk := tk

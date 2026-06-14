@@ -24,8 +24,8 @@ and ticket themes — no real lottery brand, name, or asset is reused anywhere
 2. **A shop, not a menu.** You don't pick a game from a list — you walk up to a
    counter, look over the stands, and choose a ticket. The newsagent is the
    lobby (AB-1, AB-2).
-3. **Many tickets, four engines.** Variety comes from *data* — 16 themed tickets
-   over four price tiers — riding on four reusable mechanic engines. Adding a
+3. **Many tickets, few engines.** Variety comes from *data* — 26 themed tickets
+   over four price tiers — riding on nine reusable mechanic engines. Adding a
    ticket is a data record, not new code.
 4. **Honest odds.** Win frequency and return-to-player sit in real-scratchie
    territory (~1 in 4 any win; ~60–68% RTP). The house edge is real; the bust
@@ -40,9 +40,9 @@ and ticket themes — no real lottery brand, name, or asset is reused anywhere
 |---|---|
 | **Counter** | The zoomed-out newsagent view: four ticket stands + flavour (AB-1). The floor's shared space. |
 | **Stand** | One price tier's rack ($1 / $2 / $5 / $10). Zoom in to browse its tickets (AB-2). |
-| **Ticket** | One buyable scratch-it: a data record of theme + price + mechanic + palette + prize table. 16 ship in v1 (§6). |
+| **Ticket** | One buyable scratch-it: a data record of theme + price + mechanic + palette + prize table. 26 ship in v1 (§6). |
 | **Panel** | One scratch-off cell on a card. Hidden (`▓`) until scratched, then shows its symbol/number/amount. |
-| **Mechanic** | One of four reveal+resolve engines (§5) a ticket is built on. |
+| **Mechanic** | One of nine reveal+resolve engines (§5) a ticket is built on. |
 | **Outcome** | The card's predetermined result (a prize in credits, or no win), drawn at purchase before any panel is scratched (§7). |
 | **Wallet** | The player's durable credit balance in KV. Starts 1000, resets to 1000 on bust (§8). |
 | **Big win** | A win at/above the room-wide announce threshold; flashes on every patron's ticker (§9, AB-11). |
@@ -112,7 +112,7 @@ follows the coin:
 
 $1/$2 cards fit without scrolling; the rail and paging simply don't appear.
 
-## 5. The four mechanics
+## 5. The mechanics (nine engines)
 
 Each mechanic is one engine: given a drawn **outcome** (§7) and the room RNG, it
 (a) lays panels out to *display* that outcome consistently, and (b) resolves the
@@ -152,7 +152,52 @@ salt in a **BUST** symbol — revealing it ends the card immediately with no win
 so SCRATCH-ALL is a gamble. Loser layouts never reach 3 targets; winners place
 exactly 3 (and keep BUST off the natural path until resolution).
 
-## 6. Ticket catalog (v1 — 16 tickets)
+### 5.5 Lucky Lines (MechLines)
+A grid of cash amounts where you win with **three equal amounts in three
+consecutive cells along any row, column, or diagonal** — the matched amount is
+the prize. Like match-3 but *positional*: a winning card plants the trio on one
+random line and keeps any other amount from forming a line; a loser has no
+three-in-a-line. Winners green only at resolution (the no-spoiler rule, §5.10).
+3×3 at $1, 5×5 at $10 (scrolls).
+
+### 5.6 Cashword (MechCrossword)
+The grid is a **letter bank**; the ticket's word list (`WordList`) is the
+target. A word is complete when every distinct letter of it appears among the
+revealed bank tiles. **Complete three or more words to win**; fewer pays nothing.
+A winning card seeds the bank to complete ≥3 words; a loser keeps a letter of all
+but ≤2 words off the bank. The word checklist ticks green as each genuinely
+completes (it follows from the visible revealed letters).
+
+### 5.7 Quick Bingo (MechBingo)
+`WinNumbers` called numbers (1–75) sit pre-revealed up top; a 5×5 card hides
+numbers. A cell whose number is called is a match; **complete a full row, column,
+or diagonal of matches to win**. A winning card plants one all-called line; a
+loser has none. Matched cells highlight on reveal (the called numbers are
+visible, so it's self-evident).
+
+### 5.8 Showdown (MechShowdown)
+`Cols` columns, two rows: the **house** (pre-revealed) and **you** (scratch).
+Each column where your value beats the house pays that column's prize; the total
+is the win. A winning card beats the house on exactly the columns whose prizes
+sum to the prize; a loser loses every column. Win/lose columns colour only at
+resolution.
+
+### 5.9 Triple Word (MechTriple)
+Each grid **row is a word slot** of letter tiles. A row that spells a word in
+`WordList` is found and pays; one **`3×` TRIPLE-WORD tile** triples the prize of
+the row it sits on. The engine plants exactly one bonus word on a winning card
+and assigns the prize from the outcome (using the 3× tile when the prize is
+divisible by three); a loser spells no listed word. $5 is 6×4, $10 is 6×6
+(scrolls).
+
+### 5.10 No-spoiler rule (all mechanics)
+A winning cell/row/line turns green (or otherwise highlights as "won") **only
+once the card resolves** — never at build time — so the first revealed winner
+can't give the result away. The exception is information the player already sees
+(a known target emoji, the visible winning/called numbers, the pre-revealed
+house row): those may highlight on reveal because they reveal nothing new.
+
+## 6. Ticket catalog (v1 — 26 tickets)
 
 Themes are original and silly-not-crude (repo content policy). Top prizes are in
 credits (= dollars 1:1, §8). Grid/chances grow with price.
@@ -175,11 +220,21 @@ credits (= dollars 1:1, §8). Grid/chances grow with price.
 | $10 | **Fortune 50** | Key number *(scrolls)* | 6 winning · 24 yours | 250,000 | ~1 in 3.3 |
 | $10 | **Outback Riches** | Find-symbol +BUST *(scrolls)* | 30 panels, find 3 picks | 250,000 | ~1 in 3.3 |
 | $10 | **Cash Explosion** | Multiplier | 1 prize × to 20× | 300,000 | ~1 in 3.3 |
+| $1 | **Lucky Lines** | Lines | 3×3 | 10,000 | ~1 in 3.9 |
+| $1 | **Showdown** | Showdown | 3 columns | 10,000 | ~1 in 3.9 |
+| $2 | **Quick Bingo** | Bingo | 5×5 · 10 called | 25,000 | ~1 in 3.7 |
+| $2 | **Dealer's Bluff** | Showdown | 4 columns | 25,000 | ~1 in 3.7 |
+| $5 | **Cashword** | Crossword | 4×4 bank · 6 words | 100,000 | ~1 in 3.5 |
+| $5 | **Bingo Bonanza** | Bingo | 5×5 · 12 called | 100,000 | ~1 in 3.5 |
+| $5 | **Triple Word** | Triple-word *(3×)* | 6×4 · 7 words | 100,000 | ~1 in 3.5 |
+| $10 | **Mega Lines** | Lines *(scrolls)* | 5×5 | 250,000 | ~1 in 3.3 |
+| $10 | **Mega Crossword** | Crossword | 5×4 bank · 8 words | 250,000 | ~1 in 3.3 |
+| $10 | **Word Jackpot** | Triple-word *(3×, scrolls)* | 6×6 · 7 words | 250,000 | ~1 in 3.3 |
 
-That's 16 tickets — four mechanics × four tiers, each its own theme/palette. The
-$5/$10 grid cards scroll (§4.1); the multiplier cards stay a compact two-panel
-reveal at every tier. The catalog is a Go table of `Ticket` records; new tickets
-are new rows.
+That's 26 tickets across nine mechanics, each its own theme/palette. The big grid
+cards scroll (§4.1); the multiplier and showdown cards stay compact. New tickets
+reuse the tuned tier tables (§7), so they land in band automatically — the
+catalog is a Go table of `Ticket` records and a new ticket is one new row.
 
 ## 7. Odds, RTP & the prize model
 
@@ -290,7 +345,7 @@ func (Game) Meta() kit.GameMeta {
     return kit.GameMeta{
         Slug:             "scratchies",
         Name:             "Scratchies",
-        ShortDescription: "Duck into the newsagent, buy an instant scratch-it, and peel the latex off panel by panel. 16 tickets, four price tiers, one dream jackpot.",
+        ShortDescription: "Duck into the newsagent, buy an instant scratch-it, and peel the latex off panel by panel. 26 tickets, nine games, one dream jackpot.",
         MinPlayers:       1,
         MaxPlayers:       6,
         Tags:             []string{"casino", "luck", "scratch-card", "instant-win", "solo"},
