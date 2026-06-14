@@ -14,12 +14,14 @@ import (
 type symbol byte
 
 const (
-	symBlank  symbol = '-' // neutral face shown before the first spin
-	sym7      symbol = '7'
-	symDollar symbol = '$'
-	symStar   symbol = '*'
-	symBar    symbol = 'B'
-	symCherry symbol = 'C'
+	symBlank   symbol = '-' // neutral face shown before the first spin
+	sym7       symbol = '7'
+	symDollar  symbol = '$'
+	symStar    symbol = '*'
+	symBar     symbol = 'B'
+	symCherry  symbol = 'C'
+	symWild    symbol = 'W' // substitutes on the payline to complete a triple
+	symScatter symbol = 'S' // counts anywhere in the window; triggers free spins
 )
 
 // Validation bounds for an odds variant. They are wide on purpose — this is play
@@ -34,13 +36,20 @@ const (
 	rtpEpsilon = 1e-9
 )
 
-// stripOrder is the stable symbol order used to lay out the weighted strip, so a
+// stripOrder is the regular (grouped) symbols laid out in a stable order, so a
 // seeded RNG reproduces draws across runs regardless of map iteration order.
+// WILD and SCATTER are NOT here — they are distributed across the strip
+// (specialOrder) so scatters spread naturally rather than clumping.
 var stripOrder = []symbol{sym7, symDollar, symStar, symBar, symCherry}
+
+// specialOrder is the deterministic distribution order of the special symbols
+// (wild, then scatter) interleaved into the grouped base strip.
+var specialOrder = []symbol{symWild, symScatter}
 
 // symbolByName maps a face byte to its JSON weight/paytable key.
 var symbolByName = map[string]symbol{
 	"7": sym7, "$": symDollar, "*": symStar, "B": symBar, "C": symCherry,
+	"W": symWild, "S": symScatter,
 }
 
 func nameOfSymbol(s symbol) string { return string(rune(s)) }

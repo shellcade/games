@@ -34,11 +34,13 @@ const (
 // the wide ７７７ is what a slot reel wants anyway. Non-UTF-8 sessions
 // degrade host-side via asciiFallback (７→7, 🍒→C, etc.).
 var faceArt = map[symbol]string{
-	sym7:      "\uFF17",     // ７ fullwidth seven
-	symDollar: "\U0001F48E", // 💎
-	symStar:   "\u2B50",     // ⭐
-	symBar:    "\U0001F514", // 🔔
-	symCherry: "\U0001F352", // 🍒
+	sym7:       "\uFF17",     // ７ fullwidth seven
+	symDollar:  "\U0001F48E", // 💎
+	symStar:    "\u2B50",     // ⭐
+	symBar:     "\U0001F514", // 🔔
+	symCherry:  "\U0001F352", // 🍒
+	symWild:    "\U0001F451", // 👑 crown — wild (single codepoint, EAW=Wide)
+	symScatter: "\U0001F381", // 🎁 gift — scatter (single codepoint, EAW=Wide)
 }
 
 var (
