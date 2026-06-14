@@ -191,14 +191,42 @@ func compileVariant(doc oddsVariant) (*variant, error) {
 	return v, nil
 }
 
-// buildStripFrom lays out the ordered weighted strip from a symbol→stops map in
-// the stable stripOrder, so a seeded RNG reproduces draws.
+// distribute inserts `count` copies of sym into base at evenly spaced positions,
+// returning a strip of length len(base)+count. Deterministic (no RNG): the k-th
+// special occupies output position k*n/count (n = total length), so specials are
+// spread across the strip rather than clumped, and every base symbol is kept in
+// order. count <= 0 returns base unchanged.
+func distribute(base []symbol, sym symbol, count int) []symbol {
+	if count <= 0 {
+		return base
+	}
+	n := len(base) + count
+	out := make([]symbol, 0, n)
+	bi, placed := 0, 0
+	for i := 0; i < n; i++ {
+		if placed < count && i == placed*n/count {
+			out = append(out, sym)
+			placed++
+		} else {
+			out = append(out, base[bi])
+			bi++
+		}
+	}
+	return out
+}
+
+// buildStripFrom lays out the strip: regular symbols grouped in stripOrder, then
+// WILD and SCATTER distributed evenly across the result (specialOrder). The whole
+// layout is a pure function of weights, so a seeded room reproduces draws.
 func buildStripFrom(weights map[symbol]int) []symbol {
 	var strip []symbol
 	for _, s := range stripOrder {
 		for i := 0; i < weights[s]; i++ {
 			strip = append(strip, s)
 		}
+	}
+	for _, s := range specialOrder {
+		strip = distribute(strip, s, weights[s])
 	}
 	return strip
 }
