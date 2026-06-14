@@ -674,6 +674,58 @@ func TestPaytableStripNamesSymbolsWithArt(t *testing.T) {
 	}
 }
 
+func TestFreeSpinCabinetShowsFreeCount(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	m := rm.machines[p.AccountID]
+	m.freeSpins, m.freeBet = 7, 50
+	rm.render(r)
+	if !frameContains(r, p, "FREE 7") {
+		t.Error("free-spin cabinet should show FREE 7")
+	}
+}
+
+func TestGambleOwnerSeesSelectorOthersSeeIndicator(t *testing.T) {
+	a, b := kittest.Player("anna"), kittest.Player("bert")
+	rm, r := newGame(t, a, b)
+	rm.OnJoin(r, a)
+	rm.OnJoin(r, b)
+	ma := rm.machines[a.AccountID]
+	ma.balance = 1000
+	rm.enterGamble(r, ma, 150)
+	rm.render(r)
+	if !frameContains(r, a, "TAKE") || !frameContains(r, a, "RED") {
+		t.Error("owner should see the gamble selector")
+	}
+	if !frameContains(r, b, "150") {
+		t.Error("other viewers should see the at-risk amount")
+	}
+}
+
+func TestControlsLineReflectsMode(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	m := rm.machines[p.AccountID]
+
+	rm.render(r)
+	if !frameContains(r, p, "spin") {
+		t.Error("idle controls should mention spin")
+	}
+	rm.enterGamble(r, m, 100)
+	rm.render(r)
+	if !frameContains(r, p, "lock") {
+		t.Error("gamble controls should mention lock/take")
+	}
+	m.gamble = nil
+	m.freeSpins = 4
+	rm.render(r)
+	if !frameContains(r, p, "FREE SPINS") {
+		t.Error("free-spin controls should announce auto-play")
+	}
+}
+
 // --- payout / variant --------------------------------------------------------
 
 func TestPayout(t *testing.T) {

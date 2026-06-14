@@ -59,6 +59,12 @@ var (
 	stRebuy   = kit.Style{FG: kit.Red, Attr: kit.AttrBold}
 	stReady   = kit.Style{FG: kit.DimGray}
 	stLever   = kit.Style{FG: kit.Red, Attr: kit.AttrBold}
+
+	stBordFree = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}   // gold cabinet during free spins
+	stGamble   = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}   // gamble banner / at-risk
+	stGamHi    = kit.Style{FG: kit.White, Attr: kit.AttrReverse} // highlighted gamble option
+	stGamOpt   = kit.Style{FG: kit.DimGray}                      // un-highlighted gamble option
+	stRedCard  = kit.Style{FG: kit.Red, Attr: kit.AttrBold}      // red suits (hearts/diamonds)
 )
 
 // fallbackStrip is the compiled default strip, computed once. spinStrip/idleStrip
@@ -117,10 +123,17 @@ func (rm *room) compose(v kit.Player) *kit.Frame {
 
 	rm.drawPaytable(f, payRowY)
 
-	f.Text(kit.Rows-1, 2, "Up/Down bet   SPACE spin   Esc leave", stDim)
+	controls := "Up/Down bet   SPACE spin   Esc leave"
 	if m := rm.machines[v.AccountID]; m != nil {
+		switch {
+		case m.gamble != nil:
+			controls = "Arrows pick   SPACE lock/take   Esc leave"
+		case m.freeSpins > 0:
+			controls = "FREE SPINS auto-playing...   Esc leave"
+		}
 		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.balance, m.highScore), stDim)
 	}
+	f.Text(kit.Rows-1, 2, controls, stDim)
 	return f
 }
 
@@ -139,7 +152,10 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 		return
 	}
 	bord, nameSt := stBordDim, stName
-	if own {
+	switch {
+	case m.freeSpins > 0:
+		bord = stBordFree // gold cabinet: the floor can see who's in a feature
+	case own:
 		bord, nameSt = stBordOwn, stNameOwn
 	}
 	left, right := col, col+cardW-1
@@ -169,6 +185,15 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 	for r := 1; r <= 9; r++ {
 		f.SetRune(top+r, left, '│', bord)
 		f.SetRune(top+r, right, '│', bord)
+	}
+
+	// Gamble takes over the cabinet interior: the owner gets the interactive
+	// selector, other viewers a compact at-risk indicator (frames are per-viewer).
+	if m.gamble != nil {
+		rm.drawGamble(f, col, top, m, own)
+		rm.border(f, top+10, col, '╰', '╯', bord)
+		f.Text(top+10, col+5, "[__]", bord)
+		return
 	}
 
 	// Reel screen box (cols col+2..col+9): ╭──────╮ / │ 🍒🍒🍒 │ / ╰──────╯ —
@@ -212,15 +237,87 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 	// Lever to the right of the screen: knob rides up when idle, drops mid-spin.
 	rm.lever(f, col, top, m)
 
-	// Readouts.
+	// Readouts. The bet line shows FREE + remaining spins during a feature.
 	rm.body(f, top+6, col, "HI", m.highScore)
 	rm.body(f, top+7, col, "BAL", m.balance)
-	rm.body(f, top+8, col, "BET", m.bet)
+	if m.freeSpins > 0 {
+		f.Text(top+8, col+2, fmt.Sprintf("FREE %d", m.freeSpins), stWin)
+	} else {
+		rm.body(f, top+8, col, "BET", m.bet)
+	}
 	rm.status(f, top+9, col, m)
 
 	// Bottom border with a coin slot.
 	rm.border(f, top+10, col, '╰', '╯', bord)
 	f.Text(top+10, col+5, "[__]", bord)
+}
+
+// suitLetter renders a suit as an unambiguous single letter (the Unicode suit
+// glyphs ♠♥♦♣ are ambiguous-width and would desync the fixed cabinet layout).
+func suitLetter(s int) string {
+	switch s {
+	case suitSpades:
+		return "S"
+	case suitHearts:
+		return "H"
+	case suitDiamonds:
+		return "D"
+	default:
+		return "C"
+	}
+}
+
+// drawOpt draws one gamble selector option, highlighted (reverse video) when
+// selected, and returns the next column (one space gap).
+func drawOpt(f *kit.Frame, row, c int, label string, sel bool) int {
+	st := stGamOpt
+	if sel {
+		st = stGamHi
+	}
+	return f.Text(row, c, label, st) + 1
+}
+
+// drawGamble renders the double-up ladder inside the cabinet: the interactive
+// selector for the owner, a compact at-risk indicator for other viewers.
+func (rm *room) drawGamble(f *kit.Frame, col, top int, m *machine, own bool) {
+	g := m.gamble
+	risk := fmt.Sprintf("+%d", g.atRisk)
+	if !own {
+		f.Text(top+2, col+2, "GAMBLE", stGamOpt)
+		f.SetGraphemeWide(top+4, col+3, "\U0001F3B2", stGamble) // 🎲
+		f.Text(top+4, col+6, risk, stGamble)
+		rm.body(f, top+6, col, "HI", m.highScore)
+		rm.body(f, top+7, col, "BAL", m.balance)
+		return
+	}
+	f.Text(top+1, col+2, "GAMBLE", stGamble)
+	win := "WIN " + risk
+	if len(win) > cardW-3 {
+		win = risk
+	}
+	f.Text(top+2, col+2, win, stWin)
+
+	card, cst := "?", stGamOpt
+	if g.card >= 0 {
+		card = suitLetter(g.card)
+		if suitIsRed(g.card) {
+			cst = stRedCard
+		} else {
+			cst = stName
+		}
+	}
+	f.Text(top+3, col+2, "CARD ", stGamOpt)
+	f.Text(top+3, col+7, "["+card+"]", cst)
+
+	// Row 1: TAKE / RED / BLACK (×2). Row 2: suits (×4).
+	c := drawOpt(f, top+6, col+1, "TAKE", g.sel == selTake)
+	c = drawOpt(f, top+6, c, "RED", g.sel == selRed)
+	drawOpt(f, top+6, c, "BLK", g.sel == selBlack)
+	c = drawOpt(f, top+7, col+1, "S", g.sel == selSpades)
+	c = drawOpt(f, top+7, c, "H", g.sel == selHearts)
+	c = drawOpt(f, top+7, c, "D", g.sel == selDiamonds)
+	drawOpt(f, top+7, c, "C", g.sel == selClubs)
+	f.Text(top+9, col+1, "SPACE pick", stGamOpt)
 }
 
 // drawPaytable centers the active variant's paying triples on one row under
