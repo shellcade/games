@@ -27,6 +27,11 @@ func (Game) Meta() kit.GameMeta {
 		MinPlayers:       1,
 		MaxPlayers:       2,  // two snakes: solo co-op (one seat) or head-to-head (two seats)
 		HeartbeatMS:      50, // 20 ticks per second
+
+		// A real-time arcade round with no mid-game state worth resuming: when
+		// everyone leaves, the room closes — no hibernation snapshot, no Resume entry.
+		Lifecycle: kit.LifecycleEphemeral,
+
 		Leaderboard: &kit.LeaderboardSpec{
 			MetricLabel: "Score",
 			Direction:   kit.HigherBetter,
