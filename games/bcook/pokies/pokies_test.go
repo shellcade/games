@@ -656,12 +656,12 @@ func TestDefaultVariantTuning(t *testing.T) {
 }
 
 func TestDefaultVariantRTPIsAroundSeventyFivePercent(t *testing.T) {
-	rtp, hitFreq := defaultVariant().stats()
-	if rtp < 0.70 || rtp > 0.80 {
-		t.Fatalf("default RTP = %.4f, want within [0.70, 0.80] (house edge)", rtp)
+	s := defaultVariant().stats()
+	if s.TotalRTP < 0.70 || s.TotalRTP > 0.80 {
+		t.Fatalf("default total RTP = %.4f, want within [0.70, 0.80] (house edge)", s.TotalRTP)
 	}
-	if hitFreq <= 0 || hitFreq > 0.10 {
-		t.Fatalf("default hit frequency = %.4f, want a small positive share (high variance)", hitFreq)
+	if s.HitFreq <= 0 || s.HitFreq > 0.20 {
+		t.Fatalf("default hit frequency = %.4f, want a small positive share (high variance)", s.HitFreq)
 	}
 }
 

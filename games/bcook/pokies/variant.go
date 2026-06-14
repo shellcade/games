@@ -36,6 +36,10 @@ const (
 	rtpEpsilon = 1e-9
 )
 
+// defaultGamble is the compiled-in ladder cap used when a variant omits a gamble
+// block: up to 5 doubles, then auto-take, with a generous credit ceiling.
+var defaultGamble = gambleConfig{MaxRungs: 5, MaxWin: 1_000_000}
+
 // stripOrder is the regular (grouped) symbols laid out in a stable order, so a
 // seeded RNG reproduces draws across runs regardless of map iteration order.
 // WILD and SCATTER are NOT here — they are distributed across the strip
@@ -259,13 +263,48 @@ func compileVariant(doc oddsVariant) (*variant, error) {
 		}
 	}
 
-	v := &variant{name: doc.Name, strip: strip, triples: triples}
+	// Scatter trigger table: validate, then sort by Count descending (scatterAward
+	// scans it high-to-low).
+	scatter := make([]scatterEntry, 0, len(doc.Scatter))
+	for _, se := range doc.Scatter {
+		if se.Count < 3 {
+			return nil, fmt.Errorf("scatter trigger count %d must be at least 3", se.Count)
+		}
+		if se.Spins < 1 {
+			return nil, fmt.Errorf("scatter award %d free spins must be positive", se.Spins)
+		}
+		scatter = append(scatter, se)
+	}
+	sort.SliceStable(scatter, func(i, j int) bool { return scatter[i].Count > scatter[j].Count })
+
+	gamble := defaultGamble
+	if doc.Gamble != nil {
+		if doc.Gamble.MaxRungs < 1 || doc.Gamble.MaxWin < 1 {
+			return nil, fmt.Errorf("gamble caps must be positive")
+		}
+		gamble = *doc.Gamble
+	}
+
+	v := &variant{name: doc.Name, strip: strip, triples: triples, scatter: scatter, gamble: gamble}
 	v.topMult = topMultiplier(triples)
 	v.payRowsCache, v.payLabels = compilePayTable(triples)
-	rtp, _ := v.stats()
-	if rtp < minRTP-rtpEpsilon || rtp > maxRTP+rtpEpsilon {
+
+	// Convergence guard: the worst-case (largest) award must satisfy t*maxAward < 1
+	// so the retrigger series converges (no money printer).
+	st := v.stats()
+	maxAward := 0
+	for _, se := range scatter {
+		if se.Spins > maxAward {
+			maxAward = se.Spins
+		}
+	}
+	if st.TriggerRate*float64(maxAward) >= 1-rtpEpsilon {
+		return nil, fmt.Errorf("free-spin retrigger does not converge (t*maxAward = %.3f >= 1)",
+			st.TriggerRate*float64(maxAward))
+	}
+	if st.TotalRTP < minRTP-rtpEpsilon || st.TotalRTP > maxRTP+rtpEpsilon {
 		return nil, fmt.Errorf("theoretical RTP %.1f%% is outside the allowed [%.0f%%, %.0f%%]",
-			rtp*100, minRTP*100, maxRTP*100)
+			st.TotalRTP*100, minRTP*100, maxRTP*100)
 	}
 	return v, nil
 }
@@ -310,31 +349,59 @@ func buildStripFrom(weights map[symbol]int) []symbol {
 	return strip
 }
 
+// variantStats is the exact theoretical profile of a variant, enumerated over all
+// strip³ equally-likely outcomes.
+type variantStats struct {
+	LineRTP      float64 // mean line payout per spin (bet multiples)
+	HitFreq      float64 // share of outcomes paying a line
+	TriggerRate  float64 // t: share of outcomes triggering free spins
+	AvgFreeSpins float64 // m: expected free spins per trigger, incl. retrigger
+	TotalRTP     float64 // LineRTP * (1 + t*m): base + free-spin EV
+}
+
 // stats enumerates all len(strip)³ equally-likely outcomes (each reel draws
-// independently and uniformly from the strip) to compute the theoretical
-// return-to-player (mean bet-multiplier credited) and the hit frequency (the
-// share of outcomes that pay anything). strip³ is tiny (18³ = 5,832 by default,
-// at most maxStops³), so this runs in well under a millisecond.
-func (v *variant) stats() (rtp, hitFreq float64) {
+// independently and uniformly from the strip) for the exact line RTP and the
+// scatter trigger rate, then folds free spins into total RTP via the
+// branching-process closed form. Free spins pay line RTP at no cost and retrigger
+// at rate t, so the expected free spins per trigger m = avgAward / (1 -
+// t*avgAward). strip³ is tiny (at most maxStops³), so this runs in well under a
+// millisecond.
+func (v *variant) stats() variantStats {
 	n := len(v.strip)
 	if n == 0 {
-		return 0, 0
+		return variantStats{}
 	}
-	total := 0
-	hits := 0
+	lineTotal, hits, triggers, spinsAwarded := 0, 0, 0, 0
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
 			for k := 0; k < n; k++ {
-				p := v.payout([3]symbol{v.strip[i], v.strip[j], v.strip[k]})
-				total += p
-				if p > 0 {
+				center := [3]symbol{v.strip[i], v.strip[j], v.strip[k]}
+				if p := v.payout(center); p > 0 {
+					lineTotal += p
 					hits++
+				}
+				if award := v.scatterAward(scatterWindow(v.strip, [3]int{i, j, k})); award > 0 {
+					triggers++
+					spinsAwarded += award
 				}
 			}
 		}
 	}
 	outcomes := n * n * n
-	return float64(total) / float64(outcomes), float64(hits) / float64(outcomes)
+	st := variantStats{
+		LineRTP: float64(lineTotal) / float64(outcomes),
+		HitFreq: float64(hits) / float64(outcomes),
+	}
+	st.TriggerRate = float64(triggers) / float64(outcomes)
+	if triggers > 0 {
+		avgAward := float64(spinsAwarded) / float64(triggers)
+		denom := 1 - st.TriggerRate*avgAward
+		if denom > 0 {
+			st.AvgFreeSpins = avgAward / denom
+		}
+	}
+	st.TotalRTP = st.LineRTP * (1 + st.TriggerRate*st.AvgFreeSpins)
+	return st
 }
 
 // weightSummary renders the strip weights as a stable "7:1 $:2 *:3 B:5 C:7"

@@ -100,3 +100,57 @@ func TestScatterAwardThresholds(t *testing.T) {
 		}
 	}
 }
+
+func TestStatsFoldsFreeSpins(t *testing.T) {
+	v, err := compileVariant(oddsVariant{
+		Name:     "fs",
+		Weights:  map[string]int{"7": 10, "C": 20, "S": 2},
+		Paytable: []payEntry{{Faces: "7", Multiplier: 30}},
+		Scatter:  []scatterEntry{{Count: 3, Spins: 8}},
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	s := v.stats()
+	if s.TriggerRate <= 0 {
+		t.Fatalf("trigger rate = %v, want > 0 with scatters present", s.TriggerRate)
+	}
+	if s.TotalRTP <= s.LineRTP {
+		t.Fatalf("total RTP %.4f should exceed line RTP %.4f", s.TotalRTP, s.LineRTP)
+	}
+	want := s.LineRTP * (1 + s.TriggerRate*s.AvgFreeSpins)
+	if diff := want - s.TotalRTP; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("closed form mismatch: total=%.9f want=%.9f", s.TotalRTP, want)
+	}
+}
+
+func TestCompileRejectsRunawayRetrigger(t *testing.T) {
+	// Huge scatter weight + large award -> t*maxAward >= 1 (non-converging).
+	_, err := compileVariant(oddsVariant{
+		Name:     "runaway",
+		Weights:  map[string]int{"7": 1, "S": 30},
+		Paytable: []payEntry{{Faces: "7", Multiplier: 5}},
+		Scatter:  []scatterEntry{{Count: 3, Spins: 50}},
+	})
+	if err == nil {
+		t.Fatal("expected rejection of a non-converging retrigger feature")
+	}
+}
+
+func TestCompileSortsScatterDescAndDefaultsGamble(t *testing.T) {
+	v, err := compileVariant(oddsVariant{
+		Name:     "ok",
+		Weights:  map[string]int{"7": 10, "C": 20, "S": 2},
+		Paytable: []payEntry{{Faces: "7", Multiplier: 30}},
+		Scatter:  []scatterEntry{{Count: 3, Spins: 8}, {Count: 5, Spins: 25}},
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if v.scatter[0].Count != 5 {
+		t.Fatalf("scatter table not sorted desc: %+v", v.scatter)
+	}
+	if v.gamble.MaxRungs != defaultGamble.MaxRungs || v.gamble.MaxWin != defaultGamble.MaxWin {
+		t.Fatalf("gamble defaults not applied: %+v", v.gamble)
+	}
+}
