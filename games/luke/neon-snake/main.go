@@ -44,6 +44,9 @@ func (Game) Meta() kit.GameMeta {
 func (Game) NewRoom(cfg kit.RoomConfig, svc kit.Services) kit.Handler {
 	return &room{
 		services: svc,
+		// OnImprove: post only when a player tops their last posted score, so the
+		// board sees the high-water mark from live play and the disconnect flush.
+		sk: kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -203,6 +206,7 @@ type Hazard struct {
 type room struct {
 	kit.Base
 	services    kit.Services
+	sk          *kit.ScoreKeeper // tracks each player's current score for live/disconnect posting
 	pb1         int
 	pb2         int
 	newPB1      bool
@@ -458,6 +462,21 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 		rm.p2IsBot = false
 	}
 	rm.loadPersonalBests(r)
+	rm.render(r)
+}
+
+// OnLeave records a leaving player's progress. A disconnect mid-game (before any
+// crash) otherwise never reaches the game-over Post, so the player's current
+// score would never be recorded. We flush it with StatusDNF and persist their
+// personal best to KV for session resume.
+func (rm *room) OnLeave(r kit.Room, p kit.Player) {
+	if rm.sk != nil && rm.gameStarted && !rm.gameOver {
+		// Make sure the keeper has this player's current score even if they never
+		// scored (Record is a no-op-ish update), then flush it as a DNF.
+		rm.recordScores(r)
+		rm.sk.FlushLeave(r, p, kit.StatusDNF)
+	}
+	rm.savePersonalBests(r)
 	rm.render(r)
 }
 
@@ -1302,6 +1321,33 @@ func (rm *room) tick(r kit.Room) {
 			eater = 2
 		}
 		rm.onFoodEaten(r, rm.food, eater)
+	}
+	if ate1 || ate2 {
+		// Keep the ScoreKeeper's view of each player's current score current, so a
+		// mid-game disconnect (OnLeave) can flush it. Mirrors the seat→snake map:
+		// members[0] drives snake1, members[1] snake2; solo controls both.
+		rm.recordScores(r)
+	}
+}
+
+// recordScores feeds each player's current score into the ScoreKeeper. In a
+// head-to-head room members[0] owns snake1's score and members[1] owns snake2's;
+// in a solo/co-op room the single member controls both snakes, so we record the
+// better of the two (matching the game-over Post and PB rules).
+func (rm *room) recordScores(r kit.Room) {
+	if rm.sk == nil {
+		return
+	}
+	members := r.Members()
+	if len(members) >= 2 {
+		rm.sk.Record(r, members[0], rm.score1)
+		rm.sk.Record(r, members[1], rm.score2)
+	} else if len(members) == 1 {
+		soloScore := rm.score1
+		if rm.score2 > soloScore {
+			soloScore = rm.score2
+		}
+		rm.sk.Record(r, members[0], soloScore)
 	}
 }
 
