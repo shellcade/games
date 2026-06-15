@@ -1,0 +1,34 @@
+# Paperdrift smoke: two pilots launch together, trim apart mid-flight, and
+# the round settles when both are down. Untrimmed flight crashes at the first
+# gate (~10.5s in), so the timings below land inside the 12s results hold.
+seed: 42
+seats: 2
+heartbeat: 50ms
+steps:
+  # Both seats fill the private room, which arms the 3s launch countdown.
+  - shot: countdown
+
+  - advance: 3.05s
+  - shot: launch
+
+  # Seat 0 noses up; seat 1 dives for speed. Per-seat cameras and HUDs
+  # diverge as the gliders separate.
+  - seat: 0
+  - key: up
+  - key: up
+  - seat: 1
+  - key: down
+  - key: down
+  - key: down
+  - advance: 4s
+  - shot: midflight
+
+  # Seat 0, slow and nose-up, mush-creeps toward the first gate with the
+  # storm closing (HUD warns; downed seat 1 spectates the chase).
+  - advance: 8s
+  - shot: chase
+
+  # Seat 0 is down by ~19s (the gate or the storm, whichever wins); the
+  # round posts and the results table holds for 12s, so this lands inside.
+  - advance: 8s
+  - shot: results

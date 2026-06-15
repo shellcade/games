@@ -25,11 +25,33 @@ func (Game) Meta() kit.GameMeta {
 		// the side-panel player lines.
 		CtxFeatures: kit.CtxFeatCharacter,
 
+		// Wins leaderboard: each decisive game posts 1 for the winner and 0
+		// for the loser (a draw is 0 for both). Summed across games, the board
+		// becomes a career win tally.
+		Leaderboard: &kit.LeaderboardSpec{
+			MetricLabel: "Wins",
+			Direction:   kit.HigherBetter,
+			Aggregation: kit.SumResults,
+			Format:      kit.Integer,
+		},
+
 		// Chess-appropriate lobby mode labels — the generic defaults don't fit a
 		// turn-based duel.
 		QuickModeLabel:    "Quick match",
 		SoloModeLabel:     "Solo: play both sides",
 		PrivateInviteLine: "Your opponent takes the other colour when they enter the code.",
+
+		// Touch deck chips (kit v2.10.0): the inputs beyond the canonical
+		// vocabulary — letter commands and the Backspace selection-cancel —
+		// surfaced as tappable chips on devices without a physical keyboard.
+		// Movement and select stay on the canonical arrows + Confirm.
+		Controls: []kit.ControlDecl{
+			kit.RuneControl('r', "RESIGN"),
+			kit.RuneControl('d', "DRAW"),
+			kit.RuneControl('y', "YES"),
+			kit.RuneControl('n', "NO"),
+			kit.KeyControl(kit.KeyBackspace, "CANCEL"),
+		},
 	}
 }
 

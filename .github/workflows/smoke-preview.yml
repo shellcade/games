@@ -35,8 +35,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # The artifact came from fork-controlled code: trust nothing in it until
-      # its claims match what GitHub says about the triggering run. The PR
-      # number must be one of the PRs whose head is the run's head SHA.
+      # its claims match what GitHub says about the triggering run. The manifest
+      # PR must genuinely have HEAD_SHA as its head commit.
       - name: verify manifest against the triggering run
         id: verify
         if: steps.dl.outcome == 'success'
@@ -50,11 +50,17 @@ jobs:
           if [ "$sha" != "$HEAD_SHA" ]; then
             echo "::error::manifest sha $sha != run head $HEAD_SHA — refusing to publish"; exit 1
           fi
-          ok=false
-          for n in $(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/pulls" --jq '.[].number'); do
-            [ "$n" = "$pr" ] && ok=true
-          done
-          $ok || { echo "::error::manifest PR #$pr does not match any PR for $HEAD_SHA"; exit 1; }
+          case "$pr" in
+            ''|*[!0-9]*) echo "::error::manifest pr '$pr' is not a number"; exit 1 ;;
+          esac
+          # Ask the PR directly for its head SHA. We can't use commits/${SHA}/pulls
+          # here: for an open fork PR the head commit lives in the contributor's
+          # fork, so that endpoint returns nothing until the PR merges — which
+          # made this step spuriously fail on every fork-authored preview.
+          pr_head=$(gh api "repos/${{ github.repository }}/pulls/${pr}" --jq '.head.sha')
+          if [ "$pr_head" != "$HEAD_SHA" ]; then
+            echo "::error::PR #$pr head $pr_head != run head $HEAD_SHA — refusing to publish"; exit 1
+          fi
           echo "pr=$pr" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 

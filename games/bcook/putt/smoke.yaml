@@ -1,0 +1,75 @@
+seed: 7
+seats: 2
+heartbeat: 50ms
+steps:
+  # (a) Hole 1 opening view: two golfers on the tee, the aim indicator pointing
+  # down the fairway at the flag, the HUD with hole / par / strokes, and the
+  # power dial sitting at its mid-range default on the controls bar.
+  - advance: 50ms
+  - shot: hole1-open
+
+  # Seat 0 lines up the shot: three right turns swing the aim indicator around,
+  # then three lefts bring it back onto the line to the cup.
+  - seat: 0
+  - key: right
+  - key: right
+  - key: right
+  - advance: 50ms
+  - shot: aiming
+  - key: left
+  - key: left
+  - key: left
+
+  # Dial power up two notches: the stepped PWR meter fills and the aim line
+  # lengthens with the setting. (Many terminals translate mouse scroll into
+  # arrow up/down, so the dial is literally scrollable.)
+  - key: up
+  - key: up
+  - advance: 50ms
+  - shot: power-dial
+
+  # Crank the dial to full (clamps at the top notch)…
+  - key: up
+  - key: up
+  - key: up
+  - key: up
+
+  # …and putt: space fires IMMEDIATELY at the dialed power — no hold, no
+  # release timing. The ball streaks off down the fairway with its trail.
+  - key: space
+  - advance: 250ms
+  - shot: putt-rolling
+
+  # Full dial, dead on line: the ball runs the length of the fairway and drops
+  # for a hole-in-one (it turns gold and the result shows).
+  - advance: 700ms
+  - advance: 700ms
+  - shot: holed-out
+
+  # (b) Seat 1's own view: their bright ball on the tee, dial still at the
+  # mid-range default — each golfer's dial is their own.
+  - seat: 1
+  - advance: 50ms
+  - shot: rival-view
+
+  # Seat 1 cranks their dial to full and putts too. With both golfers holed
+  # out, the per-hole SCORECARD intermission appears.
+  - key: up
+  - key: up
+  - key: up
+  - key: up
+  - key: up
+  - key: up
+  - key: space
+  - advance: 250ms
+  - advance: 700ms
+  - advance: 700ms
+  - shot: scorecard
+
+  # After the scorecard dwell the round rolls to hole 2 — Dogleg — showing the
+  # next course's geometry: a central wall block the putt must bend around,
+  # fresh tee and aim line, the carried-over round TOTAL, and each golfer's
+  # dial still parked where they left it (the setting persists between holes).
+  - advance: 1500ms
+  - advance: 1500ms
+  - shot: hole2-dogleg

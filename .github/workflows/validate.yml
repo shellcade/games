@@ -8,8 +8,8 @@ on:
 # requires a newer kit than this pinned engine, so a stale pin is caught
 # mechanically instead of by this comment.
 env:
-  KIT_VERSION: "2.11.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
-  TINYGO_VERSION: "0.41.0"
+  KIT_VERSION: "2.11.1"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
+  TINYGO_VERSION: "0.41.1"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.26"
   FREEZE_VERSION: "0.2.2"       # charmbracelet/freeze — ANSI shot → SVG preview
@@ -182,9 +182,14 @@ jobs:
               # Native tests run BEFORE the wasm build: games may carry gameplay
               # tests and BUDGET GATES (wake wall-time, steady-state allocations,
               # death alloc budgets — the player-count contract under the
-              # production -gc=leaking profile). A failing gate fails validation.
+              # production profile). A failing gate fails validation.
+              # Production profile is -gc=conservative since 2026-06-11: the old
+              # leaking GC made every allocation permanent, so long-lived rooms
+              # OOM-trapped at the host's 32 MiB cap (~52 min of play).
+              # Conservative GC re-verified against TinyGo 0.41.1 (200k-callback
+              # soak, flat memory).
               ( cd "$d" && go mod tidy && go test ./... )
-              ( cd "$d" && tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared . )
+              ( cd "$d" && tinygo build -opt=1 -no-debug -gc=conservative -o game.wasm -target wasip1 -buildmode=c-shared . )
             elif [ -f "$d/Cargo.toml" ]; then
               crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
               ( cd "$d" && cargo build --release --target wasm32-wasip1 )
@@ -192,7 +197,9 @@ jobs:
             else
               echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
             fi
-            ./shellcade-kit check "$d/game.wasm"
+            # --require-leaderboard: every published game must declare a
+            # LeaderboardSpec so its results are recorded and ranked.
+            ./shellcade-kit check --require-leaderboard "$d/game.wasm"
 
             # Release-profile gate (TinyGo-only): publish.yml ships an -opt=2
             # wasm-opt'd binary — a DIFFERENT artifact than the -opt=1 dev
@@ -201,9 +208,9 @@ jobs:
             # re-checks the same profile post-merge as defense in depth. Rust
             # games already build --release above, so they need no second pass.
             if [ -f "$d/go.mod" ]; then
-              ( cd "$d" && tinygo build -opt=2 -no-debug -gc=leaking \
+              ( cd "$d" && tinygo build -opt=2 -no-debug -gc=conservative \
                   -o game-release.wasm -target wasip1 -buildmode=c-shared . )
-              ./shellcade-kit check "$d/game-release.wasm"
+              ./shellcade-kit check --require-leaderboard "$d/game-release.wasm"
               rm -f "$d/game-release.wasm"
             fi
 

@@ -5,6 +5,7 @@
 # `go build ./...` (no output binary) or clean up before committing.
 games/*/*/blackjack
 games/*/*/pokies
+games/*/*/scratchies
 games/*/*/shellracer
 # ... but the rule above also matches the shellracer SOURCE directory
 # (games/bcook/shellracer/shellracer/); re-include the directory so new

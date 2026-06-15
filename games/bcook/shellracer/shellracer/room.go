@@ -183,7 +183,27 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	if rm.phase == phRacing && rm.allDone(r) {
 		rm.enterResults(r)
 	}
+	// If the last racer just disconnected there is no one left to drive the
+	// results-hold wake or press Enter, so the result would never reach the
+	// board. Settle immediately once the room has emptied of present members.
+	// The phase guard and r.Settled() check make this safe against double-End.
+	if rm.phase == phResults && !r.Settled() && rm.noneRemain(r, p) {
+		rm.finish(r)
+		return
+	}
 	rm.render(r)
+}
+
+// noneRemain reports whether no present member is still in the room once the
+// departing player (still carried in the roster during OnLeave per the ABI
+// leave contract) is excluded.
+func (rm *room) noneRemain(r kit.Room, leaving kit.Player) bool {
+	for _, m := range r.Members() {
+		if m.AccountID != leaving.AccountID {
+			return false
+		}
+	}
+	return true
 }
 
 func (rm *room) startCountdown(r kit.Room) {

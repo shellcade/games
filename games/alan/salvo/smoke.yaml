@@ -1,0 +1,31 @@
+seed: 7
+seats: 1
+heartbeat: 50ms
+# Players gather in the lobby and start the battle together (SPACE, or a fallback
+# timer) — so everyone arriving at once is in the same match. Here a lone player
+# starts a solo battle vs two CPUs on fresh, destructible hills, nudges the aim
+# (a faint trajectory stub shows the launch), and fires. Terrain, wind, and CPU
+# aim all replay identically from the seeded RNG.
+steps:
+  - advance: 50ms
+  - shot: lobby          # the muster lobby — who's here, press SPACE to start
+
+  - seat: 0
+  - key: space           # start the battle
+  - advance: 50ms
+  - shot: battlefield     # hills, three tanks, the player lining up a shot
+
+  - key: right
+  - key: right
+  - advance: 50ms
+  - shot: aiming         # the trajectory preview stub off the barrel
+
+  - key: space           # fire!
+  - advance: 700ms
+  - shot: flight         # the shell arcing over the hills, trailing
+
+  - advance: 1700ms
+  - shot: impact         # the blast going off
+
+  - advance: 900ms
+  - shot: aftermath      # the fireball clears — a modest crater, not a canyon

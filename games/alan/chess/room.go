@@ -431,10 +431,11 @@ func (rm *room) buildResult(spec *outcomeSpec) kit.Result {
 		pr := kit.PlayerResult{Player: p, Status: kit.StatusFinished}
 		switch {
 		case spec.draw:
-			pr.Rank = 1
+			pr.Rank = 1 // a draw is not a win: Metric stays 0 for both
 		case spec.winnerSet && c == spec.winner:
 			pr.Rank = 1
-		default: // loser
+			pr.Metric = 1 // one win for the leaderboard tally
+		default: // loser (Metric stays 0)
 			pr.Rank = 2
 			if spec.loserDNF && c == spec.loser {
 				pr.Status = kit.StatusDNF
