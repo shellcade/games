@@ -204,6 +204,46 @@ impl Handler for TttRoom {
     }
 }
 
+/// One settle row: (account id, leaderboard metric, finishing rank, status).
+/// The metric is the "Wins" leaderboard value — 1 for a win, 0 otherwise —
+/// summed across a player's matches by the board.
+type Row = (String, i64, u16, Status);
+
+/// Win rows: the winner posts metric 1 (rank 1, Finished), the loser metric 0
+/// (rank 2, Finished). A solo room (one account on both seats) posts a single
+/// winning row rather than a duplicate winner/loser pair against itself.
+fn win_rows(solo: bool, winner_id: &str, loser_id: &str) -> Vec<Row> {
+    if solo {
+        return vec![(winner_id.to_string(), 1, 1, Status::Finished)];
+    }
+    vec![
+        (winner_id.to_string(), 1, 1, Status::Finished),
+        (loser_id.to_string(), 0, 2, Status::Finished),
+    ]
+}
+
+/// Draw rows: nobody won, so both seats post metric 0 (Finished). Solo collapses
+/// to a single row against the one account.
+fn draw_rows(solo: bool, x_id: &str, o_id: &str) -> Vec<Row> {
+    if solo {
+        return vec![(x_id.to_string(), 0, 1, Status::Finished)];
+    }
+    vec![
+        (x_id.to_string(), 0, 1, Status::Finished),
+        (o_id.to_string(), 0, 1, Status::Finished),
+    ]
+}
+
+/// Forfeit rows (head-to-head only): the present player wins with metric 1
+/// (rank 1, Finished); the leaver/timed-out player posts metric 0 (rank 2,
+/// Dnf — they did not finish).
+fn forfeit_rows(winner_id: &str, loser_id: &str) -> Vec<Row> {
+    vec![
+        (winner_id.to_string(), 1, 1, Status::Finished),
+        (loser_id.to_string(), 0, 2, Status::Dnf),
+    ]
+}
+
 impl TttRoom {
     // ---- settling ----------------------------------------------------------
 
@@ -214,24 +254,13 @@ impl TttRoom {
         self.m.winner_mark = mark;
         self.m.deadline = None;
         self.render(r);
-        if self.m.solo {
-            // One person holds both seats: a single Finished row, not a
-            // duplicate winner/loser pair against the same account.
-            self.end(r, &[(winner_id, 1, 1, Status::Finished)]);
-            return;
-        }
         let loser_id = if self.m.x_id == winner_id {
             self.m.o_id.clone()
         } else {
             self.m.x_id.clone()
         };
-        self.end(
-            r,
-            &[
-                (winner_id, 1, 1, Status::Finished),
-                (loser_id, 0, 2, Status::Finished),
-            ],
-        );
+        let rows = win_rows(self.m.solo, &winner_id, &loser_id);
+        self.end(r, &rows);
     }
 
     fn settle_draw(&mut self, r: &mut Room) {
@@ -240,17 +269,8 @@ impl TttRoom {
         self.m.winner_mark = EMPTY;
         self.m.deadline = None;
         self.render(r);
-        if self.m.solo {
-            self.end(r, &[(self.m.x_id.clone(), 0, 1, Status::Finished)]);
-            return;
-        }
-        self.end(
-            r,
-            &[
-                (self.m.x_id.clone(), 0, 1, Status::Finished),
-                (self.m.o_id.clone(), 0, 1, Status::Finished),
-            ],
-        );
+        let rows = draw_rows(self.m.solo, &self.m.x_id, &self.m.o_id);
+        self.end(r, &rows);
     }
 
     /// Head-to-head only: solo rooms never arm the forfeit clock and a solo
@@ -261,13 +281,8 @@ impl TttRoom {
         self.m.winner_mark = if winner_id == self.m.x_id { MARK_X } else { MARK_O };
         self.m.deadline = None;
         self.render(r);
-        self.end(
-            r,
-            &[
-                (winner_id.to_string(), 1, 1, Status::Finished),
-                (loser_id.to_string(), 0, 2, Status::Dnf),
-            ],
-        );
+        let rows = forfeit_rows(winner_id, loser_id);
+        self.end(r, &rows);
     }
 
     /// Build an Outcome by resolving each account id against the CURRENT
@@ -422,6 +437,40 @@ mod tests {
         m.flip_turn();
         assert_eq!(m.input_mark("a"), EMPTY);
         assert_eq!(m.input_mark("b"), MARK_O);
+    }
+
+    #[test]
+    fn win_rows_post_one_for_winner_zero_for_loser() {
+        // Head-to-head: winner metric 1 / Finished, loser metric 0 / Finished.
+        let rows = win_rows(false, "x", "o");
+        assert_eq!(rows, vec![
+            ("x".to_string(), 1, 1, Status::Finished),
+            ("o".to_string(), 0, 2, Status::Finished),
+        ]);
+        // Solo: one account holds both seats — a single winning row, metric 1.
+        let solo = win_rows(true, "a", "a");
+        assert_eq!(solo, vec![("a".to_string(), 1, 1, Status::Finished)]);
+    }
+
+    #[test]
+    fn draw_rows_post_zero_for_both() {
+        let rows = draw_rows(false, "x", "o");
+        assert_eq!(rows, vec![
+            ("x".to_string(), 0, 1, Status::Finished),
+            ("o".to_string(), 0, 1, Status::Finished),
+        ]);
+        let solo = draw_rows(true, "a", "a");
+        assert_eq!(solo, vec![("a".to_string(), 0, 1, Status::Finished)]);
+    }
+
+    #[test]
+    fn forfeit_rows_award_the_winner_and_dnf_the_leaver() {
+        // Forfeit-by-leave: winner metric 1 / Finished, leaver metric 0 / Dnf.
+        let rows = forfeit_rows("x", "o");
+        assert_eq!(rows, vec![
+            ("x".to_string(), 1, 1, Status::Finished),
+            ("o".to_string(), 0, 2, Status::Dnf),
+        ]);
     }
 
     #[test]

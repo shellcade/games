@@ -1,7 +1,7 @@
 github.com/extism/go-pdk v1.1.3 h1:hfViMPWrqjN6u67cIYRALZTZLk/enSPpNKa+rZ9X2SQ=
 github.com/extism/go-pdk v1.1.3/go.mod h1:Gz+LIU/YCKnKXhgge8yo5Yu1F/lbv7KtKFkiCSzW/P4=
-github.com/shellcade/kit/v2 v2.10.0 h1:Lf15Znc2i2eLA9W6n7YCBTMB2pdBKkue9sw49wyDb/E=
-github.com/shellcade/kit/v2 v2.10.0/go.mod h1:6OXhYu2vu468CiBcO8ps8DVlGdvOdAFGr3ZK4Z2VNgk=
+github.com/shellcade/kit/v2 v2.11.0 h1:JCdxEn7hgspkhQGsPJCGiJxm8sNBxdp4k/ujyNl8lgw=
+github.com/shellcade/kit/v2 v2.11.0/go.mod h1:6OXhYu2vu468CiBcO8ps8DVlGdvOdAFGr3ZK4Z2VNgk=
 golang.org/x/sys v0.44.0 h1:ildZl3J4uzeKP07r2F++Op7E9B29JRUy+a27EibtBTQ=
 golang.org/x/sys v0.44.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
 golang.org/x/term v0.43.0 h1:S4RLU2sB31O/NCl+zFN9Aru9A/Cq2aqKpTZJ6B+DwT4=

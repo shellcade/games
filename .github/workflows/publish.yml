@@ -8,7 +8,7 @@ on:
 
 # Single source of truth for the toolchain — keep in lockstep with validate.yml.
 env:
-  KIT_VERSION: "2.10.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
+  KIT_VERSION: "2.11.1"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.1"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.26"
@@ -140,7 +140,7 @@ jobs:
             # Conformance-gate the artifact that actually ships: validate.yml
             # checks the -opt=1 dev build, so a release-profile-only miscompile
             # would otherwise reach the arcade unchecked.
-            ./shellcade-kit check "$d/game.wasm"
+            ./shellcade-kit check --require-leaderboard "$d/game.wasm"
 
             digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
             echo "digest: sha256:$digest"

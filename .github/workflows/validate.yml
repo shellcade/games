@@ -8,7 +8,7 @@ on:
 # requires a newer kit than this pinned engine, so a stale pin is caught
 # mechanically instead of by this comment.
 env:
-  KIT_VERSION: "2.10.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
+  KIT_VERSION: "2.11.1"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.1"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.26"
@@ -197,7 +197,9 @@ jobs:
             else
               echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
             fi
-            ./shellcade-kit check "$d/game.wasm"
+            # --require-leaderboard: every published game must declare a
+            # LeaderboardSpec so its results are recorded and ranked.
+            ./shellcade-kit check --require-leaderboard "$d/game.wasm"
 
             # Release-profile gate (TinyGo-only): publish.yml ships an -opt=2
             # wasm-opt'd binary — a DIFFERENT artifact than the -opt=1 dev
@@ -208,7 +210,7 @@ jobs:
             if [ -f "$d/go.mod" ]; then
               ( cd "$d" && tinygo build -opt=2 -no-debug -gc=conservative \
                   -o game-release.wasm -target wasip1 -buildmode=c-shared . )
-              ./shellcade-kit check "$d/game-release.wasm"
+              ./shellcade-kit check --require-leaderboard "$d/game-release.wasm"
               rm -f "$d/game-release.wasm"
             fi
 

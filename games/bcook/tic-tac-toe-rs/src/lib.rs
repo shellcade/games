@@ -35,6 +35,17 @@ impl Game for TicTacToe {
             // Opt in to arcade player characters (kit v2.9.0): every roster
             // member's Player.character arrives populated, and the render
             // places each player's tile beside their name.
+            // Record every match to the arcade board: a player's cumulative
+            // win count across all games, highest first, shown as a whole
+            // number. Each settle posts metric 1 to the winner and 0 to
+            // everyone else (draws post 0 for both), and SumResults adds those
+            // up over a player's history.
+            leaderboard: Some(Leaderboard {
+                metric_label: "Wins",
+                direction: Direction::HigherBetter,
+                aggregation: Aggregation::SumResults,
+                format: MetricFormat::Integer,
+            }),
             ctx_features: CTX_FEAT_CHARACTER,
             // Touch deck chips (kit v2.10.0): the board is played with the
             // digit keys, so declare all nine — on a phone they render as a
