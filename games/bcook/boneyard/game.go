@@ -130,7 +130,18 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 		}
 	}
 	if d, ok := rm.delvers[p.AccountID]; ok {
-		d.online = false       // the run persists; the target does not
+		d.online = false // the run persists; the target does not
+		// A delver who disconnects mid-run keeps their run in-world for a
+		// rejoin, but until then their banked progress would vanish from the
+		// board until a death or the weekly collapse banks them. Post the
+		// CURRENT banked depth as a DNF (the same metric death/collapse post),
+		// so a disconnected run still holds its place. BestResult keeps the
+		// weekly max, so a later death/rejoin can only raise it.
+		if d.banked > 0 {
+			r.Post(kit.Result{Rankings: []kit.PlayerResult{{
+				Player: p, Metric: d.banked, Rank: 1, Status: kit.StatusDNF,
+			}}})
+		}
 		rm.dirtyFloor(d.floor) // their @ vanishes from witnesses' views
 	}
 }
