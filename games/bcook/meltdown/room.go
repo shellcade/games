@@ -36,9 +36,22 @@ type room struct {
 	now     time.Time
 	lastNow time.Time
 
+	// Leaderboard posting. Survival is a shared co-op metric (every boarded crew
+	// member shares the run length), so each tracked member is recorded with the
+	// same value. The keeper posts live on improvement (Record), on disconnect
+	// (FlushLeave, OnLeave), and periodically (FlushAll) so an abandoned-but-
+	// ticking reactor keeps recording.
+	sk        *kit.ScoreKeeper
+	lastFlush time.Time // game-clock time of the last periodic flush
+
 	hold  *keyhold.Tracker // per-key held state, for FIRE hold-to-smother
 	frame *kit.Frame       // long-lived render buffer, reused every frame
 }
+
+// flushInterval is how much game time elapses between periodic FlushAll posts.
+// Gated on r.Now() (no wall clock, no RNG) so a forgotten, still-ticking
+// reactor keeps recording survival to the board.
+const flushInterval = 10 * time.Second
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 	rm := &room{
@@ -47,6 +60,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		crew:  map[string]*crewMember{},
 		names: map[string]kit.Player{},
 		core:  coreMax,
+		sk:    kit.NewScoreKeeper(kit.OnImprove),
 		hold:  keyhold.New(0),
 		frame: kit.NewFrame(),
 	}
@@ -147,6 +161,7 @@ func (rm *room) OnStart(r kit.Room) {
 	r.SetInputContext(kit.CtxNav)
 	rm.now = r.Now()
 	rm.startedAt = rm.now
+	rm.lastFlush = rm.now
 	rm.scheduleNextSpawn()
 }
 
@@ -189,6 +204,9 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	if m := rm.crew[p.AccountID]; m != nil {
 		m.joined = false
 	}
+	// Post the leaving crew member's current survival so a mid-run disconnect
+	// (or a host crash before OnClose) still reaches the board.
+	rm.sk.FlushLeave(r, p, kit.StatusDNF)
 	rm.render(r)
 }
 
@@ -357,9 +375,43 @@ func (rm *room) OnWake(r kit.Room) {
 		rm.core = 0
 		rm.phase = phaseOver
 		rm.survived = rm.now.Sub(rm.startedAt)
+		rm.postSurvival(r)
 		rm.recordResults(r)
+		rm.render(r)
+		return
 	}
+
+	rm.postSurvival(r)
+	rm.maybeFlush(r)
 	rm.render(r)
+}
+
+// postSurvival records the current shared survival time for every boarded crew
+// member. OnImprove means a Post only reaches the board when the whole-second
+// metric advances, so the steady state is one post per crew per survived
+// second — the live feed for the leaderboard.
+func (rm *room) postSurvival(r kit.Room) {
+	secs := int(rm.survivedSeconds())
+	for _, id := range rm.order {
+		m := rm.crew[id]
+		if m == nil || !m.joined {
+			continue
+		}
+		if p, ok := rm.names[id]; ok {
+			rm.sk.Record(r, p, secs)
+		}
+	}
+}
+
+// maybeFlush re-posts every tracked crew member's survival on a throttled
+// game-clock interval, so a reactor left ticking with nobody improving the
+// metric (or with no improvement since the last post) still keeps recording.
+func (rm *room) maybeFlush(r kit.Room) {
+	if rm.now.Sub(rm.lastFlush) < flushInterval {
+		return
+	}
+	rm.lastFlush = rm.now
+	rm.sk.FlushAll(r, kit.StatusFinished)
 }
 
 // step returns seconds since the last wake, clamped so a pause / hibernation
