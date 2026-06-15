@@ -209,6 +209,7 @@ func (rm *room) placeAtSpawn() {
 		ps.x = spawnX
 		ps.y = mid + (float64(i)-float64(n-1)/2)*1.6
 		ps.v = math.Min(math.Sqrt(launchV*launchV+2*gravity*1.6*float64(i)), vMax)
+		ps.gamma = 0
 		ps.pitch = 0
 		ps.alive = false
 		ps.flew = false
