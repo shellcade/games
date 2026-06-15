@@ -1,0 +1,78 @@
+name: kit-autobump
+# Event-driven kit bump for the catalog. Fired by the kit repo's release
+# (repository_dispatch type: kit-released, client_payload.version = vX.Y.Z) once
+# the module tag + shellcade-kit binary are published. Bumps every game module —
+# Go (go.mod) and Rust (Cargo.toml git tag) — in ONE grouped PR that auto-merges
+# when per-game build + conformance CI is green. workflow_dispatch is the manual
+# fallback.
+on:
+  repository_dispatch:
+    types: [kit-released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "kit version to pin (vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      # Bot token so the PR triggers validate.yml (which gates auto-merge).
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.KIT_BUMP_TOKEN }}
+      - uses: actions/setup-go@v6
+        with: { go-version: "1.26" }
+
+      - name: resolve version
+        id: v
+        run: |
+          ver="${{ github.event.inputs.version || github.event.client_payload.version }}"
+          ver="${ver#v}"
+          case "$ver" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::bad version '$ver'"; exit 1 ;;
+          esac
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: bump every game module (Go + Rust)
+        run: |
+          set -euo pipefail
+          ver="${{ steps.v.outputs.ver }}"
+          # Go modules: go get + tidy each that depends on kit.
+          while IFS= read -r mod; do
+            d="$(dirname "$mod")"
+            if grep -q 'github.com/shellcade/kit/v2' "$mod"; then
+              echo "go bump: $d"
+              ( cd "$d" && go get "github.com/shellcade/kit/v2@v${ver}" && go mod tidy )
+            fi
+          done < <(find games -name go.mod)
+          # Rust crates: rewrite the shellcade-kit git tag in place.
+          while IFS= read -r cargo; do
+            if grep -q 'shellcade-kit' "$cargo"; then
+              echo "rust bump: $(dirname "$cargo")"
+              sed -i -E 's#(shellcade-kit[[:space:]]*=[[:space:]]*\{.*tag[[:space:]]*=[[:space:]]*")v[0-9][^"]*(".*)#\1v'"${ver}"'\2#' "$cargo"
+            fi
+          done < <(find games -name Cargo.toml)
+
+      - name: open auto-merging PR
+        env:
+          GH_TOKEN: ${{ secrets.KIT_BUMP_TOKEN }}
+        run: |
+          ver="${{ steps.v.outputs.ver }}"
+          if git diff --quiet; then echo "all games already on kit v$ver"; exit 0; fi
+          branch="kit-bump/${ver}"
+          git config user.name "shellcade-bot"
+          git config user.email "bot@shellcade.com"
+          git switch -c "$branch"
+          git commit -am "bump kit to v${ver} across the catalog"
+          git push -u origin "$branch" --force-with-lease
+          gh pr create --title "Bump kit to v${ver} (catalog)" \
+            --body "Automated: kit v${ver} released. Bumps all game modules; auto-merges when CI is green." \
+            --head "$branch" --base main || true
+          gh pr merge --auto --squash "$branch"
