@@ -89,6 +89,28 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 
 func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	rm.now = r.Now()
+	// A golfer who quits mid-round still posts a leaderboard result so their
+	// progress isn't silently lost. The board is LOWER-better and the reader
+	// ranks a DNF row exactly like a finished one, so we must NOT post the raw
+	// partial total (a 2-hole quitter with 6 strokes would unfairly top the
+	// board). Instead post a fair full-round ESTIMATE: actual strokes on the
+	// COMPLETED holes plus par for every hole not yet completed.
+	//
+	// "Completed" means committed to g.scores — that's exactly the holes the
+	// final 9-hole total (g.total) counts. A hole in progress (g.strokes on the
+	// current hole) is deliberately treated as "remaining" and filled with par,
+	// matching the existing total computation.
+	if g, ok := rm.golfers[p.AccountID]; ok {
+		est := g.total()
+		for h := len(g.scores); h < len(holes); h++ {
+			est += holes[h].par
+		}
+		r.Post(kit.Result{Rankings: []kit.PlayerResult{{
+			Player: p,
+			Metric: est,
+			Status: kit.StatusDNF,
+		}}})
+	}
 	delete(rm.golfers, p.AccountID)
 	delete(rm.names, p.AccountID)
 	for i, id := range rm.order {
