@@ -36,6 +36,16 @@ const (
 
 	historyLen = 12 // recent winning numbers kept for the marquee
 
+	// peakFlushInterval throttles the periodic leaderboard flush. roulette is a
+	// continuous table whose rounds loop forever; a player can be seated while
+	// the table is abandoned mid-spin and never hit a NEW peak (so postPeak never
+	// fires). To keep the board "constantly saved" with seated players' current
+	// peaks, OnWake re-posts every tracked player on this game-time cadence —
+	// cheap, deterministic, gated on r.Now() (no wall clock, no timer). 10s is
+	// well inside the betting window so the flush never collides with a round
+	// one-shot, yet frequent enough that an idle table stays fresh on the board.
+	peakFlushInterval = 10 * time.Second
+
 	// wallet KV keys + merge rules, the casino pattern (balance: sum, the
 	// carryable bankroll; peak: max, the high-water mark + leaderboard metric).
 	keyBalance = "balance"
@@ -123,6 +133,12 @@ type room struct {
 	spunOnce  bool
 	history   []int // recent winning numbers, newest last
 
+	// sk mirrors every posted peak so the periodic flush can re-post all seated
+	// players in deterministic order; lastFlush is the game-time instant of the
+	// last FlushAll, throttling it to peakFlushInterval.
+	sk        *kit.ScoreKeeper
+	lastFlush time.Time
+
 	lastNow  time.Time
 	frame    *kit.Frame
 	groupBuf []betGroup // reused per-render scratch for the "your chips" summary
@@ -139,6 +155,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		cfg:      cfg,
 		svc:      svc,
 		players:  map[string]*player{},
+		sk:       kit.NewScoreKeeper(kit.OnImprove),
 		frame:    kit.NewFrame(),
 		chipBits: make([]uint8, len(masterBets)),
 	}
@@ -165,6 +182,7 @@ func (rm *room) freeColorIdx() int {
 
 func (rm *room) OnStart(r kit.Room) {
 	rm.lastNow = r.Now()
+	rm.lastFlush = r.Now()
 	rm.enterBetting(r)
 	rm.render(r)
 }
@@ -233,9 +251,9 @@ func (rm *room) postPeak(r kit.Room, pl *player) {
 		return
 	}
 	pl.postedPeak = pl.peak
-	r.Post(kit.Result{Rankings: []kit.PlayerResult{{
-		Player: pl.p, Metric: pl.peak, Status: kit.StatusFinished,
-	}}})
+	// Record (cadence OnImprove) posts the new high AND registers the player with
+	// the keeper so the periodic FlushAll re-posts them while seated.
+	rm.sk.Record(r, pl.p, pl.peak)
 }
 
 // --- roster ----------------------------------------------------------------
@@ -301,6 +319,14 @@ func (rm *room) OnWake(r kit.Room) {
 			rm.what = pendNone
 			rm.enterBetting(r)
 		}
+	}
+	// Periodic peak flush: on a throttled game-time cadence, re-post every
+	// tracked (seated) player's current peak so an abandoned, still-ticking
+	// table keeps the board "constantly saved". Gated purely on r.Now() — no
+	// wall clock, no RNG — so it stays deterministic under freeze/thaw.
+	if rm.lastNow.Sub(rm.lastFlush) >= peakFlushInterval {
+		rm.lastFlush = rm.lastNow
+		rm.sk.FlushAll(r, kit.StatusFinished)
 	}
 	rm.render(r)
 }
