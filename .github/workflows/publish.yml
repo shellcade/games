@@ -154,7 +154,7 @@ jobs:
             # checks the -opt=1 dev build, so a release-profile-only miscompile
             # would otherwise reach the arcade unchecked. Check the built
             # release wasm (not the dir) so this gates the exact bytes staged.
-            kit "$d" check game.wasm
+            kit "$d" check --require-leaderboard game.wasm
 
             digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
             echo "digest: sha256:$digest"

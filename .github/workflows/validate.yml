@@ -170,13 +170,13 @@ jobs:
               ( cd "$d" && tinygo build -opt=1 -no-debug -gc=conservative -o game.wasm -target wasip1 -buildmode=c-shared . )
               # Conformance-check the dev artifact. For Go the CLI accepts the
               # source dir directly (`check .` from inside $d).
-              kit "$d" check .
+              kit "$d" check --require-leaderboard .
             elif [ -f "$d/Cargo.toml" ]; then
               crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
               ( cd "$d" && cargo build --release --target wasm32-wasip1 )
               cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
               # Rust: the CLI operates on the built wasm (relative to $d).
-              kit "$d" check game.wasm
+              kit "$d" check --require-leaderboard game.wasm
             else
               echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
             fi
@@ -190,7 +190,7 @@ jobs:
             if [ -f "$d/go.mod" ]; then
               ( cd "$d" && tinygo build -opt=2 -no-debug -gc=conservative \
                   -o game-release.wasm -target wasip1 -buildmode=c-shared . )
-              kit "$d" check game-release.wasm
+              kit "$d" check --require-leaderboard game-release.wasm
               rm -f "$d/game-release.wasm"
             fi
 
