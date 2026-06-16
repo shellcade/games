@@ -21,7 +21,15 @@ on:
 env:
   GO_VERSION: "1.26"
   GOVULNCHECK_VERSION: "1.1.4"   # golang.org/x/vuln/cmd/govulncheck
-  CARGO_AUDIT_VERSION: "0.21.1"  # rustsec cargo-audit
+  CARGO_AUDIT_VERSION: "0.22.0"  # rustsec cargo-audit — 0.22.0 is the first
+                                 # release on rustsec 0.31 / cvss >=2.1, whose
+                                 # parser understands CVSS 4.0 advisory strings.
+                                 # 0.21.x pins cvss 2.0 and aborts loading the
+                                 # whole advisory DB ("unsupported CVSS version:
+                                 # 4.0") on any 4.0 advisory (e.g.
+                                 # RUSTSEC-2026-0073) — a tooling limit, not a
+                                 # vulnerable dep. Bump as new 4.x-style score
+                                 # versions appear in the RustSec DB.
 
 permissions:
   contents: read
