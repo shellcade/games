@@ -2,7 +2,7 @@ module shellcade.games/bcook/boneyard
 
 go 1.26.3
 
-require github.com/shellcade/kit/v2 v2.9.0
+require github.com/shellcade/kit/v2 v2.12.1
 
 require (
 	github.com/extism/go-pdk v1.1.3 // indirect
