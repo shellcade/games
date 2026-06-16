@@ -77,5 +77,12 @@ jobs:
             --head "$branch" --base main || true
           # Private org: GitHub auto-merge is a paid feature, so gate manually —
           # wait for the PR's CI to pass, then merge.
+          # The PR was just created — wait for its checks to REGISTER before
+          # watching ('gh pr checks' errors "no checks reported" if none exist yet,
+          # which would abort the merge on a race).
+          for i in $(seq 1 20); do
+            gh pr checks "$branch" >/dev/null 2>&1 && break
+            echo "waiting for CI checks to register ($i/20)"; sleep 15
+          done
           gh pr checks "$branch" --watch --interval 30 --fail-fast
           gh pr merge "$branch" --squash --delete-branch
