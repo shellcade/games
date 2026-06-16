@@ -25,7 +25,7 @@ jobs:
       # Bot token so the PR triggers validate.yml (which gates auto-merge).
       - uses: actions/checkout@v6
         with:
-          token: ${{ secrets.KIT_BUMP_TOKEN }}
+          token: ${{ secrets.KIT_RELEASE_TOKEN }}
       - uses: actions/setup-go@v6
         with: { go-version: "1.26" }
 
@@ -62,7 +62,7 @@ jobs:
 
       - name: open auto-merging PR
         env:
-          GH_TOKEN: ${{ secrets.KIT_BUMP_TOKEN }}
+          GH_TOKEN: ${{ secrets.KIT_RELEASE_TOKEN }}
         run: |
           ver="${{ steps.v.outputs.ver }}"
           if git diff --quiet; then echo "all games already on kit v$ver"; exit 0; fi
