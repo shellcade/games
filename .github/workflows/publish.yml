@@ -7,8 +7,11 @@ on:
   workflow_dispatch: {} # manual sanity runs (walks every game dir)
 
 # Single source of truth for the toolchain — keep in lockstep with validate.yml.
+# No pinned shellcade-kit binary: `check` runs the conformance CLI from the kit
+# module (cmd/shellcade-kit) at the version each game pins (go.mod for Go, the
+# Cargo.toml git tag for Rust), so the release artifact is verified by the same
+# version it was built against.
 env:
-  KIT_VERSION: "2.10.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.1"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.26"
@@ -87,20 +90,6 @@ jobs:
           tar xzf "$tarball"
           echo "$PWD/binaryen-${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
 
-      # Pin shellcade-kit to an exact release and verify the download against
-      # the release's checksums.txt before running it (same block as
-      # validate.yml) — `check` below gates the RELEASE artifact.
-      - name: shellcade-kit
-        if: steps.changed.outputs.dirs != ''
-        run: |
-          base="https://github.com/shellcade/kit/releases/download/v${KIT_VERSION}"
-          tarball="shellcade-kit_${KIT_VERSION}_linux_amd64.tar.gz"
-          curl -fsSL -o "$tarball" "$base/$tarball"
-          curl -fsSL -o checksums.txt "$base/checksums.txt"
-          grep " $tarball\$" checksums.txt | sha256sum -c -
-          tar xzf "$tarball"
-          ./shellcade-kit version
-
       - name: build, check, and stage per game
         if: steps.changed.outputs.dirs != ''
         env:
@@ -110,6 +99,30 @@ jobs:
           DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
           set -euo pipefail
+          # Run the conformance CLI from the kit MODULE at the version each game
+          # PINS, so the RELEASE artifact is verified by the same version it was
+          # built against — no separately pinned shellcade-kit binary. The
+          # version comes from the game's go.mod (Go) or Cargo.toml git tag
+          # (Rust); we `go run <pkg>@<version>`, resolving the CLI and its
+          # host-side deps from the module cache via the kit module's own
+          # go.sum. A bare `go run <pkg>` (no @version) does NOT work — the CLI
+          # imports host-only packages the game never does, so the game's go.sum
+          # lacks them. Requires the game to pin a kit version that ships
+          # cmd/shellcade-kit (>= v2.12.0). Runs from inside the game dir, so the
+          # wasm arg is relative.
+          kit() {
+            local gdir="$1"; shift
+            local ver
+            if [ -f "$gdir/go.mod" ]; then
+              ver=$( cd "$gdir" && go mod edit -json | jq -r '.Require[]? | select(.Path == "github.com/shellcade/kit/v2") | .Version' )
+            else
+              ver=$(sed -n 's/^shellcade-kit *= *{.*tag *= *"\(v[0-9][^"]*\)".*/\1/p' "$gdir/Cargo.toml" | head -1)
+            fi
+            if [ -z "$ver" ]; then
+              echo "::error::$gdir: could not determine the pinned kit version (go.mod require / Cargo.toml git tag)"; exit 1
+            fi
+            ( cd "$gdir" && go run "github.com/shellcade/kit/v2/cmd/shellcade-kit@${ver}" "$@" )
+          }
           mkdir -p dist
           while read -r d; do
             [ -z "$d" ] && continue
@@ -139,8 +152,9 @@ jobs:
 
             # Conformance-gate the artifact that actually ships: validate.yml
             # checks the -opt=1 dev build, so a release-profile-only miscompile
-            # would otherwise reach the arcade unchecked.
-            ./shellcade-kit check "$d/game.wasm"
+            # would otherwise reach the arcade unchecked. Check the built
+            # release wasm (not the dir) so this gates the exact bytes staged.
+            kit "$d" check game.wasm
 
             digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
             echo "digest: sha256:$digest"
