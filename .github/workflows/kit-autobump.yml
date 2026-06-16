@@ -75,4 +75,7 @@ jobs:
           gh pr create --title "Bump kit to v${ver} (catalog)" \
             --body "Automated: kit v${ver} released. Bumps all game modules; auto-merges when CI is green." \
             --head "$branch" --base main || true
-          gh pr merge --auto --squash "$branch"
+          # Private org: GitHub auto-merge is a paid feature, so gate manually —
+          # wait for the PR's CI to pass, then merge.
+          gh pr checks "$branch" --watch --interval 30 --fail-fast
+          gh pr merge "$branch" --squash --delete-branch
