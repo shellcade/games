@@ -86,6 +86,12 @@ type room struct {
 	randState    uint32 // LCG state for cosmetic scatter + CPU jitter
 
 	frame *kit.Frame
+
+	// sk standardises the durable career-wins KV write (PersistBest, MergeMax),
+	// replacing the hand-rolled Store().Set in awardWin. The leaderboard Post
+	// stays hand-rolled there: a win always increments the total, so the post is
+	// already monotonic and inseparable from the win announcement.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -98,6 +104,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		cpuWanted:  soloTanks - 1, // a lone player defaults to two CPU foes
 		difficulty: 1,             // NORMAL
 		frame:      kit.NewFrame(),
+		sk:         kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -635,10 +642,7 @@ func (rm *room) settleDone() bool {
 func (rm *room) awardWin(r kit.Room, t *tank) {
 	rm.wins[t.id]++
 	total := rm.wins[t.id]
-	acct := r.Services().Accounts.For(t.player)
-	if acct != nil {
-		_ = acct.Store().Set(context.Background(), "wins", []byte(strconv.Itoa(total)), kit.MergeMax)
-	}
+	rm.sk.PersistBest(r, t.player, "wins", total)
 	r.Post(kit.Result{Rankings: []kit.PlayerResult{{
 		Player: t.player, Metric: total, Status: kit.StatusFinished,
 	}}})
