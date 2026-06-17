@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
-	github.com/shellcade/kit/v2 v2.12.1
+	github.com/shellcade/kit/v2 v2.13.0
 )
 
 require (
