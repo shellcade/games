@@ -46,6 +46,13 @@ type room struct {
 	lastNow time.Time
 
 	frame *kit.Frame // long-lived render buffer, reused every frame (Send copies)
+
+	// sk standardises the durable best-survival KV write (PersistBest, MergeMax),
+	// replacing the hand-rolled Store().Set in persistBest. The leaderboard Post
+	// stays hand-rolled in bankRun because it posts each RUN's seconds (not just
+	// new bests), which ScoreKeeper.Record's improve/change cadence would not
+	// reproduce.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -55,6 +62,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		players: map[string]*player{},
 		names:   map[string]kit.Player{},
 		frame:   kit.NewFrame(),
+		sk:      kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -460,9 +468,5 @@ func (rm *room) persistBest(r kit.Room, id string) {
 	if pl == nil || !ok {
 		return
 	}
-	acct := r.Services().Accounts.For(p)
-	if acct == nil {
-		return
-	}
-	_ = acct.Store().Set(context.Background(), "best_secs", []byte(strconv.Itoa(pl.bestSecs)), kit.MergeMax)
+	rm.sk.PersistBest(r, p, "best_secs", pl.bestSecs)
 }

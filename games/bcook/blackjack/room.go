@@ -116,10 +116,18 @@ type room struct {
 	schedEnd time.Time
 
 	frame *kit.Frame // reused render scratch (allocation-light steady state)
+
+	// sk standardises the durable-wallet KV writes (PersistWallet), replacing
+	// the duplicated persistWallet helper. The leaderboard Post stays
+	// hand-rolled in postPeak because postedPeak is seeded from the durable peak
+	// at join — so a returning seat only posts on a NEW personal best, which
+	// ScoreKeeper.Record (always posts the first observed value) would not
+	// preserve.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
-	return &room{cfg: cfg, svc: svc, seats: map[string]*seat{}, frame: kit.NewFrame()}
+	return &room{cfg: cfg, svc: svc, seats: map[string]*seat{}, frame: kit.NewFrame(), sk: kit.NewScoreKeeper(kit.OnImprove)}
 }
 
 func (rm *room) OnStart(r kit.Room) {
@@ -177,14 +185,10 @@ func (rm *room) seedWallet(r kit.Room, p kit.Player) (balance, peak int) {
 // persistWallet writes the seat's balance and raises peak to >= balance, with
 // the same keys/merge rules the native casino package used (sum for balance, max
 // for peak — out-of-order or concurrent writes can never regress the metric).
+// Delegates to the kit's ScoreKeeper.PersistWallet, which writes the identical
+// keys + merge rules, replacing the duplicated casino-wallet helper.
 func (rm *room) persistWallet(r kit.Room, s *seat) {
-	acct := r.Services().Accounts.For(s.p)
-	if acct == nil {
-		return
-	}
-	store := acct.Store()
-	_ = store.Set(context.Background(), keyBalance, []byte(strconv.Itoa(s.chips)), kit.MergeSum)
-	_ = store.Set(context.Background(), keyPeak, []byte(strconv.Itoa(s.highScore)), kit.MergeMax)
+	rm.sk.PersistWallet(r, s.p, keyBalance, s.chips, keyPeak, s.highScore)
 }
 
 // postPeak feeds the declared leaderboard with a new personal peak (the board
