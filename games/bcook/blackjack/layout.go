@@ -11,10 +11,11 @@ import (
 // Felt-table geometry (a casino table): a rounded felt frame with the dealer
 // centred up top and up to five player seats along the rail.
 const (
-	feltTop    = 1
-	feltBottom = 19
-	dealerRow  = 4 // dealer card group occupies dealerRow..dealerRow+2
-	taglineRow = 8
+	feltTop      = 1
+	feltBottom   = 19
+	dealerRow    = 4 // dealer card group occupies dealerRow..dealerRow+2
+	dealerValRow = 7 // dealer total / verdict, centred just below the cards
+	taglineRow   = 9
 
 	seatNameRow = 11
 	seatCardRow = 12 // seat card group occupies seatCardRow..seatCardRow+2
@@ -108,19 +109,32 @@ func (rm *room) drawDealer(f *kit.Frame) {
 	if rm.dealerHole {
 		hide = 1
 	}
-	w := cardsWidth(len(rm.dealer))
+	// Size and centre the row to the cards actually on the table (dealt cards
+	// plus any hit already arriving), and draw only those — so a pending hit's
+	// slot never appears before the hole card is turned over and that hit begins
+	// to slide in.
+	lc := rm.dealerLayoutCount()
+	w := cardsWidth(lc)
 	col := (kit.Cols - w) / 2
-	drawCardsAnim(f, dealerRow, col, rm.dealer, hide, rm.dealerResolver())
-	show := rm.dealer.total()
-	label := fmt.Sprintf("(%d)", show)
-	if rm.dealerHole {
+	drawCardsAnim(f, dealerRow, col, rm.dealer[:lc], hide, rm.dealerResolver())
+	// The total and the verdict read off only the cards shown face up so far,
+	// never the authoritative hand — so the number ticks up and BUST/BLACKJACK
+	// appear as each card lands, not the instant the hand is dealt behind the
+	// scenes. Centred just below the cards (like each seat's value line) and
+	// coloured by outcome so the dealer's result reads at a glance.
+	shown := rm.dealer[:rm.dealerShownCount()]
+	label, st := fmt.Sprintf("(%d)", shown.total()), stDim
+	switch {
+	case len(shown) < 2:
+		// Only the up card is face up — while the hole is concealed, mid lead-in,
+		// or mid-flip — so report what the dealer is showing, not a phantom total.
 		label = fmt.Sprintf("shows %d", hand{rm.dealer[0]}.total())
-	} else if rm.dealer.isBlackjack() {
-		label = "BLACKJACK"
-	} else if rm.dealer.isBust() {
-		label = "BUST"
+	case shown.isBlackjack():
+		label, st = "BLACKJACK", stWin
+	case shown.isBust():
+		label, st = "BUST", stLose
 	}
-	f.Text(dealerRow+1, col+w+2, label, stDim)
+	center(f, dealerValRow, label, st)
 }
 
 func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
@@ -189,10 +203,21 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
 		col += w + 1
 		vals = append(vals, valueLabel(h.cards))
 	}
-	centerSlot(f, seatValRow, slot, strings.Join(vals, " "), valueStyle(s))
-	centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+	// During results the value line doubles as the ready indicator: a readied
+	// seat shows READY where its hand total was, so who's holding up the table
+	// reads at a glance.
+	valStr, valSt := strings.Join(vals, " "), valueStyle(s)
+	if rm.phase == phResults && s.ready {
+		valStr, valSt = "READY", stWin
+	}
+	centerSlot(f, seatValRow, slot, valStr, valSt)
+	// The chip line carries the settlement summary during results, drawn instead
+	// of the stack (not over it) — a shorter result like "PUSH" centred over the
+	// wider "$1000" would otherwise leave a stray digit peeking out beside it.
 	if rm.phase == phResults && s.result != "" {
 		centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
+	} else {
+		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
 	}
 }
 
@@ -219,10 +244,17 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 			msg, st = "all bets in - dealing...", stPhase
 		}
 	case phInsurance:
-		if s.placed && !s.insuranceDecided {
+		switch n := rm.insuranceUndecidedCount(); {
+		case s.placed && !s.insuranceDecided:
 			msg = "Dealer shows an Ace - Insurance?   [Y]es   [N]o"
-		} else {
-			msg, st = "waiting for insurance...", stDim
+		case n > 0:
+			noun := "player"
+			if n != 1 {
+				noun = "players"
+			}
+			msg, st = fmt.Sprintf("waiting on %d %s for insurance - %s", n, noun, clock(rm.remaining())), stDim
+		default:
+			msg, st = "resolving insurance...", stDim
 		}
 	case phTurns:
 		switch {
@@ -236,9 +268,26 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 			// rather than through the centered-string path.
 			centerWithChar(f, actionRow, "waiting on ", kit.CharacterCell(active.p.Character), active.p.Handle+"...", stDim)
 			return
+		default:
+			// No hand left on turn: every player has resolved and the dealer is
+			// turning its hole card and drawing. Name the moment so the slow
+			// reveal reads as the dealer acting rather than a frozen table.
+			msg, st = "dealer plays...", stDim
 		}
 	case phResults:
-		msg, st = "round over - next hand shortly", stDim
+		switch n := rm.unreadyCount(); {
+		case !s.ready:
+			// Prominent call to ready up for the viewer who hasn't yet.
+			msg, st = "round over - SPACE to ready up for the next hand", stPrompt
+		case n > 0:
+			noun := "player"
+			if n != 1 {
+				noun = "players"
+			}
+			msg, st = fmt.Sprintf("ready - waiting on %d %s (next hand in %s)", n, noun, clock(rm.remaining())), stDim
+		default:
+			msg, st = "all ready - next hand starting...", stPhase
+		}
 	}
 	if msg != "" {
 		center(f, actionRow, msg, st)
@@ -328,6 +377,59 @@ func (rm *room) seatResolver(p kit.Player, handIdx int, h *phand) func(i int) ca
 		}
 		return face
 	}
+}
+
+// dealerCardFaceUp reports whether dealer card i currently shows its face at the
+// latest composed instant: the concealed hole card never does, a settled (or
+// unscheduled) card always does, and an animating card only once its slide has
+// landed and its reveal flip has turned far enough to expose the face. It reads
+// only the recorded schedule and the frozen clock.
+func (rm *room) dealerCardFaceUp(i int) bool {
+	if rm.dealerHole && i == 1 {
+		return false // hole card still concealed
+	}
+	a, ok := rm.animFor(animDealer, kit.Player{}, 0, i)
+	if !ok {
+		return true // settled or no animation -> face up
+	}
+	if a.slideProgress(rm.lastNow) < 1 {
+		return false // still gliding in
+	}
+	frame, _ := a.flipFrame(rm.lastNow)
+	return frame == 2 // face exposed only on the final flip frame
+}
+
+// dealerLayoutCount is how many dealer cards occupy the table right now: the two
+// dealt cards plus any hit that has actually begun sliding in. A hit that is
+// scheduled but has not yet started arriving is excluded, so the row is only as
+// wide as the cards on show and the next hit's arrival is announced by its slide
+// — never by a slot reserved before the hole card has even been turned over.
+func (rm *room) dealerLayoutCount() int {
+	n := 0
+	for i := range rm.dealer {
+		if i >= 2 {
+			if a, ok := rm.animFor(animDealer, kit.Player{}, 0, i); ok && rm.lastNow.Before(a.slideStart) {
+				break // this hit has not begun arriving yet, nor have any after it
+			}
+		}
+		n++
+	}
+	return n
+}
+
+// dealerShownCount is how many leading dealer cards are face up right now. The
+// dealer reveals strictly in order — up card, then the hole flip, then each hit
+// in turn — so the shown set is always this contiguous prefix, and the displayed
+// total/verdict slice off it without allocating.
+func (rm *room) dealerShownCount() int {
+	n := 0
+	for i := range rm.dealer {
+		if !rm.dealerCardFaceUp(i) {
+			break
+		}
+		n++
+	}
+	return n
 }
 
 // dealerResolver returns the dealer row's per-card animation resolver.

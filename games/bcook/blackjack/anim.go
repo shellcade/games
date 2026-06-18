@@ -22,9 +22,27 @@ const (
 	// slot, and flipDur is the back -> edge -> face reveal that follows.
 	slideDur = 260 * time.Millisecond
 	flipDur  = 240 * time.Millisecond
-	// holePause is the one-beat hold before the dealer draws, covering the
-	// hole-card flip on reveal.
-	holePause = 600 * time.Millisecond
+
+	// The dealer's reveal is paced far more deliberately than the initial deal
+	// sweep: players need to watch the hole card turn over and read each hit as
+	// it lands, one card at a time, rather than the cards flashing in back to
+	// back at dealStagger.
+	//
+	//   - holeRevealDelay is the lead-in beat after the dealer's turn begins and
+	//     before the hole card starts to turn, so the reveal reads as the dealer
+	//     pausing then flipping the card rather than it snapping over the instant
+	//     play ends. The card sits face down through this beat, then flips.
+	//   - holeRevealHold is the beat the table holds on the just-turned hole card
+	//     (the dealer's two-card total) before the first hit slides in.
+	//   - dealerDrawGap is the pause between one hit fully landing and the next
+	//     beginning to slide — the dealer reading the table and deciding to draw
+	//     again. Far longer than dealStagger so hits never overlap.
+	//   - dealerDoneHold is the final beat on the completed dealer hand (its made
+	//     total, blackjack, or bust) before the round settles to results.
+	holeRevealDelay = 500 * time.Millisecond
+	holeRevealHold  = 700 * time.Millisecond
+	dealerDrawGap   = 450 * time.Millisecond
+	dealerDoneHold  = 800 * time.Millisecond
 )
 
 // animKind distinguishes where an animated card lands.
