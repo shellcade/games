@@ -15,7 +15,6 @@ import (
 func space() kit.Input    { return kit.Input{Kind: kit.InputRune, Rune: ' '} }
 func keyUp() kit.Input    { return kit.Input{Kind: kit.InputKey, Key: kit.KeyUp} }
 func keyDown() kit.Input  { return kit.Input{Kind: kit.InputKey, Key: kit.KeyDown} }
-func keyLeft() kit.Input  { return kit.Input{Kind: kit.InputKey, Key: kit.KeyLeft} }
 func keyRight() kit.Input { return kit.Input{Kind: kit.InputKey, Key: kit.KeyRight} }
 
 // newGame builds a started room handler plus its driving kittest.Room.
