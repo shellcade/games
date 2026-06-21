@@ -35,6 +35,8 @@ func TestCabinetRendersCharacterTile(t *testing.T) {
 	p.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
+	rm.render(r)
 
 	f := r.LastFrame(p)
 	if f == nil {

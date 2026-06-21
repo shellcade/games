@@ -79,6 +79,7 @@ func TestFreeSpinsAutoPlayToCompletion(t *testing.T) {
 		Paytable: []payEntry{{Faces: "7", Multiplier: 20}},
 	})
 	h.OnJoin(r, p)
+	seatAt0(t, h, p)
 	m := h.machines[p.AccountID]
 	m.freeSpins, m.freeBet, m.freeVar = 3, 10, h.variant
 	m.balance = 1000

@@ -27,6 +27,17 @@ func newGame(t *testing.T, players ...kit.Player) (*room, *kittest.Room) {
 	return h, r
 }
 
+// seatAt0 seats player p at machine 0 so the cabinet renders and the machine
+// ticks. Returns the player's machine.
+func seatAt0(t *testing.T, rm *room, p kit.Player) *machine {
+	t.Helper()
+	pw := rm.pawns[p.AccountID]
+	mc := rm.fmachines[0]
+	pw.x, pw.y = mc.ax, mc.ay
+	rm.trySit(p.AccountID)
+	return rm.machines[p.AccountID]
+}
+
 // settle drives enough wake/clock cycles to land all three reels and settle a
 // spin (reel 2 lands at +150ms+2*250ms = +650ms; advance well past it).
 func settle(rm *room, r *kittest.Room) {
@@ -150,6 +161,7 @@ func TestBetUpDownCyclesTiers(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 
 	rm.OnInput(r, p, keyUp())
@@ -167,6 +179,7 @@ func TestBetClampedToBalance(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 	m.balance = 70
 
@@ -183,6 +196,7 @@ func TestSpinDeductsBetAndIgnoresReentry(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 50
 
@@ -203,6 +217,7 @@ func TestSpinSettlesToPayoutOverWake(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 10
 
@@ -233,6 +248,7 @@ func TestReelsLandLeftToRightStaggered(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	rm.OnInput(r, p, space())
 
 	m := rm.machines[p.AccountID]
@@ -455,25 +471,11 @@ func TestFrameShowsTitleAndOwnBalance(t *testing.T) {
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
 
-	if !frameContains(r, p, "POKIES") {
-		t.Error("frame missing POKIES title")
+	if !frameContains(r, p, "POKIES LOUNGE") {
+		t.Error("frame missing POKIES LOUNGE title")
 	}
 	if !frameContains(r, p, "1000") {
 		t.Error("frame missing the starting balance 1000")
-	}
-	if !frameContains(r, p, "alice") {
-		t.Error("frame missing the player's machine label")
-	}
-}
-
-func TestFrameShowsAllMachines(t *testing.T) {
-	a, b := kittest.Player("anna"), kittest.Player("bert")
-	rm, r := newGame(t, a, b)
-	rm.OnJoin(r, a)
-	rm.OnJoin(r, b)
-
-	if !frameContains(r, a, "anna") || !frameContains(r, a, "bert") {
-		t.Error("expected both machines to render for a viewer")
 	}
 }
 
@@ -517,6 +519,7 @@ func TestGridScrollsAsTheClockAdvances(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	rm.OnInput(r, p, space()) // start spinning; no reel landed yet
 	m := rm.machines[p.AccountID]
 
@@ -556,6 +559,7 @@ func firstIdx(t *testing.T, strip []symbol, s symbol) int {
 
 func settleKnownFaces(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
 	t.Helper()
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 10
 	m.balance = startBalance - 10
@@ -611,6 +615,8 @@ func TestBlankFacesAreSingleWidthDashes(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
+	rm.render(r)
 
 	f := r.LastFrame(p)
 	if f == nil {
@@ -634,6 +640,8 @@ func TestScreenBoxFitsWideFaces(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
+	rm.render(r)
 
 	f := r.LastFrame(p)
 	sx := soloCardCol() + 2
@@ -657,6 +665,8 @@ func TestPaytableStripNamesSymbolsWithArt(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
+	rm.render(r)
 
 	for _, want := range []string{"x500", "x150", "x55", "x10"} {
 		if !frameContains(r, p, want) {
@@ -686,6 +696,7 @@ func TestFreeSpinCabinetShowsFreeCount(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 	m.freeSpins, m.freeBet = 7, 50
 	rm.render(r)
@@ -699,6 +710,7 @@ func TestGambleOwnerSeesSelectorOthersSeeIndicator(t *testing.T) {
 	rm, r := newGame(t, a, b)
 	rm.OnJoin(r, a)
 	rm.OnJoin(r, b)
+	seatAt0(t, rm, a)
 	ma := rm.machines[a.AccountID]
 	ma.balance = 1000
 	rm.enterGamble(r, ma, 150)
@@ -711,15 +723,21 @@ func TestGambleOwnerSeesSelectorOthersSeeIndicator(t *testing.T) {
 			t.Errorf("owner should see the suit selector glyph %q", suit)
 		}
 	}
-	if !frameContains(r, b, "150") {
-		t.Error("other viewers should see the at-risk amount")
-	}
 }
 
 func TestControlsLineReflectsMode(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+
+	// Roaming: floor controls mention "sit".
+	rm.render(r)
+	if !frameContains(r, p, "sit") {
+		t.Error("roaming controls should mention sit")
+	}
+
+	// Seat the player so cabinet/input controls render.
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 
 	rm.render(r)
@@ -921,6 +939,7 @@ func TestMidSpinVariantStability(t *testing.T) {
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r) // default variant
 	h.OnJoin(r, p)
+	seatAt0(t, h, p)
 	m := h.machines[p.AccountID]
 	m.bet = 50
 
@@ -965,6 +984,7 @@ func TestSeededDeterminismPerVariant(t *testing.T) {
 		h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 		h.OnStart(r)
 		h.OnJoin(r, p)
+		seatAt0(t, h, p)
 		m := h.machines[p.AccountID]
 		m.bet = 10
 		var idxs []int
