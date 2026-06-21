@@ -98,55 +98,83 @@ func (rm *room) render(r kit.Room) {
 	}
 }
 
+// drawTicker renders the room-wide big-win banner onto row 1 when active.
+// The winner's character tile (kit v2.9.0) rides immediately before their name
+// (ticker text starts with the name); a zero character degrades to the plain
+// centred banner.
+func (rm *room) drawTicker(f *kit.Frame) {
+	if ch := rm.ticker.ch; ch.Glyph != "" {
+		w := 2 + 2 + len([]rune(rm.ticker.text)) + 2
+		c := f.Text(1, (kit.Cols-w)/2, "* ", stTicker)
+		f.Set(1, c, kit.CharacterCell(ch))
+		f.Text(1, c+2, rm.ticker.text+" *", stTicker)
+	} else {
+		msg := "* " + rm.ticker.text + " *"
+		f.Text(1, (kit.Cols-len(msg))/2, msg, stTicker)
+	}
+}
+
 func (rm *room) compose(v kit.Player) *kit.Frame {
 	f := composeFrame
 	f.Clear()
 
-	f.Text(0, 2, "*** POKIES ***", stTitle)
-	f.TextRight(0, kit.Cols-2, "pull the lever - chase your high score", stDim)
+	pw := rm.pawns[v.AccountID]
+	if pw != nil && pw.seated {
+		rm.composeSeated(f, v)
+		return f
+	}
+	rm.composeFloor(f, v)
+	return f
+}
 
+func (rm *room) composeFloor(f *kit.Frame, v kit.Player) {
+	f.Text(0, 2, "*** POKIES LOUNGE ***", stTitle)
 	if rm.tickerActive(rm.lastNow) {
-		// The winner's character tile (kit v2.9.0) rides immediately before
-		// their name (ticker text starts with the name); a zero character
-		// degrades to the plain centered banner.
-		if ch := rm.ticker.ch; ch.Glyph != "" {
-			w := 2 + 2 + len([]rune(rm.ticker.text)) + 2
-			c := f.Text(1, (kit.Cols-w)/2, "* ", stTicker)
-			f.Set(1, c, kit.CharacterCell(ch))
-			f.Text(1, c+2, rm.ticker.text+" *", stTicker)
-		} else {
-			msg := "* " + rm.ticker.text + " *"
-			f.Text(1, (kit.Cols-len(msg))/2, msg, stTicker)
-		}
+		rm.drawTicker(f)
 	}
-
-	n := len(rm.order)
-	if n > maxMachines {
-		n = maxMachines
-	}
-	if n > 0 {
-		group := n*cardW + (n-1)*gutter
-		start := (kit.Cols - group) / 2
-		for i := 0; i < n; i++ {
-			id := rm.order[i]
-			rm.drawCard(f, start+i*(cardW+gutter), cardTop, id, id == v.AccountID)
-		}
-	}
-
-	rm.drawPaytable(f, payRowY)
-
-	controls := "Up/Down bet   SPACE spin   Esc leave"
+	rm.drawFloor(f, v)
+	f.Text(kit.Rows-1, 2, "Arrows move   SPACE sit   Esc leave", stDim)
 	if m := rm.machines[v.AccountID]; m != nil {
+		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.balance, m.highScore), stDim)
+	}
+}
+
+func (rm *room) composeSeated(f *kit.Frame, v kit.Player) {
+	id := v.AccountID
+	pw := rm.pawns[id]
+	var mc *floorMachine
+	if pw != nil {
+		mc = rm.machineByID(pw.seat)
+	}
+	title := "*** POKIES ***"
+	if mc != nil {
+		title = "*** " + mc.name + " ***"
+	}
+	f.Text(0, 2, title, stTitle)
+	if rm.tickerActive(rm.lastNow) {
+		rm.drawTicker(f)
+	}
+	col := (kit.Cols - cardW) / 2
+	rm.drawCard(f, col, cardTop, id, true)
+	rm.drawPaytableFor(f, payRowY, rm.seatVariant(id))
+	controls := "Up/Down bet   SPACE spin   Esc stand"
+	if m := rm.machines[id]; m != nil {
 		switch {
 		case m.gamble != nil:
-			controls = "Arrows pick   SPACE lock/take   Esc leave"
+			controls = "Arrows pick   SPACE lock/take   Esc stand"
 		case m.freeSpins > 0:
-			controls = "FREE SPINS auto-playing...   Esc leave"
+			controls = "FREE SPINS auto-playing...   Esc stand"
 		}
 		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.balance, m.highScore), stDim)
 	}
 	f.Text(kit.Rows-1, 2, controls, stDim)
-	return f
+}
+
+func (rm *room) seatVariant(id string) *variant {
+	if pw := rm.pawns[id]; pw != nil && pw.seated && pw.seat >= 0 && pw.seat < len(rm.themes) {
+		return rm.themes[pw.seat]
+	}
+	return rm.variant
 }
 
 // drawCard renders one rounded cabinet at (col,top).
@@ -317,13 +345,12 @@ func (rm *room) drawGamble(f *kit.Frame, col, top int, m *machine, own bool) {
 	f.Text(top+9, col+1, "SPACE pick", stGamOpt)
 }
 
-// drawPaytable centers the active variant's paying triples on one row under
+// drawPaytableFor centers the given variant's paying triples on one row under
 // the cabinets — "7️⃣7️⃣7️⃣ x500   💎💎💎 x150  …" — naming each symbol with its
 // reel art. Width is computed up front (each glyph is declared width-2) so the
 // strip centers; an absurd admin variant that overflows simply clamps at the
 // canvas edges (SetGraphemeWide/SetRune refuse out-of-bounds writes).
-func (rm *room) drawPaytable(f *kit.Frame, row int) {
-	v := rm.variant
+func (rm *room) drawPaytableFor(f *kit.Frame, row int, v *variant) {
 	if v == nil {
 		return
 	}
@@ -349,6 +376,12 @@ func (rm *room) drawPaytable(f *kit.Frame, row int) {
 		}
 		col = f.Text(row, col, labels[i], stLabel)
 	}
+}
+
+// drawPaytable is a thin wrapper around drawPaytableFor using the room's
+// active variant; kept so existing callers (including alloc tests) compile.
+func (rm *room) drawPaytable(f *kit.Frame, row int) {
+	rm.drawPaytableFor(f, row, rm.variant)
 }
 
 // border draws a rounded horizontal edge with the given left/right corners.

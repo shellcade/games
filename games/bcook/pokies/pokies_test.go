@@ -987,3 +987,27 @@ func TestSeededDeterminismPerVariant(t *testing.T) {
 		}
 	}
 }
+
+func TestFloorRendersCharacterAvatars(t *testing.T) {
+	a := kittest.Player("anna")
+	a.Character = kit.Character{Glyph: "@"}
+	b := kittest.Player("bert")
+	b.Character = kit.Character{Glyph: "&"}
+	rm, r := newGame(t, a, b)
+	rm.OnJoin(r, a)
+	rm.OnJoin(r, b)
+	// Place both near each other so both are in A's camera window.
+	pa, pb := rm.pawns[a.AccountID], rm.pawns[b.AccountID]
+	pa.x, pa.y = 20, 18
+	pb.x, pb.y = 22, 18
+	rm.render(r)
+	if !frameContains(r, a, "@") {
+		t.Error("viewer should see their own character glyph on the floor")
+	}
+	if !frameContains(r, a, "&") {
+		t.Error("viewer should see another player's character glyph")
+	}
+	if !frameContains(r, a, "bert") {
+		t.Error("other players should be name-labelled")
+	}
+}
