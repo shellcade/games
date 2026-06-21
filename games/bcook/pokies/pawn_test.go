@@ -61,6 +61,9 @@ func TestSitAndStand(t *testing.T) {
 	if pa.x != mc.ax || pa.y != mc.ay {
 		t.Fatalf("after standing pawn at (%d,%d), want approach (%d,%d)", pa.x, pa.y, mc.ax, mc.ay)
 	}
+	if rm.machines[a.AccountID].seatVar != nil {
+		t.Error("standing should clear the seated variant binding")
+	}
 }
 
 func TestJoinSpawnsPawnAtEntrance(t *testing.T) {

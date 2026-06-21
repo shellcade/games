@@ -76,6 +76,9 @@ func (rm *room) standUp(id string) {
 	}
 	delete(rm.occupied, pw.seat)
 	pw.seated, pw.seat = false, -1
+	if m := rm.machines[id]; m != nil {
+		m.seatVar = nil
+	}
 }
 
 func (rm *room) machineByID(id int) *floorMachine {
