@@ -10,7 +10,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:              "scratchies",
 		Name:              "Scratchies",
-		ShortDescription:  "Duck into the newsagent, buy an instant scratch-it, and peel the latex off panel by panel. 16 tickets, four price tiers, one dream jackpot.",
+		ShortDescription:  "Duck into the newsagent, buy an instant scratch-it, and peel the latex off panel by panel. 26 tickets, nine games, one dream jackpot.",
 		MinPlayers:        1,
 		MaxPlayers:        6,
 		Tags:              []string{"casino", "luck", "scratch-card", "instant-win", "solo"},

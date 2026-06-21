@@ -44,6 +44,11 @@ type room struct {
 	lastNow time.Time
 
 	frame *kit.Frame // long-lived render buffer, reused every frame (Send copies)
+
+	// sk posts each pilot's all-time-best kill count to the leaderboard: live on
+	// every new high (OnImprove), and once more on disconnect (FlushLeave/DNF) so
+	// a mid-game leave still records progress.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -53,6 +58,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		ships: map[string]*ship{},
 		names: map[string]kit.Player{},
 		frame: kit.NewFrame(),
+		sk:    kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -121,6 +127,8 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	rm.now = r.Now()
 	if s := rm.ships[p.AccountID]; s != nil {
 		rm.persistBest(r, p.AccountID)
+		// Record the leaving pilot's kill count even on a disconnect.
+		rm.sk.FlushLeave(r, p, kit.StatusDNF)
 		delete(rm.ships, p.AccountID)
 	}
 	delete(rm.names, p.AccountID)
@@ -374,6 +382,10 @@ func (rm *room) awardKill(r kit.Room, ownerID string, amount int) {
 	if s.kills > s.best {
 		s.best = s.kills
 		rm.persistBest(r, ownerID)
+		// New all-time high: post it live to the leaderboard.
+		if p, ok := rm.names[ownerID]; ok {
+			rm.sk.Record(r, p, s.best)
+		}
 	}
 }
 

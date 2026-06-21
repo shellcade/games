@@ -146,6 +146,11 @@ type room struct {
 	variant  *variant              // the active odds variant, refreshed on a deadline
 	nextCfg  time.Time             // next config-refresh deadline
 	lastNow  time.Time             // room clock captured at the last render
+
+	// sk standardises the durable-wallet KV writes (PersistWallet) and the
+	// new-peak leaderboard posts (Record, OnImprove), replacing the duplicated
+	// persistWallet helper and hand-rolled Post.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -155,6 +160,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		machines: map[string]*machine{},
 		names:    map[string]kit.Player{},
 		variant:  defaultVariant(),
+		sk:       kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -241,15 +247,10 @@ func (rm *room) seedWallet(r kit.Room, p kit.Player) (int, int) {
 
 // persistWallet writes the current balance (summed) and raises peak (max). peak
 // uses a monotonic max-on-write, so out-of-order or concurrent same-account
-// writes can never regress the leaderboard metric.
+// writes can never regress the leaderboard metric. Delegates to the kit's
+// ScoreKeeper.PersistWallet, which writes the identical keys + merge rules.
 func (rm *room) persistWallet(r kit.Room, p kit.Player, bal, peak int) {
-	acct := r.Services().Accounts.For(p)
-	if acct == nil {
-		return
-	}
-	store := acct.Store()
-	_ = store.Set(context.Background(), keyBalance, []byte(strconv.Itoa(bal)), kit.MergeSum)
-	_ = store.Set(context.Background(), keyPeak, []byte(strconv.Itoa(peak)), kit.MergeMax)
+	rm.sk.PersistWallet(r, p, keyBalance, bal, keyPeak, peak)
 }
 
 func (rm *room) OnJoin(r kit.Room, p kit.Player) {

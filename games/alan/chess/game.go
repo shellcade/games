@@ -25,6 +25,16 @@ func (Game) Meta() kit.GameMeta {
 		// the side-panel player lines.
 		CtxFeatures: kit.CtxFeatCharacter,
 
+		// Wins leaderboard: each decisive game posts 1 for the winner and 0
+		// for the loser (a draw is 0 for both). Summed across games, the board
+		// becomes a career win tally.
+		Leaderboard: &kit.LeaderboardSpec{
+			MetricLabel: "Wins",
+			Direction:   kit.HigherBetter,
+			Aggregation: kit.SumResults,
+			Format:      kit.Integer,
+		},
+
 		// Chess-appropriate lobby mode labels — the generic defaults don't fit a
 		// turn-based duel.
 		QuickModeLabel:    "Quick match",

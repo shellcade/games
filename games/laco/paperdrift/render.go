@@ -18,6 +18,11 @@ const (
 	helpRow  = 23
 
 	gliderCol = 18 // the focused glider sits at this screen column
+
+	// vBarMax is the airspeed that fills the HUD speed bar. It is a display
+	// scale only — independent of the physics clamp vMax — so a steep dive can
+	// peg the bar while launch/cruise still read at a useful resolution.
+	vBarMax = 30.0
 )
 
 var (
@@ -283,7 +288,7 @@ func (rm *room) drawPilot(f *kit.Frame, ps *pilot, own bool, camX int, blink boo
 		if ps.stalled && blink {
 			st = kit.Style{FG: kit.Red, Attr: st.Attr}
 		}
-		f.SetRune(row, sc, gliderGlyph(ps.pitch), st)
+		f.SetRune(row, sc, gliderGlyph(ps.gamma), st)
 	}
 }
 
@@ -295,7 +300,10 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player, now time.Time) {
 		f.Text(hudRow, col+3, "spectating — you launch next round", hudSt)
 	case ps.alive || rm.phase == phCountdown:
 		col = f.Text(hudRow, col+3, fmt.Sprintf("DIST %4dm", maxInt(ps.liveDist(), 0)), hudSt)
-		bar := int(ps.v / vMax * 8)
+		bar := int(ps.v / vBarMax * 8)
+		if bar > 8 {
+			bar = 8 // a steep dive can exceed the bar scale; peg it full
+		}
 		col = f.Text(hudRow, col+3, "SPD ", hudSt)
 		for i := 0; i < 8; i++ {
 			ch := '▱'

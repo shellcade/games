@@ -23,7 +23,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Pinned to the kit release tag (lockstep with the SDK the arcade runs).
-shellcade-kit = { git = "https://github.com/shellcade/kit", tag = "v2.10.0" }
+shellcade-kit = { git = "https://github.com/shellcade/kit", tag = "v2.14.0" }
 
 [profile.release]
 # The artifact contract: cargo applies profiles only at this (leaf) crate.

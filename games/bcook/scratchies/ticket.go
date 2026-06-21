@@ -6,10 +6,15 @@ import "math/rand"
 type MechanicKind int
 
 const (
-	MechMatch3 MechanicKind = iota // mech_match3.go
-	MechKeyNum                     // mech_keynum.go
-	MechMult                       // mech_mult.go
-	MechFind                       // mech_find.go
+	MechMatch3    MechanicKind = iota // mech_match3.go    — match three equal amounts
+	MechKeyNum                        // mech_keynum.go    — match the winning numbers
+	MechMult                          // mech_mult.go      — prize × multiplier
+	MechFind                          // mech_find.go      — find three target symbols
+	MechLines                         // mech_lines.go     — three equal amounts in a line
+	MechCrossword                     // mech_crossword.go — complete words from a letter bank
+	MechBingo                         // mech_bingo.go     — complete a line of called numbers
+	MechShowdown                      // mech_showdown.go  — beat the house, column by column
+	MechTriple                        // mech_triple.go    — spell listed bonus words (3× tile)
 )
 
 // PrizeRow is one prize tier: Credits won at probability 1/OneIn per card.
@@ -35,10 +40,11 @@ type Ticket struct {
 	Prizes   PrizeTable
 
 	// Mechanic-specific knobs (ignored by mechanics that don't use them):
-	WinNumbers int    // key-number: count of winning numbers
-	HasBust    bool   // find-symbol: a BUST panel can end a losing card
-	Symbol     string // find-symbol: target glyph label (e.g. "CROC")
-	MaxMult    int    // multiplier: top multiplier (3,5,10,20)
+	WinNumbers int      // key-number: winning numbers · bingo: called numbers
+	HasBust    bool     // find-symbol: a BUST panel can end a losing card
+	Symbol     string   // find-symbol: target glyph label (e.g. "CROC")
+	MaxMult    int      // multiplier: top multiplier (3,5,10,20)
+	WordList   []string // crossword: entries to complete · triple-word: bonus-word vocabulary
 }
 
 // Outcome is the predetermined result drawn at purchase, before any scratch.

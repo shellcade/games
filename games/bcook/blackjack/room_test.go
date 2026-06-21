@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -442,5 +443,271 @@ func TestHibernationStableDealReplays(t *testing.T) {
 		if after[i] != dealt[i] {
 			t.Fatalf("card %d changed across waking: %v -> %v", i, dealt[i], after[i])
 		}
+	}
+}
+
+// dealerReady puts the table at the moment the last player has resolved, with a
+// live (non-bust) player so the dealer will reveal and draw. The dealer's hand
+// and the shoe's next draws are caller-supplied so the reveal is deterministic.
+func dealerReady(t *testing.T, dealer hand, nextDraws ...card) (*room, *kittest.Room, kit.Player) {
+	t.Helper()
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone // drop the betting one-shot; we drive the dealer directly
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50, resolved: true}} // 19, live
+	rm.phase = phTurns
+	rm.dealer = dealer
+	rm.dealerHole = true
+	if len(nextDraws) > 0 {
+		rm.sh.cards = append(hand(nil), nextDraws...) // stack the shoe's top
+		rm.sh.pos = 0
+		rm.sh.roundStart = 0
+	}
+	return rm, tr, a
+}
+
+// TestDealerBustWaitsForTheCardToLand is the heart of the reveal-UX fix: the
+// dealer's BUST verdict must not appear until the busting card has animated in.
+// Before the fix the label keyed off the authoritative (already complete) hand,
+// so BUST flashed up the instant the dealer's turn began.
+func TestDealerBustWaitsForTheCardToLand(t *testing.T) {
+	// Dealer 16 hits a ten -> 26, a deterministic bust on the first draw.
+	rm, tr, a := dealerReady(t, hand{{10, suitClub}, {6, suitDiamond}}, card{10, suitClub})
+
+	rm.enterDealer(tr) // schedules the slow reveal + the busting hit
+	rm.render(tr)
+
+	if !rm.dealingActive() {
+		t.Fatal("dealer reveal should still be animating right after enterDealer")
+	}
+	if row := kittest.String(tr.LastFrame(a), dealerValRow); strings.Contains(row, "BUST") {
+		t.Fatalf("dealer BUST shown before the hit landed: %q", row)
+	}
+
+	// Once the whole reveal has played out the bust shows and the round settles
+	// (stay inside the results window, before the next betting round clears it).
+	pump(rm, tr, 5*time.Second)
+	if rm.phase != phResults {
+		t.Fatalf("phase = %q, want results once the reveal finished", rm.phase)
+	}
+	if row := kittest.String(tr.LastFrame(a), dealerValRow); !strings.Contains(row, "BUST") {
+		t.Fatalf("dealer BUST not shown after the hit landed: %q", row)
+	}
+}
+
+// TestDealerRevealIsPaced asserts the reveal is unhurried: settlement is deferred
+// well past the bare hole-card flip even when the dealer stands pat, so the
+// turned hole card and its total have time to read.
+func TestDealerRevealIsPaced(t *testing.T) {
+	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {8, suitDiamond}}) // 18, no hit
+
+	start := tr.Now()
+	rm.enterDealer(tr)
+
+	if rm.what != pendSettle {
+		t.Fatalf("dealer reveal should defer settlement, what = %v", rm.what)
+	}
+	if delay := rm.pendAt.Sub(start); delay < holeRevealHold {
+		t.Fatalf("settle deferred only %v, want at least the hole-reveal hold %v", delay, holeRevealHold)
+	}
+}
+
+// TestDealerTotalTicksUpAsCardsLand checks the displayed total reflects only the
+// face-up cards: just the up card while the hole is concealed, then the hole, in
+// step with the animation rather than the full hand up front.
+func TestDealerTotalTicksUpAsCardsLand(t *testing.T) {
+	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {7, suitDiamond}}) // 17, stands
+
+	// Mid-turn the hole is still hidden: only the up card counts.
+	if got := rm.dealerShownCount(); got != 1 {
+		t.Fatalf("with the hole concealed, shown count = %d, want 1", got)
+	}
+
+	rm.enterDealer(tr) // turns the hole; the reveal flip is still in flight
+	rm.render(tr)
+	if got := rm.dealerShownCount(); got != 1 {
+		t.Fatalf("mid hole-flip, shown count = %d, want 1 (hole not yet face up)", got)
+	}
+
+	// After the reveal settles (still within the results window) both cards
+	// count and the total is complete.
+	pump(rm, tr, 3*time.Second)
+	if rm.phase != phResults {
+		t.Fatalf("phase = %q, want results once the reveal finished", rm.phase)
+	}
+	if got := rm.dealerShownCount(); got != 2 {
+		t.Fatalf("after the reveal, shown count = %d, want 2 (both cards face up)", got)
+	}
+	if got := rm.dealer.total(); got != 17 {
+		t.Fatalf("dealer total = %d, want 17", got)
+	}
+}
+
+// TestDealerHoleRevealIsDelayedAndAnimated asserts the second (hole) card turns
+// over after a short lead-in beat rather than the instant the dealer's turn
+// begins, and that it is an in-place flip animation (a flip scheduled, no slide)
+// so it visibly turns rather than snapping face up.
+func TestDealerHoleRevealIsDelayedAndAnimated(t *testing.T) {
+	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {8, suitDiamond}}) // 18, stands pat
+
+	start := tr.Now()
+	rm.enterDealer(tr)
+
+	if len(rm.sched) == 0 {
+		t.Fatal("no dealer reveal animation scheduled")
+	}
+	hole := rm.sched[0]
+	if hole.kind != animDealer || hole.cardIdx != 1 {
+		t.Fatalf("first scheduled anim is not the hole card: %+v", hole)
+	}
+	if lead := hole.flipStart.Sub(start); lead < holeRevealDelay {
+		t.Fatalf("hole flip starts %v after the turn, want at least the lead-in %v", lead, holeRevealDelay)
+	}
+	if hole.flipStart.IsZero() {
+		t.Fatal("hole reveal has no flip scheduled — it would snap, not animate")
+	}
+	if !hole.slideStart.IsZero() {
+		t.Fatalf("hole reveal should turn in place, not slide: %+v", hole)
+	}
+
+	// Through the lead-in beat the hole is still concealed: only the up card counts.
+	pump(rm, tr, holeRevealDelay/2)
+	if got := rm.dealerShownCount(); got != 1 {
+		t.Fatalf("during the lead-in, shown count = %d, want 1 (hole not yet turned)", got)
+	}
+}
+
+// TestDealerHitSlotHiddenUntilHoleShown asserts the dealer's row stays two cards
+// wide — no slot reserved for the upcoming hit — until the hole card has turned
+// over and that hit actually begins to slide in.
+func TestDealerHitSlotHiddenUntilHoleShown(t *testing.T) {
+	// Dealer 16 will draw a ten; with a live player the reveal schedules the hit.
+	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {6, suitDiamond}}, card{10, suitClub})
+	rm.enterDealer(tr)
+
+	// Before the hit begins arriving (through the lead-in, flip, and read beat),
+	// only the two dealt cards occupy the row even though the full hand is known.
+	if got := len(rm.dealer); got != 3 {
+		t.Fatalf("dealer hand size = %d, want 3 (hit already computed)", got)
+	}
+	rm.render(tr)
+	if got := rm.dealerLayoutCount(); got != 2 {
+		t.Fatalf("layout count = %d right after the turn, want 2 (no slot for the pending hit)", got)
+	}
+
+	// Past the reveal + read beat the hit is sliding in, so the row now includes it.
+	pump(rm, tr, holeRevealDelay+flipDur+holeRevealHold+slideDur/2)
+	if got := rm.dealerLayoutCount(); got != 3 {
+		t.Fatalf("layout count = %d once the hit is arriving, want 3", got)
+	}
+}
+
+// TestInsuranceSkipsTimerOnceAllDecided covers the insurance early-resolve: once
+// every placed seat has answered, the window resolves without waiting out the
+// timer.
+func TestInsuranceSkipsTimerOnceAllDecided(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	for _, p := range []kit.Player{a, b} {
+		s := rm.seats[p.AccountID]
+		s.placed = true
+		s.bet = 50
+		s.chips = 950
+		s.hands = []*phand{{cards: hand{{10, suitSpade}, {7, suitHeart}}, bet: 50}}
+	}
+	rm.dealer = hand{{rankAce, suitSpade}, {6, suitHeart}} // shows an Ace, no blackjack
+	rm.dealerHole = true
+	rm.enterInsurance(tr)
+
+	rm.OnInput(tr, a, runeInput('n')) // a answers
+	if rm.phase != phInsurance {
+		t.Fatalf("phase = %q, want still insurance (b has not answered)", rm.phase)
+	}
+	rm.OnInput(tr, b, runeInput('y')) // b answers -> every placed seat decided
+	if rm.phase != phTurns {
+		t.Fatalf("phase = %q, want turns (insurance resolved early without the timer)", rm.phase)
+	}
+}
+
+// TestResultLabelDoesNotLeakChips guards the results chip line: the settlement
+// summary is drawn instead of the stack, so a result narrower than the stack
+// (e.g. "PUSH" over "$1000") leaves no stray digit peeking out beside it.
+func TestResultLabelDoesNotLeakChips(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.chips = 1000 // "$1000" is wider than "PUSH"
+	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}}
+	s.result = "PUSH"
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
+	rm.phase = phResults
+	rm.render(tr)
+
+	row := []rune(kittest.String(tr.LastFrame(a), seatChipRow))
+	slot := (kit.Cols - slotW) / 2 // single seat: the group is one centred slot
+	if got := strings.TrimSpace(string(row[slot : slot+slotW])); got != "PUSH" {
+		t.Fatalf("chip-row slot = %q, want exactly %q (no chips bleeding through)", got, "PUSH")
+	}
+}
+
+// TestReadyUpSkipsTheResultsWait covers the results-phase ready-up: a single
+// seated player confirming (Enter/Space) starts the next betting round at once
+// rather than waiting out the full results flash.
+func TestReadyUpSkipsTheResultsWait(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.chips = 950
+	s.hands = []*phand{{cards: hand{{rankKing, suitSpade}, {rankQueen, suitHeart}}, bet: 50}} // 20
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}                                        // 19, player wins
+	rm.settle(tr)
+
+	if rm.phase != phResults {
+		t.Fatalf("phase = %q, want results after settle", rm.phase)
+	}
+
+	// Confirm readies up; the only seated player being ready deals the next hand.
+	rm.OnInput(tr, a, runeInput(' '))
+	if rm.phase != phBetting {
+		t.Fatalf("phase = %q, want betting (an all-ready table skips the wait)", rm.phase)
+	}
+}
+
+// TestReadyUpWaitsOnOtherPlayers asserts one player readying up does not skip
+// the wait while another seated player is still not ready.
+func TestReadyUpWaitsOnOtherPlayers(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	for _, p := range []kit.Player{a, b} {
+		s := rm.seats[p.AccountID]
+		s.placed = true
+		s.chips = 950
+		s.hands = []*phand{{cards: hand{{rankKing, suitSpade}, {rankQueen, suitHeart}}, bet: 50}}
+	}
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
+	rm.settle(tr)
+
+	rm.OnInput(tr, a, runeInput(' ')) // only a readies up
+	if !rm.seats[a.AccountID].ready {
+		t.Fatal("a should be marked ready after confirming")
+	}
+	if rm.phase != phResults {
+		t.Fatalf("phase = %q, want results still (b has not readied)", rm.phase)
+	}
+
+	rm.OnInput(tr, b, runeInput(' ')) // now both ready -> next hand
+	if rm.phase != phBetting {
+		t.Fatalf("phase = %q, want betting once everyone is ready", rm.phase)
 	}
 }

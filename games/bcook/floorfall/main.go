@@ -36,6 +36,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       6,
 		Tags:             []string{"action", "arcade", "party", "last-one-standing"},
 
+		// A real-time arcade round with no mid-game state worth resuming: when
+		// everyone leaves, the room closes — no hibernation snapshot, no Resume entry.
+		Lifecycle: kit.LifecycleEphemeral,
+
 		// Player characters: each contestant's tile renders beside their name on
 		// the scoreboard, visible to every player.
 		CtxFeatures: kit.CtxFeatCharacter,
