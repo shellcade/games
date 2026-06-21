@@ -22,17 +22,16 @@ func (Game) Meta() kit.GameMeta {
 		Name:             "Pokies",
 		ShortDescription: "Pull the lever on your own slot machine and chase your high score.",
 		MinPlayers:       1,
-		MaxPlayers:       5,
-		Tags:             []string{"slots", "casual"},
+		MaxPlayers:       32,
+		Tags:             []string{"slots", "casual", "social"},
 
-		// A casual social room: when everyone leaves, the room closes —
-		// no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
-		Lifecycle: kit.LifecycleEphemeral,
+		// A resident social lounge: the room persists when players leave,
+		// offering Resume-menu entry for returning players (kit v2.7.0+).
+		Lifecycle: kit.LifecycleResident,
 
-		// Per-member arcade characters (kit v2.9.0): each player's tile
-		// renders right before their name on the cabinet marquee and the
-		// big-win ticker.
-		CtxFeatures: kit.CtxFeatCharacter,
+		// Per-member arcade characters (kit v2.9.0) + roster epoch tracking
+		// for multiplayer awareness (kit v2.11.0+).
+		CtxFeatures: kit.CtxFeatCharacter | kit.CtxFeatRosterEpoch,
 
 		QuickModeLabel:    "Quick spin",
 		SoloModeLabel:     "Solo spin",

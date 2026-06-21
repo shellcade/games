@@ -76,13 +76,19 @@ func frameContains(r *kittest.Room, p kit.Player, s string) bool {
 
 // --- meta + context ----------------------------------------------------------
 
-func TestMetaIsBareName(t *testing.T) {
+func TestMetaIsResidentLounge(t *testing.T) {
 	m := Game{}.Meta()
 	if m.Slug != "pokies" {
-		t.Errorf("slug = %q, want bare name pokies (the platform adds the namespace)", m.Slug)
+		t.Errorf("slug = %q, want pokies", m.Slug)
 	}
-	if m.MinPlayers != 1 || m.MaxPlayers != 5 {
-		t.Errorf("players = %d..%d, want 1..5", m.MinPlayers, m.MaxPlayers)
+	if m.MinPlayers != 1 || m.MaxPlayers != 32 {
+		t.Errorf("players = %d..%d, want 1..32", m.MinPlayers, m.MaxPlayers)
+	}
+	if m.Lifecycle != kit.LifecycleResident {
+		t.Errorf("lifecycle = %v, want resident", m.Lifecycle)
+	}
+	if m.CtxFeatures&kit.CtxFeatCharacter == 0 || m.CtxFeatures&kit.CtxFeatRosterEpoch == 0 {
+		t.Errorf("ctx features = %d, want character + roster-epoch", m.CtxFeatures)
 	}
 	if m.Leaderboard == nil || m.Leaderboard.Direction != kit.HigherBetter {
 		t.Errorf("leaderboard = %+v, want higher-better board", m.Leaderboard)
