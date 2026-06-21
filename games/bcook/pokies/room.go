@@ -138,22 +138,37 @@ type room struct {
 	cfg kit.RoomConfig
 	svc kit.Services
 
-	machines map[string]*machine   // keyed by account id (hibernation-safe)
-	order    []string              // join order of account ids, for left-to-right layout
-	names    map[string]kit.Player // account id -> player (for handles + leaderboard Post)
-	ticker   ticker                // room-wide big-win banner
-	variant  *variant              // the active odds variant, refreshed on a deadline
-	nextCfg  time.Time             // next config-refresh deadline
-	lastNow  time.Time             // room clock captured at the last render
+	machines  map[string]*machine   // keyed by account id (hibernation-safe)
+	order     []string              // join order of account ids, for left-to-right layout
+	names     map[string]kit.Player // account id -> player (for handles + leaderboard Post)
+	ticker    ticker                // room-wide big-win banner
+	variant   *variant              // the active odds variant, refreshed on a deadline
+	nextCfg   time.Time             // next config-refresh deadline
+	lastNow   time.Time             // room clock captured at the last render
+	fmap      *floorMap
+	fmachines []floorMachine
+	pawns     map[string]*pawn // account id -> floor presence
+	occupied  map[int]string   // machine id -> account id (exclusive seat)
+	themes    []*variant       // machine id -> bound variant (PR2: all default)
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
+	fmap, fmachines := buildLounge()
+	themes := make([]*variant, len(fmachines))
+	for i := range themes {
+		themes[i] = defaultVariant() // PR2: every machine uses the default odds
+	}
 	return &room{
-		cfg:      cfg,
-		svc:      svc,
-		machines: map[string]*machine{},
-		names:    map[string]kit.Player{},
-		variant:  defaultVariant(),
+		cfg:       cfg,
+		svc:       svc,
+		machines:  map[string]*machine{},
+		names:     map[string]kit.Player{},
+		variant:   defaultVariant(),
+		fmap:      fmap,
+		fmachines: fmachines,
+		pawns:     map[string]*pawn{},
+		occupied:  map[int]string{},
+		themes:    themes,
 	}
 }
 
@@ -261,6 +276,8 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	bal, peak := rm.seedWallet(r, p)
 	rm.machines[p.AccountID] = &machine{balance: bal, highScore: peak, bet: betTiers[0], postedPeak: peak}
 	rm.order = append(rm.order, p.AccountID)
+	sx, sy := loungeSpawn()
+	rm.pawns[p.AccountID] = &pawn{x: sx, y: sy, seat: -1}
 	rm.render(r)
 }
 
@@ -278,6 +295,10 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 			break
 		}
 	}
+	if pw := rm.pawns[p.AccountID]; pw != nil && pw.seated {
+		delete(rm.occupied, pw.seat)
+	}
+	delete(rm.pawns, p.AccountID)
 	rm.render(r)
 }
 
