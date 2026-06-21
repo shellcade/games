@@ -55,3 +55,17 @@ func TestBuildLoungeShape(t *testing.T) {
 		t.Error("spawn must be walkable")
 	}
 }
+
+func TestCameraClamps(t *testing.T) {
+	cases := []struct{ px, py, wantX, wantY int }{
+		{0, 0, 0, 0},
+		{loungeW - 1, loungeH - 1, loungeW - vpW, loungeH - vpH},
+		{loungeW / 2, loungeH / 2, loungeW/2 - vpW/2, loungeH/2 - vpH/2},
+	}
+	for _, c := range cases {
+		ox, oy := cameraOrigin(c.px, c.py)
+		if ox != c.wantX || oy != c.wantY {
+			t.Errorf("cameraOrigin(%d,%d) = (%d,%d), want (%d,%d)", c.px, c.py, ox, oy, c.wantX, c.wantY)
+		}
+	}
+}

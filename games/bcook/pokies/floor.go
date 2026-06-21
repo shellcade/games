@@ -1,5 +1,7 @@
 package main
 
+import kit "github.com/shellcade/kit/v2"
+
 // tile is one cell of the lounge floor.
 type tile byte
 
@@ -70,4 +72,30 @@ func buildLounge() (*floorMap, []floorMachine) {
 		fm.tiles[2*loungeW+mx] = tileWall // icon tile blocks movement
 	}
 	return fm, machines
+}
+
+// Viewport: the floor draws into rows [vpTop, vpTop+vpH) over all vpW columns.
+// Row 0 is the title, the last row is controls/status.
+const (
+	vpW   = kit.Cols // 80
+	vpTop = 1
+	vpH   = kit.Rows - 2 // 22 (rows 1..22)
+)
+
+func clampi(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// cameraOrigin returns the top-left map coordinate of the viewport so it is
+// centred on (px,py) and clamped to the map bounds.
+func cameraOrigin(px, py int) (int, int) {
+	ox := clampi(px-vpW/2, 0, loungeW-vpW)
+	oy := clampi(py-vpH/2, 0, loungeH-vpH)
+	return ox, oy
 }
