@@ -66,6 +66,28 @@ func TestSitAndStand(t *testing.T) {
 	}
 }
 
+func TestInputRoutesByMode(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	pw := rm.pawns[p.AccountID]
+	pw.x, pw.y = 5, 5
+
+	rm.OnInput(r, p, keyRight()) // roaming: move east
+	if pw.x != 6 {
+		t.Fatalf("roaming right should move east, x=%d", pw.x)
+	}
+	m := rm.machines[p.AccountID]
+	mc := rm.fmachines[0]
+	pw.x, pw.y = mc.ax, mc.ay
+	rm.trySit(p.AccountID)
+	m.bet = betTiers[0]
+	rm.OnInput(r, p, keyUp())
+	if m.bet != betTiers[1] {
+		t.Fatalf("seated up should raise bet to %d, got %d", betTiers[1], m.bet)
+	}
+}
+
 func TestJoinSpawnsPawnAtEntrance(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)

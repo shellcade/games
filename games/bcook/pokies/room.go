@@ -304,14 +304,40 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 }
 
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
-	m := rm.machines[p.AccountID]
-	if m == nil {
+	id := p.AccountID
+	pw := rm.pawns[id]
+	if pw == nil {
 		return
 	}
 	act := kit.Resolve(in, kit.CtxNav)
+	if !pw.seated {
+		// Roaming: arrows move, Confirm sits.
+		switch act {
+		case kit.ActUp:
+			rm.tryMove(id, 0, -1)
+		case kit.ActDown:
+			rm.tryMove(id, 0, +1)
+		case kit.ActLeft:
+			rm.tryMove(id, -1, 0)
+		case kit.ActRight:
+			rm.tryMove(id, +1, 0)
+		case kit.ActConfirm:
+			rm.trySit(id)
+		}
+		rm.render(r)
+		return
+	}
+	// Seated: existing machine controls; Back stands up when idle.
+	m := rm.machines[id]
+	if m == nil {
+		rm.render(r)
+		return
+	}
 	switch {
+	case act == kit.ActBack && m.spin == nil && m.gamble == nil && m.freeSpins == 0:
+		rm.standUp(id)
 	case m.gamble != nil:
-		rm.gambleInput(r, p.AccountID, act) // double-up ladder owns input
+		rm.gambleInput(r, id, act) // double-up ladder owns input
 	case m.freeSpins > 0:
 		// free spins auto-play; ignore bet/spin during the feature
 	default:
