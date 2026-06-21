@@ -43,6 +43,19 @@ var faceArt = map[symbol]string{
 	symScatter: "\U0001F381", // 🎁 gift — scatter (single codepoint, EAW=Wide)
 }
 
+// suitArt renders the four card suits as width-2 emoji (base + VS16 emoji
+// presentation), used in the gamble card reveal and suit selector. The emoji
+// forms carry their own colour (red hearts/diamonds). Unlike the reel faces these
+// are NOT unanimously-wide — VS16 width is contested — but the authentic pips are
+// the chosen tradeoff for the gamble screen (a narrow-rendering viewer may shift
+// that one row); non-UTF-8 sessions degrade host-side.
+var suitArt = [4]string{
+	suitSpades:   "♠️", // ♠️
+	suitHearts:   "♥️", // ♥️
+	suitDiamonds: "♦️", // ♦️
+	suitClubs:    "♣️", // ♣️
+}
+
 var (
 	stTitle   = kit.Style{FG: kit.White, Attr: kit.AttrBold}
 	stDim     = kit.Style{FG: kit.DimGray}
@@ -64,7 +77,6 @@ var (
 	stGamble   = kit.Style{FG: kit.Yellow, Attr: kit.AttrBold}   // gamble banner / at-risk
 	stGamHi    = kit.Style{FG: kit.White, Attr: kit.AttrReverse} // highlighted gamble option
 	stGamOpt   = kit.Style{FG: kit.DimGray}                      // un-highlighted gamble option
-	stRedCard  = kit.Style{FG: kit.Red, Attr: kit.AttrBold}      // red suits (hearts/diamonds)
 )
 
 // fallbackStrip is the compiled default strip, computed once. spinStrip/idleStrip
@@ -252,21 +264,6 @@ func (rm *room) drawCard(f *kit.Frame, col, top int, id string, own bool) {
 	f.Text(top+10, col+5, "[__]", bord)
 }
 
-// suitLetter renders a suit as an unambiguous single letter (the Unicode suit
-// glyphs ♠♥♦♣ are ambiguous-width and would desync the fixed cabinet layout).
-func suitLetter(s int) string {
-	switch s {
-	case suitSpades:
-		return "S"
-	case suitHearts:
-		return "H"
-	case suitDiamonds:
-		return "D"
-	default:
-		return "C"
-	}
-}
-
 // drawOpt draws one gamble selector option, highlighted (reverse video) when
 // selected, and returns the next column (one space gap).
 func drawOpt(f *kit.Frame, row, c int, label string, sel bool) int {
@@ -297,26 +294,26 @@ func (rm *room) drawGamble(f *kit.Frame, col, top int, m *machine, own bool) {
 	}
 	f.Text(top+2, col+2, win, stWin)
 
-	card, cst := "?", stGamOpt
+	f.Text(top+3, col+2, "CARD", stGamOpt)
 	if g.card >= 0 {
-		card = suitLetter(g.card)
-		if suitIsRed(g.card) {
-			cst = stRedCard
-		} else {
-			cst = stName
-		}
+		f.SetGraphemeWide(top+3, col+8, suitArt[g.card], stName)
+	} else {
+		f.Text(top+3, col+8, "?", stGamOpt)
 	}
-	f.Text(top+3, col+2, "CARD ", stGamOpt)
-	f.Text(top+3, col+7, "["+card+"]", cst)
 
-	// Row 1: TAKE / RED / BLACK (×2). Row 2: suits (×4).
+	// Row 1: TAKE / RED / BLACK (×2). Row 2: the four suits as wide emoji (×4).
 	c := drawOpt(f, top+6, col+1, "TAKE", g.sel == selTake)
 	c = drawOpt(f, top+6, c, "RED", g.sel == selRed)
 	drawOpt(f, top+6, c, "BLK", g.sel == selBlack)
-	c = drawOpt(f, top+7, col+1, "S", g.sel == selSpades)
-	c = drawOpt(f, top+7, c, "H", g.sel == selHearts)
-	c = drawOpt(f, top+7, c, "D", g.sel == selDiamonds)
-	drawOpt(f, top+7, c, "C", g.sel == selClubs)
+	cx := col + 1
+	for s := 0; s < 4; s++ {
+		st := stGamOpt
+		if g.sel == selSpades+s {
+			st = stGamHi // reverse-video highlight on the selected suit
+		}
+		f.SetGraphemeWide(top+7, cx, suitArt[s], st)
+		cx += 3 // 2-wide glyph + 1-col gap
+	}
 	f.Text(top+9, col+1, "SPACE pick", stGamOpt)
 }
 

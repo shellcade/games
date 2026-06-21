@@ -698,6 +698,11 @@ func TestGambleOwnerSeesSelectorOthersSeeIndicator(t *testing.T) {
 	if !frameContains(r, a, "TAKE") || !frameContains(r, a, "RED") {
 		t.Error("owner should see the gamble selector")
 	}
+	for _, suit := range []string{"♠", "♥", "♦", "♣"} {
+		if !frameContains(r, a, suit) {
+			t.Errorf("owner should see the suit selector glyph %q", suit)
+		}
+	}
 	if !frameContains(r, b, "150") {
 		t.Error("other viewers should see the at-risk amount")
 	}
