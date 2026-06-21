@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/shellcade/kit/v2/kittest"
 )
@@ -102,5 +103,21 @@ func TestJoinSpawnsPawnAtEntrance(t *testing.T) {
 	}
 	if pw.seated {
 		t.Error("a fresh pawn should be roaming, not seated")
+	}
+}
+
+func TestWakeIgnoresRoamingMachines(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	m := rm.machines[p.AccountID]
+	m.freeSpins = 3
+	m.freeBet, m.freeVar = 10, rm.variant
+	for i := 0; i < 10; i++ {
+		r.Advance(300 * time.Millisecond)
+		rm.OnWake(r)
+	}
+	if m.freeSpins != 3 {
+		t.Fatalf("roaming machine should not auto-play free spins, freeSpins=%d", m.freeSpins)
 	}
 }

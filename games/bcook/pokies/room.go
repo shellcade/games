@@ -369,6 +369,9 @@ func (rm *room) OnWake(r kit.Room) {
 		if m == nil {
 			continue
 		}
+		if pw := rm.pawns[id]; pw == nil || !pw.seated {
+			continue // only seated machines animate / auto-play
+		}
 		// One-shot flash expiry (idiom 1).
 		if m.flash != "" && now.After(m.flashUntil) {
 			m.flash = ""
