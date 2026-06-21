@@ -35,9 +35,16 @@ func TestBuildLoungeShape(t *testing.T) {
 		t.Fatalf("lounge width %d must exceed viewport %d", fm.w, kit.Cols)
 	}
 	for x := 0; x < fm.w; x++ {
-		if fm.at(x, 0) != tileWall || fm.at(x, fm.h-1) != tileWall {
-			t.Fatalf("top/bottom border not wall at x=%d", x)
+		// The bottom-centre tile is the carved entrance gap; the rest is wall.
+		if fm.at(x, 0) != tileWall {
+			t.Fatalf("top border not wall at x=%d", x)
 		}
+		if x != loungeW/2 && fm.at(x, fm.h-1) != tileWall {
+			t.Fatalf("bottom border not wall at x=%d", x)
+		}
+	}
+	if fm.at(loungeW/2, loungeH-1) != tileEntrance {
+		t.Errorf("bottom-centre tile = %q, want a carved entrance", rune(fm.at(loungeW/2, loungeH-1)))
 	}
 	if len(machines) != 6 {
 		t.Fatalf("machines = %d, want 6", len(machines))

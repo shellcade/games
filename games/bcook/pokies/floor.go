@@ -63,6 +63,8 @@ func buildLounge() (*floorMap, []floorMachine) {
 		}
 	}
 	fm := &floorMap{w: loungeW, h: loungeH, tiles: tiles}
+	// Entrance gap in the bottom wall, centred (where players walk in).
+	fm.tiles[(loungeH-1)*loungeW+loungeW/2] = tileEntrance
 
 	names := []string{"LUCKY 7s", "GEM RUSH", "BELLS", "CHERRY POP", "CROWN", "GIFT DROP"}
 	machines := make([]floorMachine, len(names))
