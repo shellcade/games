@@ -106,6 +106,33 @@ func TestJoinSpawnsPawnAtEntrance(t *testing.T) {
 	}
 }
 
+// TestSmokeSequenceReachesAndSpins mirrors smoke.yaml's input (walk up to the
+// front-centre machine, sit, pull) and asserts the player actually reaches a
+// seat and starts a spin — so the smoke preview shows the game, not an empty
+// floor, and the map stays navigable from the entrance.
+func TestSmokeSequenceReachesAndSpins(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	pw := rm.pawns[p.AccountID]
+
+	rm.OnInput(r, p, keyUp()) // step toward the machines
+	rm.OnInput(r, p, keyUp()) // onto the front-centre approach tile
+	if rm.machineAtApproach(pw.x, pw.y) == nil {
+		t.Fatalf("after 2 up steps the player is at (%d,%d) — not on any machine's approach tile", pw.x, pw.y)
+	}
+	rm.OnInput(r, p, space()) // sit
+	if !pw.seated {
+		t.Fatalf("space on the approach tile should seat the player (at %d,%d)", pw.x, pw.y)
+	}
+	m := rm.machines[p.AccountID]
+	m.bet = betTiers[0]
+	rm.OnInput(r, p, space()) // pull
+	if m.spin == nil {
+		t.Fatal("seated, space should start a spin (the smoke would show an empty floor otherwise)")
+	}
+}
+
 func TestWakeIgnoresRoamingMachines(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)

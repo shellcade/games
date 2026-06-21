@@ -30,11 +30,12 @@ func (fm *floorMap) walkable(x, y int) bool {
 	return t == tileFloor || t == tileEntrance
 }
 
-// Lounge dimensions — wider and taller than the 80x24 viewport so the camera
-// scrolls in both axes.
+// Lounge dimensions — wider than the 80-col viewport so the camera scrolls
+// horizontally as you walk between machines, and a touch taller than the visible
+// rows so the entrance and machine rows don't all crowd one screen.
 const (
 	loungeW = 96
-	loungeH = 36
+	loungeH = 24
 )
 
 // floorMachine is a placed cabinet on the floor: an icon tile you cannot walk
@@ -49,8 +50,11 @@ type floorMachine struct {
 func loungeSpawn() (int, int) { return loungeW / 2, loungeH - 3 }
 
 // buildLounge constructs the static lounge: a bordered room with an entrance gap
-// at the bottom centre and six named machines along the top wall, each with an
-// approach tile one row below its icon.
+// at the bottom centre and six named machines in two interior rows of three. Each
+// machine's icon tile blocks movement; you sit from the approach tile one row
+// below it (toward the entrance), so a player walking up from the door reaches a
+// machine front in a couple of steps. The front-centre machine sits directly
+// above the spawn.
 func buildLounge() (*floorMap, []floorMachine) {
 	tiles := make([]tile, loungeW*loungeH)
 	for y := 0; y < loungeH; y++ {
@@ -67,11 +71,18 @@ func buildLounge() (*floorMap, []floorMachine) {
 	fm.tiles[(loungeH-1)*loungeW+loungeW/2] = tileEntrance
 
 	names := []string{"LUCKY 7s", "GEM RUSH", "BELLS", "CHERRY POP", "CROWN", "GIFT DROP"}
-	machines := make([]floorMachine, len(names))
-	for i, name := range names {
-		mx := (i + 1) * loungeW / (len(names) + 1)
-		machines[i] = floorMachine{id: i, name: name, mx: mx, my: 2, ax: mx, ay: 3}
-		fm.tiles[2*loungeW+mx] = tileWall // icon tile blocks movement
+	colsX := []int{loungeW / 4, loungeW / 2, 3 * loungeW / 4} // 24, 48, 72
+	rowsY := []int{loungeH - 6, loungeH - 12}                 // front row first (nearer the door)
+	machines := make([]floorMachine, 0, len(names))
+	id := 0
+	for _, ry := range rowsY {
+		for _, cx := range colsX {
+			machines = append(machines, floorMachine{
+				id: id, name: names[id], mx: cx, my: ry, ax: cx, ay: ry + 1,
+			})
+			fm.tiles[ry*loungeW+cx] = tileWall // icon tile blocks movement
+			id++
+		}
 	}
 	return fm, machines
 }

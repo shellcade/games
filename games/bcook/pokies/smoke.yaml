@@ -2,16 +2,13 @@ seed: 18
 seats: 1
 heartbeat: 50ms
 steps:
-  - shot: lounge-entrance
-  # Walk up toward the machines along the top wall, then sit.
+  - shot: lounge-entrance      # spawn at the door; machines visible up ahead
   - key: up
-  - key: up
-  - key: up
-  - shot: walking
-  - key: space      # sit at the machine on the approach tile (if reached)
-  - shot: seated-or-floor
-  # A pull (only spins if seated; otherwise a harmless no-op on the floor).
-  - key: space
+  - key: up                    # now on the front-centre machine's approach tile
+  - shot: at-machine
+  - key: space                 # sit down at the machine
+  - shot: seated
+  - key: space                 # pull
   - advance: 300ms
   - shot: mid-spin
   - advance: 1600ms
