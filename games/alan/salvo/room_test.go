@@ -55,7 +55,7 @@ func TestLobbyGathersBeforeStart(t *testing.T) {
 	rm.OnJoin(r, kittest.Player("p1"))
 	rm.OnJoin(r, kittest.Player("p2"))
 	if rm.phase != phLobby {
-		t.Fatalf("phase = %v, want lobby — joining must not auto-start", rm.phase)
+		t.Fatalf("phase = %v, want lobby - joining must not auto-start", rm.phase)
 	}
 	if len(rm.tanks) != 0 {
 		t.Errorf("tanks were created before the battle started: %d", len(rm.tanks))

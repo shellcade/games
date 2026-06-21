@@ -16,7 +16,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "chess",
 		Name:             "Chess",
-		ShortDescription: "A two-player chess duel — pair up, beat the clock, mate the king.",
+		ShortDescription: "A two-player chess duel: pair up, beat the clock, mate the king.",
 		MinPlayers:       2,
 		MaxPlayers:       2,
 		Tags:             []string{"chess", "strategy", "board"},

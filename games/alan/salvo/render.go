@@ -458,7 +458,7 @@ func drawWeaponBar(f *kit.Frame, row, col int, t *tank) int {
 
 func (rm *room) drawGameOverBar(f *kit.Frame) {
 	if rm.winner == nil {
-		f.Text(panelRow, 2, "everyone's scrap metal — a draw.   SPACE for a rematch", stDim)
+		f.Text(panelRow, 2, "everyone's scrap metal - a draw.   SPACE for a rematch", stDim)
 		return
 	}
 	st := kit.Style{FG: rm.winner.color, Attr: kit.AttrBold}

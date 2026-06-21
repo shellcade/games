@@ -63,7 +63,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 		rm.drawStatus(f)
 		if c == nil || !c.boarded {
 			center(f, 11, "BEAMING ABOARD AT NEXT WARP...", stTitle)
-			center(f, 13, "watch the comms — the crew is mid-sector", stDim)
+			center(f, 13, "watch the comms - the crew is mid-sector", stDim)
 		} else {
 			rm.drawOrderBox(f, c)
 			rm.drawBanner(f)
@@ -134,7 +134,7 @@ func (rm *room) drawOrderBox(f *kit.Frame, c *crew) {
 	f.Text(rowOrder, 2, title, stTitle)
 
 	if rm.meteorActive() {
-		f.Text(rowOrder+1, 2, "ORDERS SUSPENDED — BRACE FOR IMPACT", stBad)
+		f.Text(rowOrder+1, 2, "ORDERS SUSPENDED - BRACE FOR IMPACT", stBad)
 		return
 	}
 	if !c.ord.active {
@@ -183,11 +183,11 @@ func (rm *room) drawBanner(f *kit.Frame) {
 			f.Text(rowBanner, col, " !!", stAmber)
 		}
 	case rm.flareActive():
-		f.Text(rowBanner, 1, "SOLAR FLARE — control labels scrambled", stAmber)
+		f.Text(rowBanner, 1, "SOLAR FLARE - control labels scrambled", stAmber)
 	case rm.wormActive():
-		f.Text(rowBanner, 1, "WORMHOLE TRANSIT — panel mirrored, keys unchanged", stAmber)
+		f.Text(rowBanner, 1, "WORMHOLE TRANSIT - panel mirrored, keys unchanged", stAmber)
 	case rm.anKind == anLeak && rm.anStage == asLive:
-		f.Text(rowBanner, 1, "COOLANT LEAK — wipe fogged controls (mash their key)", stAmber)
+		f.Text(rowBanner, 1, "COOLANT LEAK - wipe fogged controls (mash their key)", stAmber)
 	case rm.now.Before(rm.fumbleUntil):
 		col := f.Text(rowBanner, 1, "FUMBLED: ", stBad)
 		f.Text(rowBanner, col, rm.fumbleText, kit.Style{FG: kit.Gray(0x99), Attr: kit.AttrDim})
@@ -396,7 +396,7 @@ func (rm *room) drawHints(f *kit.Frame, c *crew) {
 func (rm *room) drawLobby(f *kit.Frame, v kit.Player) {
 	drawDoubleBox(f, 1, 6, 4, 53, stBorder)
 	f.Text(2, 9, "S P A C E T E R M", stTitle)
-	f.Text(3, 9, "panic responsibly — a co-op bridge crew", stDim)
+	f.Text(3, 9, "panic responsibly - a co-op bridge crew", stDim)
 
 	col := f.Text(6, 6, "CREW MUSTER ── ", stDim)
 	col = drawInt(f, 6, col, len(rm.crews), stTitle)
@@ -426,9 +426,9 @@ func (rm *room) drawLobby(f *kit.Frame, v kit.Player) {
 	col = f.Text(15, col, "< ", stFaint)
 	col = f.Text(15, col, difficultyNames[rm.difficulty], stAmber)
 	col = f.Text(15, col, " >", stFaint)
-	f.Text(15, col+4, "(left/right to change — shared)", stFaint)
+	f.Text(15, col+4, "(left/right to change - shared)", stFaint)
 
-	f.Text(17, 6, "MISSION       ENDLESS — clear sectors until the hull gives out", stDim)
+	f.Text(17, 6, "MISSION       ENDLESS - clear sectors until the hull gives out", stDim)
 
 	col = f.Text(19, 6, "▸ [SPACE] LAUNCH", stGood)
 	if !rm.lobbyUntil.IsZero() {
@@ -441,7 +441,7 @@ func (rm *room) drawLobby(f *kit.Frame, v kit.Player) {
 		f.SetRune(19, col, 's', stFaint)
 	}
 
-	f.Text(rowHints, 1, "[< >] difficulty     [SPACE] launch     crew 1-6 — share the room code", stFaint)
+	f.Text(rowHints, 1, "[< >] difficulty     [SPACE] launch     crew 1-6 - share the room code", stFaint)
 }
 
 // --- warp jump -------------------------------------------------------------------
@@ -527,7 +527,7 @@ func (rm *room) drawOver(f *kit.Frame) {
 		row++
 	}
 
-	f.Text(18, 6, "▸ [SPACE] NEW SHIFT — same crew, fresh ship", stGood)
+	f.Text(18, 6, "▸ [SPACE] NEW SHIFT - same crew, fresh ship", stGood)
 	f.Text(rowHints, 1, "[SPACE] back to the lobby     score posts to the Sectors leaderboard", stFaint)
 }
 

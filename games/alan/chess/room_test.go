@@ -530,7 +530,7 @@ func TestComposedFrameRenderableAndFlipped(t *testing.T) {
 	wr, wc := screenSquare(sq("a1"), engine.White)
 	br, bc := screenSquare(sq("a1"), engine.Black)
 	if wr == br && wc == bc {
-		t.Fatalf("a1 maps to same screen cell for both orientations — board not flipped")
+		t.Fatalf("a1 maps to same screen cell for both orientations - board not flipped")
 	}
 	if !(wr > br) {
 		t.Fatalf("expected a1 lower on White's view (wr=%d) than Black's (br=%d)", wr, br)
@@ -622,7 +622,7 @@ func TestStateOnlyReconstruction(t *testing.T) {
 		t.Fatal("no frame produced")
 	}
 	if *f1 != *f2 {
-		t.Fatal("two identical runs produced different frames — non-deterministic state")
+		t.Fatal("two identical runs produced different frames - non-deterministic state")
 	}
 }
 

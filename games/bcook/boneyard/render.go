@@ -245,7 +245,7 @@ func (rm *room) memorial(d *delver) {
 			fr.Cells[r][c] = kit.Cell{}
 		}
 	}
-	fr.Text(1, 2, "THE BONEYARD — ROLL OF THE DEAD", stTitle)
+	fr.Text(1, 2, "THE BONEYARD - ROLL OF THE DEAD", stTitle)
 	fr.Text(2, 2, "collapses in "+rm.cdCache, stHUDDim)
 
 	// Top three by respects, then the deepest, then the freshest.
@@ -269,7 +269,7 @@ func (rm *room) memorial(d *delver) {
 		if c.ch.Glyph != "" {
 			fr.Cells[row][16] = kit.CharacterCell(c.ch)
 		}
-		fr.Text(row, 18, clampCols(c.name()+" — "+c.killer+", B"+itoa(c.floor), 58), stHUD)
+		fr.Text(row, 18, clampCols(c.name()+" - "+c.killer+", B"+itoa(c.floor), 58), stHUD)
 		row++
 		fr.Text(row, 18, clampCols("\""+c.words+"\"", 58), stMsg)
 		row += 2
@@ -329,7 +329,7 @@ func (rm *room) gateScreen(d *delver) {
 		fr.Text(row, col, s, st)
 	}
 	center(2, "T H E   G A T E", stTitle)
-	center(3, "The Sunken Ossuary  —  collapses in "+rm.cdCache, stHUDDim)
+	center(3, "The Sunken Ossuary  -  collapses in "+rm.cdCache, stHUDDim)
 	deep, who := 0, ""
 	var whoCh kit.Character
 	for _, c := range rm.bones {

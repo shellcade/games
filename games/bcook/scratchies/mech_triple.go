@@ -241,15 +241,15 @@ func (c *twCard) Prompt() string {
 			if fr >= 0 {
 				word = c.rowWord(fr)
 			}
-			line := "✦ " + word + " — WON " + commaInt(c.Win()) + " CREDITS ✦"
+			line := "✦ " + word + " - WON " + commaInt(c.Win()) + " CREDITS ✦"
 			if c.tripleRow == fr && fr >= 0 {
-				line = "✦ " + word + " ×3 — WON " + commaInt(c.Win()) + " CREDITS ✦"
+				line = "✦ " + word + " ×3 - WON " + commaInt(c.Win()) + " CREDITS ✦"
 			}
 			return line
 		}
-		return "no bonus word — no win"
+		return "no bonus word - no win"
 	}
-	return "scratch each row — spell a bonus word to win"
+	return "scratch each row - spell a bonus word to win"
 }
 
 func (c *twCard) Render(f *Frame, top int) {

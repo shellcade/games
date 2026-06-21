@@ -212,7 +212,7 @@ func TestCorridorAlwaysOpenAndGatesPassable(t *testing.T) {
 		}
 	}
 	if gates < 50 {
-		t.Errorf("only %d gate columns over 6000 — generation looks broken", gates)
+		t.Errorf("only %d gate columns over 6000 - generation looks broken", gates)
 	}
 }
 

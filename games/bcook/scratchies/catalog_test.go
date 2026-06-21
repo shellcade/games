@@ -79,7 +79,7 @@ func TestCatalogTopPrize(t *testing.T) {
 					t.Errorf("%s: top prize=%d, want %d", tk.Slug, top, exp)
 				}
 			} else {
-				t.Errorf("unknown slug %q — add to want map", tk.Slug)
+				t.Errorf("unknown slug %q - add to want map", tk.Slug)
 			}
 		})
 	}
@@ -94,7 +94,7 @@ func TestCatalogPrizesAscending(t *testing.T) {
 			prev := 0
 			for i, row := range tk.Prizes {
 				if row.Credits < prev {
-					t.Errorf("%s: prize row %d (%d credits) < previous (%d) — table not ascending",
+					t.Errorf("%s: prize row %d (%d credits) < previous (%d) - table not ascending",
 						tk.Slug, i, row.Credits, prev)
 				}
 				prev = row.Credits

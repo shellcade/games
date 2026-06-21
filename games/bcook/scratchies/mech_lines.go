@@ -357,9 +357,9 @@ func (c *linesCard) Win() int {
 func (c *linesCard) Prompt() string {
 	if c.Resolved() {
 		if c.win > 0 {
-			return "✦ three " + c.winLabel + " in a line — WON " + itoa(c.win) + " CREDITS ✦"
+			return "✦ three " + c.winLabel + " in a line - WON " + itoa(c.win) + " CREDITS ✦"
 		}
-		return "no line of three — no win"
+		return "no line of three - no win"
 	}
 	// Count how many of the winning triple have been revealed (for winning card).
 	if c.win > 0 {
@@ -371,13 +371,13 @@ func (c *linesCard) Prompt() string {
 			}
 		}
 		if seen == 2 {
-			return "two " + c.winLabel + " in a line — one more wins!"
+			return "two " + c.winLabel + " in a line - one more wins!"
 		}
 		if seen == 1 {
-			return "one " + c.winLabel + " found — keep scratching"
+			return "one " + c.winLabel + " found - keep scratching"
 		}
 	}
-	return "scratch the grid — three in a line wins"
+	return "scratch the grid - three in a line wins"
 }
 
 func (c *linesCard) Render(f *Frame, top int) {

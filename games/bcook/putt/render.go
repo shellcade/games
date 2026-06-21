@@ -213,7 +213,7 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player) {
 		case stateRoll:
 			f.TextRight(bottom+1, cols-1, "rolling…", kit.Style{FG: kit.White})
 		case stateSunk:
-			f.TextRight(bottom+1, cols-1, holeResultLabel(vg.strokes, h.par)+" — waiting",
+			f.TextRight(bottom+1, cols-1, holeResultLabel(vg.strokes, h.par)+" - waiting",
 				kit.Style{FG: cupColor, Attr: kit.AttrBold})
 		}
 	}
@@ -280,7 +280,7 @@ func (rm *room) drawScorecard(f *kit.Frame, viewer kit.Player, final bool) {
 
 	title := "SCORECARD"
 	if final {
-		title = "FINAL — ROUND OF 9"
+		title = "FINAL - ROUND OF 9"
 	} else {
 		title = fmt.Sprintf("HOLE %d COMPLETE", rm.holeIdx+1)
 	}

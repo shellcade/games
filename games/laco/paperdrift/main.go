@@ -18,7 +18,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "paperdrift",
 		Name:             "Paperdrift",
-		ShortDescription: "Trim a paper glider through gaps and thermals — the furthest flight wins.",
+		ShortDescription: "Trim a paper glider through gaps and thermals. The furthest flight wins.",
 		MinPlayers:       1,
 		MaxPlayers:       6,
 		HeartbeatMS:      50, // real-time flight: 20 wakes/sec
@@ -26,7 +26,7 @@ func (Game) Meta() kit.GameMeta {
 
 		QuickModeLabel:    "Quick flight",
 		SoloModeLabel:     "Solo glide",
-		PrivateInviteLine: "Gliders launch together — the furthest flight without crashing wins.",
+		PrivateInviteLine: "Gliders launch together - the furthest flight without crashing wins.",
 
 		// A run without its pilots is meaningless; dispose abandoned rooms.
 		Lifecycle: kit.LifecycleEphemeral,

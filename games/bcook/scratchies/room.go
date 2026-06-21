@@ -352,14 +352,14 @@ func (rm *room) drawCard(f *Frame, pt *patron) {
 		if pt.lastWin > 0 {
 			f.Text(19, 3, fmt.Sprintf("✦ ✦ ✦   WON %s CREDITS   ✦ ✦ ✦", commaInt(pt.lastWin)), stWin)
 		} else {
-			f.Text(19, 3, "no win — better luck on the next one", stDim)
+			f.Text(19, 3, "no win - better luck on the next one", stDim)
 		}
 	}
 }
 
 func (rm *room) drawBust(f *Frame, pt *patron) {
 	drawChrome(f, "THE CORNER NEWSAGENT", pt.balance, rm.tickerLine(),
-		"[ENTER] back to the counter — have another crack")
+		"[ENTER] back to the counter - have another crack")
 	box(f, 7, 18, 15, 61, stBust)
 	f.Text(9, 24, "OUT OF CREDITS", stBust)
 	f.Text(11, 24, "the newsagent slides you a fresh twenty.", stDim)

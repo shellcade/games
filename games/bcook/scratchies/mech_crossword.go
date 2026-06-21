@@ -343,12 +343,12 @@ func (c *cwCard) Prompt() string {
 		noun = "word"
 	}
 	if !c.grid.AllRevealed() {
-		return fmt.Sprintf("%d %s found — scratch the bank", found, noun)
+		return fmt.Sprintf("%d %s found - scratch the bank", found, noun)
 	}
 	if found >= cwMinWords {
-		return fmt.Sprintf("%d words complete — WIN %s CREDITS", found, commaInt(c.Win()))
+		return fmt.Sprintf("%d words complete - WIN %s CREDITS", found, commaInt(c.Win()))
 	}
-	return fmt.Sprintf("%d words — need %d to win", found, cwMinWords)
+	return fmt.Sprintf("%d words - need %d to win", found, cwMinWords)
 }
 
 func (c *cwCard) Move(dx, dy int)          { c.grid.Move(dx, dy) }

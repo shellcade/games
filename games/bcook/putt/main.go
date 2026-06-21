@@ -35,7 +35,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "putt",
 		Name:             "Putt",
-		ShortDescription: "ASCII mini-golf — 9 holes, everyone plays at once, lowest total wins.",
+		ShortDescription: "ASCII mini-golf: 9 holes, everyone plays at once, lowest total wins.",
 		MinPlayers:       1,
 		MaxPlayers:       6,
 		Tags:             []string{"sports", "golf", "casual", "party"},

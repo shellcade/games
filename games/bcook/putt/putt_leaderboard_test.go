@@ -79,7 +79,7 @@ func TestLeaveBeforeAnyHolePostsFullPar(t *testing.T) {
 		t.Fatalf("DNF metric = %d, want full par total %d (must not be 0)", pr.Metric, want)
 	}
 	if pr.Metric == 0 {
-		t.Fatal("DNF metric must never be 0 — that would top a lower-better board")
+		t.Fatal("DNF metric must never be 0 - that would top a lower-better board")
 	}
 	if pr.Status != kit.StatusDNF {
 		t.Fatalf("status = %v, want StatusDNF", pr.Status)

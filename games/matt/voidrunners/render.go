@@ -187,7 +187,7 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player) {
 		if secs < 0 {
 			secs = 0
 		}
-		f.TextRight(bottom+1, cols-1, fmt.Sprintf("DESTROYED — respawn in %ds", secs),
+		f.TextRight(bottom+1, cols-1, fmt.Sprintf("DESTROYED - respawn in %ds", secs),
 			kit.Style{FG: kit.Red, Attr: kit.AttrBold})
 		banner := "✦  YOU WERE DESTROYED  ✦"
 		f.Text(11, (cols-len([]rune(banner)))/2, banner, kit.Style{FG: kit.Red, Attr: kit.AttrBold})

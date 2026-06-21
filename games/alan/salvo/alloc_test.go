@@ -23,6 +23,6 @@ func TestComposeAllocFree(t *testing.T) {
 	f := kit.NewFrame()
 	v := kittest.Player("p1")
 	if a := testing.AllocsPerRun(50, func() { rm.compose(f, v) }); a != 0 {
-		t.Errorf("compose allocates %.0f/frame — the render must stay alloc-free under -gc=leaking", a)
+		t.Errorf("compose allocates %.0f/frame - the render must stay alloc-free under -gc=leaking", a)
 	}
 }

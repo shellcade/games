@@ -418,7 +418,7 @@ func TestSteadyStateWakeAllocs(t *testing.T) {
 	// allocs/tick, a harness artifact the real host doesn't have); the budget
 	// rides above that but far below the ~3 frame allocations the old code did.
 	if allocs > 40 {
-		t.Fatalf("3-player wake allocates %.1f/op — permanent growth under -gc=leaking (budget 40); did render() stop reusing rm.frame?", allocs)
+		t.Fatalf("3-player wake allocates %.1f/op - permanent growth under -gc=leaking (budget 40); did render() stop reusing rm.frame?", allocs)
 	}
 }
 
@@ -433,6 +433,6 @@ func TestRenderReusesFrame(t *testing.T) {
 	rm.render(tr)
 	rm.render(tr)
 	if rm.frame != before {
-		t.Fatal("render replaced rm.frame — it must reuse the single long-lived buffer")
+		t.Fatal("render replaced rm.frame - it must reuse the single long-lived buffer")
 	}
 }

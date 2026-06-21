@@ -126,7 +126,7 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player, vp *player, layer int) 
 	}
 
 	// Bottom: controls.
-	f.Text(bottom+1, 1, "←/→/↑/↓ (hjkl) move — step off and the floor crumbles    Q quit",
+	f.Text(bottom+1, 1, "←/→/↑/↓ (hjkl) move - step off and the floor crumbles    Q quit",
 		kit.Style{FG: kit.DimGray})
 
 	rm.drawOverlays(f, viewer, vp)
@@ -143,7 +143,7 @@ func (rm *room) drawOverlays(f *kit.Frame, viewer kit.Player, vp *player) {
 	}
 
 	if vp != nil && !vp.alive && rm.playing {
-		f.TextRight(bottom+1, cols-1, fmt.Sprintf("ELIMINATED — survived %ds", vp.lastSecs),
+		f.TextRight(bottom+1, cols-1, fmt.Sprintf("ELIMINATED - survived %ds", vp.lastSecs),
 			kit.Style{FG: kit.Red, Attr: kit.AttrBold})
 		banner := "✖  YOU DROPPED OUT  ✖"
 		f.Text(11, (cols-len([]rune(banner)))/2, banner, kit.Style{FG: kit.Red, Attr: kit.AttrBold})
@@ -171,7 +171,7 @@ func (rm *room) drawIntermission(f *kit.Frame, viewer kit.Player, vp *player) {
 		// Solo (or everyone fell): show the survival result.
 		fg = kit.Cyan
 		if vp != nil {
-			banner = fmt.Sprintf("CRUMBLE GOT YOU — survived %ds", vp.lastSecs)
+			banner = fmt.Sprintf("CRUMBLE GOT YOU - survived %ds", vp.lastSecs)
 		} else {
 			banner = "ROUND OVER"
 		}

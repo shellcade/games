@@ -190,7 +190,7 @@ func (rm *room) corpseAt(floor, x, y int) *corpse {
 // points where they ran. Reading the bones arms the AVENGE vow: kill their
 // killer's kind on this floor and the dead are avenged.
 func (d *delver) inspectBones(c *corpse) {
-	d.say("Here lies " + c.name() + " — " + c.killer + ". \"" + c.words + "\" (fled " + c.gaspDir + ")")
+	d.say("Here lies " + c.name() + " - " + c.killer + ". \"" + c.words + "\" (fled " + c.gaspDir + ")")
 	d.say("[l]oot " + itoa(c.gold) + "g  [f] pay respects  [e]at the marrow")
 	d.vow = c
 }
@@ -256,14 +256,14 @@ func (d *delver) lootBones(rm *room, c *corpse) {
 		d.weapon, d.cursedW = c.weapon, cursed
 		took = c.weapon.name
 		if cursed {
-			d.say("The " + c.weapon.name + " CLINGS to your hand — cursed. (cleanse at an altar)")
+			d.say("The " + c.weapon.name + " CLINGS to your hand - cursed. (cleanse at an altar)")
 		}
 	}
 	if c.armor != nil && (d.armor == nil || c.armor.power > d.armor.power || roll(&d.rng, 3) == 1) {
 		cursed := roll(&d.rng, 3) == 1
 		d.armor, d.cursedA = c.armor, cursed
 		if cursed {
-			d.say("The " + c.armor.name + " will not come off — cursed.")
+			d.say("The " + c.armor.name + " will not come off - cursed.")
 		}
 	}
 	if c.relic != nil && d.relic == nil {
