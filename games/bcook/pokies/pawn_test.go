@@ -32,6 +32,37 @@ func TestPawnMovementAndCollision(t *testing.T) {
 	}
 }
 
+func TestSitAndStand(t *testing.T) {
+	a, b := kittest.Player("a"), kittest.Player("b")
+	rm, r := newGame(t, a, b)
+	rm.OnJoin(r, a)
+	rm.OnJoin(r, b)
+	mc := rm.fmachines[0]
+
+	pa := rm.pawns[a.AccountID]
+	pa.x, pa.y = mc.ax, mc.ay
+	rm.trySit(a.AccountID)
+	if !pa.seated || pa.seat != mc.id {
+		t.Fatalf("A should be seated at machine %d, got seated=%v seat=%d", mc.id, pa.seated, pa.seat)
+	}
+	if rm.occupied[mc.id] != a.AccountID {
+		t.Fatalf("machine %d should be occupied by A", mc.id)
+	}
+	pb := rm.pawns[b.AccountID]
+	pb.x, pb.y = mc.ax, mc.ay
+	rm.trySit(b.AccountID)
+	if pb.seated {
+		t.Fatal("B must not sit at an occupied machine")
+	}
+	rm.standUp(a.AccountID)
+	if pa.seated || (rm.occupied[mc.id] == a.AccountID) {
+		t.Fatal("standing should free the seat")
+	}
+	if pa.x != mc.ax || pa.y != mc.ay {
+		t.Fatalf("after standing pawn at (%d,%d), want approach (%d,%d)", pa.x, pa.y, mc.ax, mc.ay)
+	}
+}
+
 func TestJoinSpawnsPawnAtEntrance(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)

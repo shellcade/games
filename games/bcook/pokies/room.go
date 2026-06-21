@@ -112,6 +112,7 @@ type machine struct {
 	flashUntil time.Time // when the flash clears (deadline held in guest memory)
 	postedPeak int       // last peak posted to the leaderboard (post only on increase)
 	lastVar    *variant  // variant the last spin settled under (for the gamble caps)
+	seatVar    *variant  // variant bound when the player sits at a floor machine (nil = room default)
 
 	// Free spins (the scatter feature). When freeSpins > 0 the reels auto-play
 	// at no cost, paying at freeBet under freeVar; freeWin accumulates the total.
@@ -432,9 +433,9 @@ func (rm *room) startSpin(r kit.Room, p kit.Player) {
 	// Pin the variant this spin starts under: a later config refresh never
 	// re-evaluates an in-flight spin. The strip is its variant's strip, so a
 	// seeded room reproduces outcomes for a given variant.
-	v := rm.variant
+	v := m.seatVar
 	if v == nil {
-		v = defaultVariant()
+		v = rm.variant
 	}
 	s := &spinState{startedAt: r.Now(), variant: v}
 	for i := range s.final {
