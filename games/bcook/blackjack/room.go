@@ -67,6 +67,7 @@ type seat struct {
 	hands            []*phand
 	joinOrder        int
 	result           string // settlement summary for the results phase
+	ready            bool   // readied up during results to skip the wait
 }
 
 // pending names the deferred one-shot the room is waiting on, replacing the
@@ -116,10 +117,18 @@ type room struct {
 	schedEnd time.Time
 
 	frame *kit.Frame // reused render scratch (allocation-light steady state)
+
+	// sk standardises the durable-wallet KV writes (PersistWallet), replacing
+	// the duplicated persistWallet helper. The leaderboard Post stays
+	// hand-rolled in postPeak because postedPeak is seeded from the durable peak
+	// at join — so a returning seat only posts on a NEW personal best, which
+	// ScoreKeeper.Record (always posts the first observed value) would not
+	// preserve.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
-	return &room{cfg: cfg, svc: svc, seats: map[string]*seat{}, frame: kit.NewFrame()}
+	return &room{cfg: cfg, svc: svc, seats: map[string]*seat{}, frame: kit.NewFrame(), sk: kit.NewScoreKeeper(kit.OnImprove)}
 }
 
 func (rm *room) OnStart(r kit.Room) {
@@ -177,14 +186,10 @@ func (rm *room) seedWallet(r kit.Room, p kit.Player) (balance, peak int) {
 // persistWallet writes the seat's balance and raises peak to >= balance, with
 // the same keys/merge rules the native casino package used (sum for balance, max
 // for peak — out-of-order or concurrent writes can never regress the metric).
+// Delegates to the kit's ScoreKeeper.PersistWallet, which writes the identical
+// keys + merge rules, replacing the duplicated casino-wallet helper.
 func (rm *room) persistWallet(r kit.Room, s *seat) {
-	acct := r.Services().Accounts.For(s.p)
-	if acct == nil {
-		return
-	}
-	store := acct.Store()
-	_ = store.Set(context.Background(), keyBalance, []byte(strconv.Itoa(s.chips)), kit.MergeSum)
-	_ = store.Set(context.Background(), keyPeak, []byte(strconv.Itoa(s.highScore)), kit.MergeMax)
+	rm.sk.PersistWallet(r, s.p, keyBalance, s.chips, keyPeak, s.highScore)
 }
 
 // postPeak feeds the declared leaderboard with a new personal peak (the board
@@ -236,6 +241,11 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	// If the player who just left was the one on turn, advance the table.
 	if rm.phase == phTurns && active != nil && active.p.AccountID == p.AccountID {
 		rm.beginTurn(r)
+	}
+	// If the leaver was the last seat the table was waiting on to ready up, the
+	// remaining players are all ready — deal the next hand now.
+	if rm.phase == phResults && rm.allSeatedReady() {
+		rm.enterBetting(r)
 	}
 	rm.render(r)
 }
@@ -516,17 +526,18 @@ func (rm *room) recordDraw(r kit.Room, p kit.Player, handIdx, cardIdx int) {
 }
 
 // recordHoleReveal schedules the dealer hole card flipping over in place (no
-// slide) when the dealer turns it up, and returns the room-clock instant the
-// flip completes so dealer play can pause one beat for it.
-func (rm *room) recordHoleReveal(r kit.Room) time.Time {
-	now := r.Now()
+// slide) starting at `at`, and returns the room-clock instant the flip
+// completes so dealer play can pace off it. Callers lead in with a short beat
+// before `at` so the card sits face down a moment, then turns over, rather than
+// snapping up the instant the dealer's turn begins.
+func (rm *room) recordHoleReveal(at time.Time) time.Time {
 	rm.sched = []cardAnim{{
 		kind:      animDealer,
 		cardIdx:   1,
-		flipStart: now,
+		flipStart: at,
 	}}
 	rm.computeSchedEnd()
-	return now.Add(flipDur)
+	return at.Add(flipDur)
 }
 
 // recordDealerDraw appends a dealer hit card sliding in and flipping face up.
@@ -561,6 +572,39 @@ func (rm *room) takeInsurance(s *seat, yes bool) {
 		s.chips -= ins
 		s.insurance = ins
 	}
+}
+
+// insuranceUndecidedCount is how many placed seats have not yet answered the
+// insurance offer (the seats the table is still waiting on).
+func (rm *room) insuranceUndecidedCount() int {
+	n := 0
+	for _, s := range rm.seats {
+		if s.placed && !s.insuranceDecided {
+			n++
+		}
+	}
+	return n
+}
+
+// maybeResolveInsurance resolves the insurance window early once every placed
+// seat has answered, instead of waiting out the timer (mirrors the all-bets-in
+// early deal and the all-ready results skip).
+func (rm *room) maybeResolveInsurance(r kit.Room) {
+	placed := false
+	for _, s := range rm.seats {
+		if !s.placed {
+			continue
+		}
+		placed = true
+		if !s.insuranceDecided {
+			return // still waiting on this seat
+		}
+	}
+	if !placed {
+		return
+	}
+	rm.what = pendNone // cancel the armed timer; resolving now
+	rm.resolveInsurance(r)
 }
 
 func (rm *room) resolveInsurance(r kit.Room) {
@@ -732,31 +776,38 @@ func (rm *room) handIndex(s *seat, h *phand) int {
 
 func (rm *room) revealAndSettle(r kit.Room) {
 	rm.dealerHole = false
-	// Flip the hole card over, then settle once the flip has played out.
-	done := rm.recordHoleReveal(r)
-	rm.settleAt(r, done)
+	// A beat with the card still face down, then turn it over, then hold a beat
+	// on the revealed blackjack before settling — so the reveal animates and
+	// registers instead of snapping straight to results.
+	flipAt := r.Now().Add(holeRevealDelay)
+	done := rm.recordHoleReveal(flipAt)
+	rm.settleAt(r, done.Add(dealerDoneHold))
 }
 
 func (rm *room) enterDealer(r kit.Room) {
 	rm.dealerHole = false
-	// Outcome is determined up front from the seeded shoe; the schedule only
-	// paces the reveal. Flip the hole card (one beat), then slide in each card
-	// the dealer draws, and settle once the last one lands.
-	done := rm.recordHoleReveal(r)
+	// The outcome is fixed up front from the seeded shoe; the schedule only paces
+	// the reveal. Hold a beat with the hole card still face down, turn it over,
+	// hold a beat on the dealer's two-card total, then slide in each hit one
+	// unhurried card at a time, and settle a final beat after the last card
+	// lands — never the flurry the initial deal uses.
+	flipAt := r.Now().Add(holeRevealDelay)
+	done := rm.recordHoleReveal(flipAt).Add(holeRevealHold)
 	if rm.anyLive() {
 		before := len(rm.dealer)
 		rm.dealer = dealerPlay(rm.dealer, rm.sh, r.Rand())
-		start := done.Add(holePause - flipDur) // a beat after the flip finishes
+		start := done
 		for i := before; i < len(rm.dealer); i++ {
 			rm.recordDealerDraw(start, i)
-			start = start.Add(dealStagger)
+			// The next hit waits for this card to fully land, plus a read beat.
+			start = start.Add(slideDur + flipDur + dealerDrawGap)
 		}
 		rm.computeSchedEnd() // across the appended dealer cards
 		if len(rm.dealer) > before {
 			done = rm.schedEnd
 		}
 	}
-	rm.settleAt(r, done)
+	rm.settleAt(r, done.Add(dealerDoneHold))
 }
 
 // settleAt defers settlement until the dealer reveal/draw schedule has played
@@ -826,9 +877,37 @@ func (rm *room) settle(r kit.Room) {
 
 func (rm *room) enterResults(r kit.Room) {
 	rm.phase = phResults
+	for _, s := range rm.seats {
+		s.ready = false // a fresh round of ready-ups
+	}
 	rm.deadline = r.Now().Add(resultsDur)
-	r.SetInputContext(kit.CtxNav) // results screen: no domain letters, q/Esc backs out
+	r.SetInputContext(kit.CtxNav) // results screen: Up/Down idle, Confirm readies up
 	rm.arm(pendResults, rm.deadline)
+}
+
+// allSeatedReady reports whether at least one seat is taken and every seated
+// player has readied up — the trigger to start the next round without waiting
+// out the results flash.
+func (rm *room) allSeatedReady() bool {
+	seated := false
+	for _, s := range rm.seats {
+		seated = true
+		if !s.ready {
+			return false
+		}
+	}
+	return seated
+}
+
+// unreadyCount is how many seated players have not yet readied up.
+func (rm *room) unreadyCount() int {
+	n := 0
+	for _, s := range rm.seats {
+		if !s.ready {
+			n++
+		}
+	}
+	return n
 }
 
 // --- input -----------------------------------------------------------------
@@ -859,8 +938,20 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 			switch in.Rune {
 			case 'y', 'Y':
 				rm.takeInsurance(s, true)
+				rm.maybeResolveInsurance(r) // all answered -> resolve, skip the timer
 			case 'n', 'N':
 				rm.takeInsurance(s, false)
+				rm.maybeResolveInsurance(r)
+			}
+		}
+	case phResults:
+		// Confirm (Enter/Space) readies up for the next hand; once every seated
+		// player is ready the table deals straight away instead of waiting out
+		// the results flash.
+		if kit.Resolve(in, kit.CtxNav) == kit.ActConfirm {
+			s.ready = true
+			if rm.allSeatedReady() {
+				rm.enterBetting(r)
 			}
 		}
 	case phTurns:

@@ -60,14 +60,17 @@ func TestJoinFullRoomStartsCountdownThenLaunches(t *testing.T) {
 
 func TestDiveBuildsSpeedClimbBleedsIt(t *testing.T) {
 	rm := newRoom(kit.RoomConfig{}, kit.Services{})
-	dive := &pilot{x: 1000, y: 10, v: launchV, pitch: -0.6, alive: true}
+	// Dive from a cruise-ish speed (launch sits near terminal, where there is
+	// little headroom left to accelerate) to exercise that diving builds speed.
+	const diveEntry = 16.0
+	dive := &pilot{x: 1000, y: 10, v: diveEntry, pitch: -0.6, alive: true}
 	climb := &pilot{x: 1000, y: 30, v: 20, pitch: 0.6, alive: true}
 	for i := 0; i < 40; i++ { // one second in physics quanta
 		rm.stepPilot(dive, 0.025)
 		rm.stepPilot(climb, 0.025)
 	}
-	if dive.v <= launchV+5 {
-		t.Errorf("after a 1s dive v = %.1f, want well above launch %v", dive.v, launchV)
+	if dive.v <= diveEntry+6 {
+		t.Errorf("after a 1s dive v = %.1f, want well above entry %v", dive.v, diveEntry)
 	}
 	if climb.v >= 20 {
 		t.Errorf("after a 1s climb v = %.1f, want below the entry 20", climb.v)

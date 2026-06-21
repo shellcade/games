@@ -4,11 +4,15 @@ on:
 
 # Single source of truth for the toolchain. Bump these (and publish.yml, which
 # pins the same versions) together; CI must be reproducible across re-runs.
-# The "kit version lockstep" step below fails the PR when a changed game
-# requires a newer kit than this pinned engine, so a stale pin is caught
-# mechanically instead of by this comment.
+#
+# There is NO pinned shellcade-kit binary version here: the conformance CLI
+# (cmd/shellcade-kit) now ships inside the kit module, so every `check`/`meta`/
+# `smoke` runs it via `go run github.com/shellcade/kit/v2/cmd/shellcade-kit` at
+# the EXACT kit version each game pins (go.mod for Go, the Cargo.toml git tag
+# for Rust). The toolchain that verifies a game is therefore the same version it
+# was built against — no separate binary pin to keep in lockstep, and no
+# lockstep guard.
 env:
-  KIT_VERSION: "2.10.0"          # shellcade-kit release (tag v$KIT_VERSION) — ABI v2 + smoke
   TINYGO_VERSION: "0.41.1"
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.26"
@@ -99,60 +103,6 @@ jobs:
           tar xzf "$tarball"
           echo "$PWD/binaryen-${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
 
-      # Pin shellcade-kit to an exact release and verify the download against
-      # the release's checksums.txt before running it.
-      - name: shellcade-kit
-        if: steps.changed.outputs.dirs != ''
-        run: |
-          base="https://github.com/shellcade/kit/releases/download/v${KIT_VERSION}"
-          tarball="shellcade-kit_${KIT_VERSION}_linux_amd64.tar.gz"
-          curl -fsSL -o "$tarball" "$base/$tarball"
-          curl -fsSL -o checksums.txt "$base/checksums.txt"
-          grep " $tarball\$" checksums.txt | sha256sum -c -
-          tar xzf "$tarball"
-          ./shellcade-kit version
-
-      # Lockstep guard: the conformance engine embedded in the pinned
-      # shellcade-kit must be at least as new as the kit each changed game
-      # builds against, or `check`/`smoke` silently skip the feature paths the
-      # arcade actually drives (the meta trailer is tolerant-reader). Compare
-      # the engine's embedded kit module version (`shellcade-kit version`
-      # prints it) against each game's go.mod / Cargo.toml kit pin.
-      - name: kit version lockstep
-        if: steps.changed.outputs.dirs != ''
-        env:
-          # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
-          DIRS: ${{ steps.changed.outputs.dirs }}
-        run: |
-          engine=$(./shellcade-kit version | awk '$1 == "kit" {print $2}')
-          engine="${engine#v}"
-          case "$engine" in
-            *[0-9].[0-9]*) ;;
-            *) echo "::error::could not parse the kit version from 'shellcade-kit version' (got '$engine')"; exit 1 ;;
-          esac
-          echo "pinned shellcade-kit ${KIT_VERSION} embeds kit v${engine}"
-          while read -r d; do
-            [ -z "$d" ] && continue
-            req=""
-            if [ -f "$d/go.mod" ]; then
-              req=$(cd "$d" && go mod edit -json | jq -r '.Require[]? | select(.Path == "github.com/shellcade/kit/v2") | .Version')
-            elif [ -f "$d/Cargo.toml" ]; then
-              # Crate pins the SDK by git tag: shellcade-kit = { git = ..., tag = "vX.Y.Z" }
-              req=$(sed -n 's/^shellcade-kit *= *{.*tag *= *"\(v[0-9][^"]*\)".*/\1/p' "$d/Cargo.toml" | head -1)
-            fi
-            if [ -z "$req" ]; then
-              echo "$d: no kit pin found — skipping lockstep check"
-              continue
-            fi
-            req="${req#v}"
-            newest=$(printf '%s\n%s\n' "$req" "$engine" | sort -V | tail -1)
-            if [ "$newest" != "$engine" ]; then
-              echo "::error::$d requires kit v${req} but CI verifies with shellcade-kit ${KIT_VERSION} (engine kit v${engine}) — the toolchain pin is stale, so conformance would not exercise the kit features this game uses. Bump KIT_VERSION to a shellcade-kit release >= ${req} in BOTH .github/workflows/validate.yml and .github/workflows/publish.yml (a binary release tagged v${req} must exist on shellcade/kit)."
-              exit 1
-            fi
-            echo "$d: kit v${req} <= engine kit v${engine} — ok"
-          done <<< "$DIRS"
-
       # Pin freeze (ANSI → SVG) to an exact release and verify against the
       # release's checksums.txt; it renders the smoke shots into the preview
       # images the smoke-preview workflow publishes.
@@ -173,6 +123,34 @@ jobs:
           # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
           DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
+          # Run the conformance CLI from the kit MODULE at the version each game
+          # PINS, so the verifier is always the version the artifact was built
+          # against — no separately pinned shellcade-kit binary to keep in step.
+          # The version comes from the game's own go.mod (Go) or Cargo.toml git
+          # tag (Rust); we then `go run <pkg>@<version>`, which resolves the CLI
+          # (and its host-side deps like wazero) from the module cache via the
+          # kit module's OWN go.sum. NOTE: a bare `go run <pkg>` (no @version)
+          # does NOT work here — cmd/shellcade-kit pulls in host-only packages
+          # the game never imports, so the game's go.sum lacks their entries and
+          # `go run` would fail (or pollute the game module). The @version form
+          # sidesteps the game module entirely. Requires the game to pin a kit
+          # version that actually ships cmd/shellcade-kit (>= v2.12.0).
+          # `kit <dir> <args>` runs from inside <dir>, so wasm-path args are
+          # relative to it (and `check .` checks the Go source dir directly).
+          kit() {
+            local gdir="$1"; shift
+            local ver
+            if [ -f "$gdir/go.mod" ]; then
+              ver=$( cd "$gdir" && go mod edit -json | jq -r '.Require[]? | select(.Path == "github.com/shellcade/kit/v2") | .Version' )
+            else
+              # Crate pins the SDK by git tag: shellcade-kit = { git = ..., tag = "vX.Y.Z" }
+              ver=$(sed -n 's/^shellcade-kit *= *{.*tag *= *"\(v[0-9][^"]*\)".*/\1/p' "$gdir/Cargo.toml" | head -1)
+            fi
+            if [ -z "$ver" ]; then
+              echo "::error::$gdir: could not determine the pinned kit version (go.mod require / Cargo.toml git tag)"; exit 1
+            fi
+            ( cd "$gdir" && go run "github.com/shellcade/kit/v2/cmd/shellcade-kit@${ver}" "$@" )
+          }
           while read -r d; do
             [ -z "$d" ] && continue
             echo "=== $d ==="
@@ -190,14 +168,18 @@ jobs:
               # soak, flat memory).
               ( cd "$d" && go mod tidy && go test ./... )
               ( cd "$d" && tinygo build -opt=1 -no-debug -gc=conservative -o game.wasm -target wasip1 -buildmode=c-shared . )
+              # Conformance-check the dev artifact. For Go the CLI accepts the
+              # source dir directly (`check .` from inside $d).
+              kit "$d" check --require-leaderboard .
             elif [ -f "$d/Cargo.toml" ]; then
               crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
               ( cd "$d" && cargo build --release --target wasm32-wasip1 )
               cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
+              # Rust: the CLI operates on the built wasm (relative to $d).
+              kit "$d" check --require-leaderboard game.wasm
             else
               echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
             fi
-            ./shellcade-kit check "$d/game.wasm"
 
             # Release-profile gate (TinyGo-only): publish.yml ships an -opt=2
             # wasm-opt'd binary — a DIFFERENT artifact than the -opt=1 dev
@@ -208,12 +190,12 @@ jobs:
             if [ -f "$d/go.mod" ]; then
               ( cd "$d" && tinygo build -opt=2 -no-debug -gc=conservative \
                   -o game-release.wasm -target wasip1 -buildmode=c-shared . )
-              ./shellcade-kit check "$d/game-release.wasm"
+              kit "$d" check --require-leaderboard game-release.wasm
               rm -f "$d/game-release.wasm"
             fi
 
             # The artifact IS the metadata: assert it agrees with the path.
-            meta=$(./shellcade-kit meta "$d/game.wasm")
+            meta=$(kit "$d" meta game.wasm)
             echo "$meta"
             name=$(echo "$d" | cut -d/ -f3)
             slug=$(echo "$meta" | jq -r .slug)
@@ -239,14 +221,33 @@ jobs:
           # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
           DIRS: ${{ steps.changed.outputs.dirs }}
         run: |
+          # Same from-module CLI as the conformance step: run the kit version
+          # each game pins (Go via go.mod, Rust via the Cargo.toml git tag) as
+          # `go run <pkg>@<version>` from inside the game dir. See that step for
+          # why the @version form (not a bare `go run <pkg>`) is required.
+          kit() {
+            local gdir="$1"; shift
+            local ver
+            if [ -f "$gdir/go.mod" ]; then
+              ver=$( cd "$gdir" && go mod edit -json | jq -r '.Require[]? | select(.Path == "github.com/shellcade/kit/v2") | .Version' )
+            else
+              ver=$(sed -n 's/^shellcade-kit *= *{.*tag *= *"\(v[0-9][^"]*\)".*/\1/p' "$gdir/Cargo.toml" | head -1)
+            fi
+            if [ -z "$ver" ]; then
+              echo "::error::$gdir: could not determine the pinned kit version (go.mod require / Cargo.toml git tag)"; exit 1
+            fi
+            ( cd "$gdir" && go run "github.com/shellcade/kit/v2/cmd/shellcade-kit@${ver}" "$@" )
+          }
           mkdir -p previews
           games_json='[]'
           while read -r d; do
             [ -z "$d" ] && continue
             owner=$(echo "$d" | cut -d/ -f2); game=$(echo "$d" | cut -d/ -f3)
-            out="previews/${owner}-${game}"
+            # Absolute out dir: the kit helper runs from inside $d, so a relative
+            # --out would land under the game dir instead of previews/.
+            out="$PWD/previews/${owner}-${game}"
             echo "=== smoke $d ==="
-            ./shellcade-kit smoke "$d/game.wasm" --out "$out"
+            kit "$d" smoke game.wasm --out "$out"
             shots='[]'
             for ansi in "$out"/*.ansi; do
               freeze --language ansi -o "${ansi%.ansi}.svg" < "$ansi"

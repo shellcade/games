@@ -40,6 +40,14 @@ type room struct {
 	patrons map[string]*patron
 	order   []string
 	ticker  []string // recent big wins, newest last
+
+	// sk standardises the durable-wallet KV writes (PersistWallet), replacing
+	// the duplicated persistWallet helper. The leaderboard Post stays
+	// hand-rolled below because postedPeak is seeded from the durable peak at
+	// join — so a returning player only posts on a NEW personal best, which
+	// ScoreKeeper.Record (always posts the first observed value) would not
+	// preserve.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -48,6 +56,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		svc:     svc,
 		frame:   kit.NewFrame(),
 		patrons: map[string]*patron{},
+		sk:      kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -72,7 +81,7 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	if pt == nil {
 		return
 	}
-	persistWallet(r, p, pt.balance, pt.peak)
+	rm.persistWallet(r, p, pt.balance, pt.peak)
 	delete(rm.patrons, p.AccountID)
 	for i, id := range rm.order {
 		if id == p.AccountID {
@@ -368,6 +377,16 @@ func mechanicBlurb(m MechanicKind) string {
 		return "find a prize, then multiply"
 	case MechFind:
 		return "find three symbols"
+	case MechLines:
+		return "three in a line"
+	case MechCrossword:
+		return "complete the words"
+	case MechBingo:
+		return "mark a bingo line"
+	case MechShowdown:
+		return "beat the house"
+	case MechTriple:
+		return "spell the bonus words"
 	}
 	return ""
 }

@@ -133,11 +133,19 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 
 func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	rm.now = r.Now()
+	var left *crew
 	for i, c := range rm.crews {
 		if c.id == p.AccountID {
+			left = c
 			rm.crews = append(rm.crews[:i], rm.crews[i+1:]...)
 			break
 		}
+	}
+	// A boarded crew member dropping mid-run banks the run's progress so a
+	// whole shift's sectors aren't lost if everyone beams out before the core
+	// dies. The core-death debrief (phOver) has already posted, so skip it.
+	if left != nil && left.boarded && (rm.phase == phSector || rm.phase == phWarp) {
+		rm.flushRun(r, left)
 	}
 	if rm.phase == phSector {
 		// Orders aimed at the leaver's panel can never complete — reroll them.
@@ -469,6 +477,26 @@ func (rm *room) gameOver(r kit.Room) {
 	}
 	if len(rankings) > 0 {
 		r.Post(kit.Result{Rankings: rankings})
+	}
+}
+
+// flushRun banks one boarded crew member's in-progress run when they drop
+// before the core dies: the live metric is the sectors cleared so far
+// (sector-1, same as gameOver's score), posted DNF and persisted to "best".
+func (rm *room) flushRun(r kit.Room, c *crew) {
+	score := rm.sector - 1
+	if score < 0 {
+		score = 0
+	}
+	r.Post(kit.Result{Rankings: []kit.PlayerResult{
+		{Player: c.player, Metric: score, Status: kit.StatusDNF},
+	}})
+	if score > c.best {
+		c.best = score
+		if acct := r.Services().Accounts.For(c.player); acct != nil {
+			_ = acct.Store().Set(context.Background(), "best",
+				[]byte(strconv.Itoa(score)), kit.MergeMax)
+		}
 	}
 }
 

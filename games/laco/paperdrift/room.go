@@ -55,6 +55,12 @@ type room struct {
 	lastSecShown int // render-on-change for lobby/results countdowns
 
 	frame *kit.Frame // reused render scratch
+
+	// sk standardises the durable personal-best KV write (PersistBest, MergeMax),
+	// replacing the hand-rolled Store().Set in persistBests. The round's ranked
+	// leaderboard Post (buildResult) stays hand-rolled — it ranks the whole field
+	// in one multi-row Result, which ScoreKeeper's per-player Record cannot emit.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -66,6 +72,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		names:        map[string]kit.Player{},
 		lastSecShown: -1,
 		frame:        kit.NewFrame(),
+		sk:           kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -209,6 +216,7 @@ func (rm *room) placeAtSpawn() {
 		ps.x = spawnX
 		ps.y = mid + (float64(i)-float64(n-1)/2)*1.6
 		ps.v = math.Min(math.Sqrt(launchV*launchV+2*gravity*1.6*float64(i)), vMax)
+		ps.gamma = 0
 		ps.pitch = 0
 		ps.alive = false
 		ps.flew = false
@@ -337,7 +345,7 @@ func (rm *room) enterResults(r kit.Room) {
 	if len(res.Rankings) > 0 {
 		r.Post(res)
 	}
-	rm.persistBests()
+	rm.persistBests(r)
 	rm.resultsDeadline = now.Add(resultsDur)
 }
 
@@ -376,7 +384,7 @@ func (rm *room) buildResult() kit.Result {
 
 // persistBests banks any new personal bests to the per-player KV. MergeMax
 // keeps the durable value monotonic even if a store blip loses a read.
-func (rm *room) persistBests() {
+func (rm *room) persistBests(r kit.Room) {
 	for _, id := range rm.order {
 		ps := rm.pilots[id]
 		if !ps.flew || ps.dist <= ps.best {
@@ -387,10 +395,9 @@ func (rm *room) persistBests() {
 		if rm.svc.Accounts == nil {
 			continue
 		}
-		if acct := rm.svc.Accounts.For(rm.playerFor(id)); acct != nil {
-			_ = acct.Store().Set(context.Background(), "best",
-				[]byte(strconv.Itoa(ps.dist)), kit.MergeMax)
-		}
+		// PersistBest writes the same "best" key with MergeMax; the nil-Accounts
+		// guard above stays because PersistBest resolves r.Services().Accounts.
+		rm.sk.PersistBest(r, rm.playerFor(id), "best", ps.dist)
 	}
 }
 

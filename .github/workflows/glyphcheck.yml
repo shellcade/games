@@ -1,0 +1,48 @@
+name: glyphcheck
+on:
+  pull_request:
+
+# Width-contract merge gate. The kit wide-glyph frame helpers (SetWide and
+# SetGraphemeWide) write a glyph into TWO terminal columns; that is only correct
+# when the glyph's BASE code point has East Asian Width Wide (W) or Fullwidth
+# (F). A base whose
+# EAW is anything else renders one column on some viewers and desyncs every
+# column to its right — the pokies production-corruption class (the keycap 7️⃣,
+# base U+0037, corrupted the reel layout in production; see
+# games/bcook/pokies/layout.go, now pinned to U+FF17 FULLWIDTH SEVEN).
+#
+# The linter (tools/glyphcheck) is a standalone, stdlib-only `go run` tool: it
+# PARSES game source (no type checking, no module download) and flags any
+# wide-glyph call whose glyph argument resolves to a string literal with a
+# non-W/F base. It needs NO network and NO secrets, so it runs on fork PRs.
+#
+# CONVERGENCE: this is the self-contained stop-gap. The pinned kit (v2.12.1)
+# does NOT yet carry `shellcade-kit check`'s own width contract; once a kit that
+# does is pinned across the catalog, that check (which inspects the BUILT
+# artifact's rendered frames, catching even dynamic glyphs this static linter
+# reports as "unverified") supersedes this job, and tools/glyphcheck retires.
+#
+# Pinned like the repo's other workflows: actions/checkout@v6, setup-go@v6,
+# GO_VERSION matched to validate.yml/vulncheck.yml.
+env:
+  GO_VERSION: "1.26"
+
+permissions:
+  contents: read
+
+jobs:
+  glyphcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with: { go-version: "${{ env.GO_VERSION }}" }
+      - name: linter self-test (stdlib only, offline)
+        run: ( cd tools/glyphcheck && go vet ./... && go test ./... )
+      - name: wide-glyph width-contract lint (whole catalog)
+        run: |
+          # The tool is its own stdlib-only module; run it from its dir against
+          # the repo's games tree. Scanning the WHOLE catalog (not just changed
+          # dirs) is cheap (parser-only) and catches a violation that a base
+          # bump or a kit-version change could surface in an untouched game.
+          ( cd tools/glyphcheck && go run . "$GITHUB_WORKSPACE/games" )

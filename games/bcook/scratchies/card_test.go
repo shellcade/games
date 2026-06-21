@@ -61,8 +61,8 @@ func TestScratchAll(t *testing.T) {
 // Every catalog ticket has a sane shape (used as a smoke check until Agent E's
 // stats() test lands).
 func TestCatalogShape(t *testing.T) {
-	if len(tickets) != 16 {
-		t.Fatalf("catalog has %d tickets, want 16", len(tickets))
+	if len(tickets) != 26 {
+		t.Fatalf("catalog has %d tickets, want 26", len(tickets))
 	}
 	for _, tk := range tickets {
 		if tk.Cols > 6 {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- Five new scratch-card games (10 new tickets, 26 total across nine games):
+  **Lucky Lines** (three in a row/column/diagonal), **Cashword** (complete words
+  from a letter bank), **Quick Bingo** (mark a line of called numbers),
+  **Showdown** (beat the house column by column), and **Triple Word** (spell a
+  bonus word; a 3× tile triples it).
+- Fixed a match-3 spoiler: the winning amount no longer turns green until the
+  card resolves. Multiplier panels are now reachable with both right and down.
+
 ## 0.1.0
 
 Initial release.

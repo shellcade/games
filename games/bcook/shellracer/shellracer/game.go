@@ -35,6 +35,10 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       5,
 		Tags:             []string{"typing", "race"},
 
+		// A real-time typing race with no mid-game state worth resuming: when
+		// everyone leaves, the room closes — no hibernation snapshot, no Resume entry.
+		Lifecycle: kit.LifecycleEphemeral,
+
 		QuickModeLabel:    "Quick race",
 		SoloModeLabel:     "Solo practice",
 		PrivateInviteLine: "The race begins when a second player joins.",

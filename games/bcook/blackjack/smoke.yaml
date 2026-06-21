@@ -38,11 +38,24 @@ steps:
   - advance: 600ms
   - shot: hit
 
-  # Both hands resolved -> dealer reveals the hole card and draws to 17. Sweep
-  # past the reveal (600ms hole pause + staggered draws) into the results flash.
-  - advance: 1500ms
-  - advance: 1500ms
-  - advance: 1500ms
+  # Both hands resolved -> the dealer turns its hole card and draws, now paced
+  # deliberately: a beat on the revealed total, then each hit one unhurried card
+  # at a time, then a final beat. Sweep the whole reveal into the results flash.
+  - advance: 1600ms
+  - advance: 1600ms
+  - advance: 1600ms
+  - advance: 1600ms
 
-  # (d) Dealer hole revealed, dealer drew out, settlement/payout shown per seat.
+  # (d) Dealer hole revealed (total/verdict centred below its cards), dealer drew
+  # out, settlement/payout shown per seat, each seat invited to ready up.
   - shot: payout
+
+  # (e) Ready-up: seat 0 confirms and reads READY while the table still waits on
+  # seat 1; once seat 1 confirms too the round skips the flash and deals again.
+  - seat: 0
+  - key: space
+  - shot: ready
+  - seat: 1
+  - key: space
+  - advance: 100ms
+  - shot: next

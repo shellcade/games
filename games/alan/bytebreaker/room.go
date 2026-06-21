@@ -25,6 +25,14 @@ type room struct {
 	lastNow time.Time
 
 	frame *kit.Frame // reused render buffer (Send copies it)
+
+	// sk standardises the durable high-score KV write (PersistBest, MergeMax),
+	// replacing the hand-rolled Store().Set in persistBest. The leaderboard Post
+	// stays hand-rolled in OnWake because board.posted is seeded from the durable
+	// best at join — so a returning player only posts on a NEW high, which
+	// ScoreKeeper.Record (always posts the first observed value) would not
+	// preserve.
+	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
@@ -34,6 +42,7 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		boards: map[string]*board{},
 		names:  map[string]kit.Player{},
 		frame:  kit.NewFrame(),
+		sk:     kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -156,9 +165,5 @@ func (rm *room) loadBest(r kit.Room, p kit.Player) int {
 }
 
 func (rm *room) persistBest(r kit.Room, p kit.Player, b *board) {
-	acct := r.Services().Accounts.For(p)
-	if acct == nil {
-		return
-	}
-	_ = acct.Store().Set(context.Background(), "best", []byte(strconv.Itoa(b.best)), kit.MergeMax)
+	rm.sk.PersistBest(r, p, "best", b.best)
 }
