@@ -18,6 +18,6 @@ func TestDrawPaytableAllocFree(t *testing.T) {
 		rm.drawPaytable(f, 5)
 	})
 	if allocs != 0 {
-		t.Fatalf("drawPaytable allocates %.0f/call — the paytable rows/labels must be precomputed, not rebuilt per render", allocs)
+		t.Fatalf("drawPaytable allocates %.0f/call - the paytable rows/labels must be precomputed, not rebuilt per render", allocs)
 	}
 }

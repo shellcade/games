@@ -61,7 +61,7 @@ func TestLobbyGathersBeforeLaunch(t *testing.T) {
 	rm.OnJoin(r, kittest.Player("p1"))
 	rm.OnJoin(r, kittest.Player("p2"))
 	if rm.phase != phLobby {
-		t.Fatalf("phase = %v, want lobby — joining must not auto-launch", rm.phase)
+		t.Fatalf("phase = %v, want lobby - joining must not auto-launch", rm.phase)
 	}
 	// The fallback timer launches for everyone at once.
 	r.Advance(lobbyWait + time.Second)
@@ -369,7 +369,7 @@ func TestComposeAllocFree(t *testing.T) {
 	f := kit.NewFrame()
 	v := kittest.Player("p1")
 	if a := testing.AllocsPerRun(50, func() { rm.compose(f, v) }); a != 0 {
-		t.Errorf("sector compose allocates %.1f/frame — must stay alloc-free under -gc=leaking", a)
+		t.Errorf("sector compose allocates %.1f/frame - must stay alloc-free under -gc=leaking", a)
 	}
 
 	rm.phase = phLobby

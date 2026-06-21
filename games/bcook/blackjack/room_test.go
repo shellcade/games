@@ -567,7 +567,7 @@ func TestDealerHoleRevealIsDelayedAndAnimated(t *testing.T) {
 		t.Fatalf("hole flip starts %v after the turn, want at least the lead-in %v", lead, holeRevealDelay)
 	}
 	if hole.flipStart.IsZero() {
-		t.Fatal("hole reveal has no flip scheduled — it would snap, not animate")
+		t.Fatal("hole reveal has no flip scheduled - it would snap, not animate")
 	}
 	if !hole.slideStart.IsZero() {
 		t.Fatalf("hole reveal should turn in place, not slide: %+v", hole)

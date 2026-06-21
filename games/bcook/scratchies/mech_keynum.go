@@ -232,7 +232,7 @@ func (c *keynumCard) Title() string {
 
 func (c *keynumCard) Prompt() string {
 	if !c.grid.AllRevealed() {
-		return "scratch your numbers — matches pay"
+		return "scratch your numbers - matches pay"
 	}
 	return c.resolvedPrompt()
 }
@@ -251,7 +251,7 @@ func (c *keynumCard) resolvedPrompt() string {
 		return "no matching numbers"
 	}
 	if len(matchPrizes) == 1 {
-		return fmt.Sprintf("one match — %s CREDITS", commaInt(sum))
+		return fmt.Sprintf("one match - %s CREDITS", commaInt(sum))
 	}
 	// Two or more matches: show the sum breakdown.
 	expr := ""
@@ -261,7 +261,7 @@ func (c *keynumCard) resolvedPrompt() string {
 		}
 		expr += commaInt(pr)
 	}
-	return fmt.Sprintf("%d matches — %s = %s CREDITS", len(matchPrizes), expr, commaInt(sum))
+	return fmt.Sprintf("%d matches - %s = %s CREDITS", len(matchPrizes), expr, commaInt(sum))
 }
 
 func (c *keynumCard) Move(dx, dy int)          { c.grid.Move(dx, dy) }

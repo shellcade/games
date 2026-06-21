@@ -278,7 +278,7 @@ func TestKeynumCard_MoveAndScratch(t *testing.T) {
 
 	// Not yet resolved (other panels still hidden).
 	if c.Resolved() {
-		t.Fatal("Resolved() too early — only one panel scratched")
+		t.Fatal("Resolved() too early - only one panel scratched")
 	}
 }
 

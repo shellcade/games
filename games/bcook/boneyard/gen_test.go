@@ -145,6 +145,6 @@ func TestCombatReplayDeterminism(t *testing.T) {
 	a, _ := run()
 	b, _ := run()
 	if a != b {
-		t.Fatal("identical seeds + inputs diverged — combat is drawing non-deterministic randomness")
+		t.Fatal("identical seeds + inputs diverged - combat is drawing non-deterministic randomness")
 	}
 }

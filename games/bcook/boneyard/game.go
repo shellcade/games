@@ -16,7 +16,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "boneyard",
 		Name:             "Boneyard",
-		ShortDescription: "Delve the week's shared dungeon — and read the bones of everyone who died before you.",
+		ShortDescription: "Delve the week's shared dungeon and read the bones of everyone who died before you.",
 		MinPlayers:       1,
 		MaxPlayers:       100,
 		Tags:             []string{"roguelike", "persistent", "multiplayer"},

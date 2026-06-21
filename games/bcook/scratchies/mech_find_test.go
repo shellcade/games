@@ -113,7 +113,7 @@ func TestFindWinNeverAutoResolvesToZeroViaBust(t *testing.T) {
 		c := mkFindCard(t, ticket, 50, seed)
 		// Verify no bust exists.
 		if countBusts(c.grid) != 0 {
-			t.Errorf("seed=%d: winning card has bust panel — impossible", seed)
+			t.Errorf("seed=%d: winning card has bust panel - impossible", seed)
 		}
 		// Scratch all and confirm win.
 		c.ScratchAll()

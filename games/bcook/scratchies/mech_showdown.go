@@ -142,13 +142,13 @@ func (c *sdCard) Title() string {
 
 func (c *sdCard) Prompt() string {
 	if !c.Resolved() {
-		return "scratch YOUR row — beat the house value to win"
+		return "scratch YOUR row - beat the house value to win"
 	}
 	if c.out.Win > 0 {
-		return fmt.Sprintf("you won — column %d pays %s credits",
+		return fmt.Sprintf("you won - column %d pays %s credits",
 			c.winCol+1, commaInt(c.out.Win))
 	}
-	return "no win — the house held"
+	return "no win - the house held"
 }
 
 // Move navigates within the YOU row (row 1). Only horizontal movement is
@@ -253,7 +253,7 @@ func (c *sdCard) Render(f *Frame, top int) {
 		// Per-column prize label above the HOUSE box.
 		prizeStr := "$" + commaInt(c.prizes[col])
 		if c.prizes[col] == 0 {
-			prizeStr = "  —  "
+			prizeStr = "  -  "
 		}
 		f.Text(prizeRow, cx, centre4(prizeStr), stDim)
 

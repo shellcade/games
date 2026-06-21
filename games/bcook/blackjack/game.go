@@ -12,7 +12,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "blackjack",
 		Name:             "Blackjack",
-		ShortDescription: "Take a seat at a shared dealer table — bet, hit, stand, and chase your high score.",
+		ShortDescription: "Take a seat at a shared dealer table: bet, hit, stand, and chase your high score.",
 		MinPlayers:       1,
 		MaxPlayers:       5,
 		Tags:             []string{"cards", "casino"},

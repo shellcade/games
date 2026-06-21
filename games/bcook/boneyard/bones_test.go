@@ -47,7 +47,7 @@ func TestDeathLeavesBonesForTheNextDelver(t *testing.T) {
 		t.Fatalf("corpse = %+v", c)
 	}
 	if t2 := f2.tiles[c.y][c.x]; t2 != tFloor && t2 != tWater {
-		t.Fatalf("corpse landed on %q — stairs/shrine exclusion violated", string(t2))
+		t.Fatalf("corpse landed on %q - stairs/shrine exclusion violated", string(t2))
 	}
 	if cheb(c.x-f2.upX, c.y-f2.upY) > 4 {
 		t.Fatal("corpse jittered too far from the death tile")

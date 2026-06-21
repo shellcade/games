@@ -87,7 +87,7 @@ func newDelver(p kit.Player, w *world, r kit.Room) *delver {
 	d.online = true
 	d.rng = actorSeed(w.seed, fnvHash(p.AccountID), 0)
 	d.applyKit(&kits[1]) // LANTERN until chosen; [1][2][3] at the Gate swap it
-	d.say("The Boneyard. [1]BLADE [2]LANTERN [3]FLASK — choose your kit.")
+	d.say("The Boneyard. [1]BLADE [2]LANTERN [3]FLASK - choose your kit.")
 	d.reveal(f)
 	return d
 }
@@ -270,7 +270,7 @@ func (d *delver) handleInput(rm *room, r kit.Room, in kit.Input) {
 			if m := rm.mimicAt(d.floor, d.x, d.y); m != nil {
 				// The bones bite back.
 				m.hidden = false
-				d.say("The corpse SPRINGS — a tomb mimic!")
+				d.say("The corpse SPRINGS - a tomb mimic!")
 				rm.dirtyWitnesses(d.floor, m.x, m.y, nil)
 				d.dirty = true
 				rm.monsterAttack(r, m, d)

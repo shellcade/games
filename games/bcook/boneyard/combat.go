@@ -127,7 +127,7 @@ func (rm *room) monsterAttack(r kit.Room, m *monster, d *delver) {
 	switch m.sp.name {
 	case "gelatinous cube":
 		d.heldUntil = r.Now().Add(2 * time.Second) // ENGULFED: held fast
-		d.say("The cube ENGULFS you — " + itoa(dmg) + ". You cannot move.")
+		d.say("The cube ENGULFS you - " + itoa(dmg) + ". You cannot move.")
 	case "cursed wraith":
 		d.torch -= 60 // drains the flame...
 		if d.torch < 0 {
@@ -137,10 +137,10 @@ func (rm *room) monsterAttack(r kit.Room, m *monster, d *delver) {
 		if d.hp > d.maxHP {
 			d.hp = d.maxHP
 		}
-		d.say("The wraith drains you — " + itoa(dmg) + ", your torch, your strength.")
+		d.say("The wraith drains you - " + itoa(dmg) + ", your torch, your strength.")
 	case "plague ghoul":
 		d.rotUntilFloor = d.deepest + 3 // rot: -1 to hit until cleansed by marrow
-		d.say("The ghoul's rot sets in — " + itoa(dmg) + ". (devour marrow to cleanse)")
+		d.say("The ghoul's rot sets in - " + itoa(dmg) + ". (devour marrow to cleanse)")
 	default:
 		d.say("The " + m.sp.name + " hits you for " + itoa(dmg) + ".")
 	}

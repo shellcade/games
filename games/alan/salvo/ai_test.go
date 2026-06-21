@@ -47,6 +47,6 @@ func TestCpuSolutionLandsNearTarget(t *testing.T) {
 		t.Fatal("CPU picked a shot that sails off the field")
 	}
 	if d := math.Abs(ix - float64(foe.col)); d > 10 {
-		t.Errorf("CPU shot lands %.0f cols from the target — too wild", d)
+		t.Errorf("CPU shot lands %.0f cols from the target - too wild", d)
 	}
 }

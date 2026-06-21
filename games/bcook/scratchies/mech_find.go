@@ -108,7 +108,7 @@ func (c *findCard) Title() string {
 	sym := strings.ToLower(c.ticket.Symbol)
 	title := c.ticket.Name + " · $" + itoa(c.ticket.Price) + " · find three " + sym
 	if c.ticket.HasBust {
-		title += " — mind the BUST!"
+		title += " - mind the BUST!"
 	}
 	return title
 }
@@ -116,12 +116,12 @@ func (c *findCard) Title() string {
 func (c *findCard) Prompt() string {
 	if c.resolved {
 		if c.bustHit {
-			return "BUST — no win"
+			return "BUST - no win"
 		}
 		if c.won > 0 {
 			out := "WON " + itoa(c.won)
 			if c.ticket.HasBust {
-				out += " — dodged the BUST!"
+				out += " - dodged the BUST!"
 			}
 			return out
 		}
@@ -132,9 +132,9 @@ func (c *findCard) Prompt() string {
 	case 0:
 		return "find three " + sym + " to win"
 	case 1:
-		return "one " + sym + " found — two more pays " + itoa(c.out.Win)
+		return "one " + sym + " found - two more pays " + itoa(c.out.Win)
 	case 2:
-		return "two " + sym + " found — one more pays " + itoa(c.out.Win)
+		return "two " + sym + " found - one more pays " + itoa(c.out.Win)
 	default:
 		return "find three " + sym + " to win"
 	}

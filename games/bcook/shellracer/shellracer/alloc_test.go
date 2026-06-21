@@ -20,6 +20,6 @@ func TestComposePassageAllocFree(t *testing.T) {
 		d.rm.composePassage(f, p)
 	})
 	if allocs != 0 {
-		t.Fatalf("composePassage allocates %.0f/call — the passage wrap must be cached (computed once in OnStart), not re-wrapped per render", allocs)
+		t.Fatalf("composePassage allocates %.0f/call - the passage wrap must be cached (computed once in OnStart), not re-wrapped per render", allocs)
 	}
 }

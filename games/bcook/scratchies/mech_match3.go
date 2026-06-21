@@ -199,9 +199,9 @@ func (c *match3Card) Prompt() string {
 	if c.Resolved() {
 		w := c.Win()
 		if w > 0 {
-			return "✦ three " + c.winAmt + " — WON " + itoa(w) + " CREDITS ✦"
+			return "✦ three " + c.winAmt + " - WON " + itoa(w) + " CREDITS ✦"
 		}
-		return "no three-of-a-kind — no win"
+		return "no three-of-a-kind - no win"
 	}
 
 	// Find the label with the highest in-progress count.
@@ -214,9 +214,9 @@ func (c *match3Card) Prompt() string {
 		}
 	}
 	if bestCnt == 2 {
-		return "two " + best + " so far — one more pays " + itoa(match3ParseAmt(best))
+		return "two " + best + " so far - one more pays " + itoa(match3ParseAmt(best))
 	}
-	return "scratch the grid — match three amounts to win"
+	return "scratch the grid - match three amounts to win"
 }
 
 func (c *match3Card) Render(f *Frame, top int) {

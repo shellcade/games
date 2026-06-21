@@ -100,7 +100,7 @@ func (rm *room) composeLobby(f *kit.Frame, r kit.Room, viewer kit.Player, now ti
 	textCenter(f, 3, "one sheet of paper vs. the sky", dimSt)
 
 	how := []string{
-		"↑/↓ trim your nose — momentum is life:",
+		"↑/↓ trim your nose - momentum is life:",
 		"dive to build speed, climb to bank height,",
 		"fly too slow and you stall.",
 		"ride ↑↑ thermals, thread the gaps in the walls,",
@@ -129,7 +129,7 @@ func (rm *room) composeLobby(f *kit.Frame, r kit.Room, viewer kit.Player, now ti
 		row++
 	}
 
-	footer := "Enter — launch"
+	footer := "Enter - launch"
 	if !rm.graceDeadline.IsZero() {
 		secs := int(rm.graceDeadline.Sub(now).Seconds())
 		if secs < 0 {
@@ -162,7 +162,7 @@ func (rm *room) composeFlight(f *kit.Frame, r kit.Room, viewer kit.Player, now t
 		}
 		textCenter(f, 10, fmt.Sprintf("  LAUNCH IN %d  ", secs),
 			kit.Style{FG: kit.Yellow, Attr: kit.AttrBold | kit.AttrReverse})
-		textCenter(f, 12, "trim with ↑/↓ — the wind is picking up", dimSt)
+		textCenter(f, 12, "trim with ↑/↓ - the wind is picking up", dimSt)
 	}
 }
 
@@ -297,7 +297,7 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player, now time.Time) {
 	ps := rm.pilots[viewer.AccountID]
 	switch {
 	case ps == nil || (rm.phase == phFlying && !ps.flew):
-		f.Text(hudRow, col+3, "spectating — you launch next round", hudSt)
+		f.Text(hudRow, col+3, "spectating - you launch next round", hudSt)
 	case ps.alive || rm.phase == phCountdown:
 		col = f.Text(hudRow, col+3, fmt.Sprintf("DIST %4dm", maxInt(ps.liveDist(), 0)), hudSt)
 		bar := int(ps.v / vBarMax * 8)
@@ -328,7 +328,7 @@ func (rm *room) drawHUD(f *kit.Frame, viewer kit.Player, now time.Time) {
 	default:
 		msg := fmt.Sprintf("DOWN at %dm", ps.dist)
 		if lid := rm.leaderID(); lid != "" {
-			msg += " — watching " + rm.playerFor(lid).Handle
+			msg += " - watching " + rm.playerFor(lid).Handle
 		}
 		f.Text(hudRow, col+3, msg, hudSt)
 	}
@@ -381,7 +381,7 @@ func (rm *room) drawStrip(f *kit.Frame, viewer kit.Player) {
 
 func (rm *room) composeResults(f *kit.Frame, r kit.Room, viewer kit.Player, now time.Time) {
 	accent := kit.Style{FG: kit.Cyan, Attr: kit.AttrBold}
-	textCenter(f, 2, fmt.Sprintf("ROUND %d — RESULTS", rm.roundNum), accent)
+	textCenter(f, 2, fmt.Sprintf("ROUND %d - RESULTS", rm.roundNum), accent)
 
 	res := rm.buildResult()
 	row := 5
@@ -411,5 +411,5 @@ func (rm *room) composeResults(f *kit.Frame, r kit.Room, viewer kit.Player, now 
 	if secs < 0 {
 		secs = 0
 	}
-	textCenter(f, helpRow-1, fmt.Sprintf("Enter — relaunch now   ·   next launch in %ds", secs), hudKeySt)
+	textCenter(f, helpRow-1, fmt.Sprintf("Enter - relaunch now   ·   next launch in %ds", secs), hudKeySt)
 }

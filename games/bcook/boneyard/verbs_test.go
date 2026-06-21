@@ -64,7 +64,7 @@ func TestVerbsOnTheFallen(t *testing.T) {
 	c2 := &corpse{handle: "saint", floor: 2, x: 1, y: 1, respects: 3}
 	bob.devourBones(rm, c2)
 	if c2.devoured {
-		t.Fatal("devoured a corpse with 3 respects — the flowers failed")
+		t.Fatal("devoured a corpse with 3 respects - the flowers failed")
 	}
 }
 

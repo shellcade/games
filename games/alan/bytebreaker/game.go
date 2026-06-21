@@ -11,7 +11,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "bytebreaker",
 		Name:             "Bytebreaker",
-		ShortDescription: "Smash a neon wall of bytes with a bouncing bit — a one-more-go brick breaker for your terminal.",
+		ShortDescription: "Smash a neon wall of bytes with a bouncing bit, a one-more-go brick breaker for your terminal.",
 		MinPlayers:       1,
 		MaxPlayers:       6,
 		Tags:             []string{"arcade", "breakout", "action", "retro"},

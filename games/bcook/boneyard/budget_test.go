@@ -105,7 +105,7 @@ func TestSteadyStateWakeAllocs(t *testing.T) {
 	})
 	t.Logf("idle wake allocs/op: %.1f", allocs)
 	if allocs > 60 {
-		t.Fatalf("idle wake allocates %.1f/op — permanent growth at 10 wakes/sec under -gc=leaking (budget 60)", allocs)
+		t.Fatalf("idle wake allocates %.1f/op - permanent growth at 10 wakes/sec under -gc=leaking (budget 60)", allocs)
 	}
 }
 
@@ -134,7 +134,7 @@ func TestDeathAllocBudget(t *testing.T) {
 	perDeath := int64(after.TotalAlloc-before.TotalAlloc) / deaths
 	t.Logf("allocated: %d bytes/death (permanent under -gc=leaking)", perDeath)
 	if perDeath > 2*1024 {
-		t.Fatalf("%d bytes allocated per death — permanent at -gc=leaking; a busy week strands megabytes in the resident room and its checkpoints (budget 2KB)", perDeath)
+		t.Fatalf("%d bytes allocated per death - permanent at -gc=leaking; a busy week strands megabytes in the resident room and its checkpoints (budget 2KB)", perDeath)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestKitTorchEconomics(t *testing.T) {
 // must leave the 17-rune hint its right-aligned room.
 func TestMessageLogNeverCollidesWithHints(t *testing.T) {
 	if hint := len([]rune(hintLegend)); msgWidth+hint > 80 {
-		t.Fatalf("msgWidth %d + legend %d exceeds 80 cols — re-budget before shipping", msgWidth, hint)
+		t.Fatalf("msgWidth %d + legend %d exceeds 80 cols - re-budget before shipping", msgWidth, hint)
 	}
 	d := &delver{}
 	d.say("You pay your respects to somebody-with-an-extremely-long-handle-indeed. (+2 luck)")

@@ -82,7 +82,7 @@ func TestFrictionStopsBall(t *testing.T) {
 	}
 	runUntilRest(rm, tr, g, 200)
 	if g.state == stateRoll {
-		t.Fatal("ball never came to rest — friction not bleeding speed")
+		t.Fatal("ball never came to rest - friction not bleeding speed")
 	}
 	if g.vx != 0 || g.vy != 0 {
 		t.Fatalf("rested ball has residual velocity (%.3f,%.3f)", g.vx, g.vy)
@@ -235,7 +235,7 @@ func TestFullRoundSettlesWithLeaderboard(t *testing.T) {
 	}
 
 	if tr.Ended == nil {
-		t.Fatal("round never settled — End was not called after hole 9")
+		t.Fatal("round never settled - End was not called after hole 9")
 	}
 	rk := tr.Ended.Rankings
 	if len(rk) != 2 {
@@ -487,7 +487,7 @@ func TestRenderReusesFrame(t *testing.T) {
 	rm.render(tr)
 	rm.render(tr)
 	if rm.frame != before {
-		t.Fatal("render replaced rm.frame — it must reuse the single long-lived buffer")
+		t.Fatal("render replaced rm.frame - it must reuse the single long-lived buffer")
 	}
 }
 
@@ -514,6 +514,6 @@ func TestSteadyStateWakeAllocs(t *testing.T) {
 	})
 	t.Logf("3-player wake allocs/op: %.1f", allocs)
 	if allocs > 40 {
-		t.Fatalf("3-player wake allocates %.1f/op — did render() stop reusing rm.frame?", allocs)
+		t.Fatalf("3-player wake allocates %.1f/op - did render() stop reusing rm.frame?", allocs)
 	}
 }

@@ -175,7 +175,7 @@ func TestEnPassantIllegalDiscoveredCheck(t *testing.T) {
 	// on the a5 king, so the move is illegal.
 	p := mustParse(t, "8/8/8/K2pP2r/8/8/8/8 w - d6 0 1")
 	if longMoves(p)["e5d6"] {
-		t.Fatalf("en passant exd6 must be illegal — it discovers check on the white king")
+		t.Fatalf("en passant exd6 must be illegal - it discovers check on the white king")
 	}
 	// Sanity: the EP capture is pseudo-legal (generated) but filtered out.
 	found := false

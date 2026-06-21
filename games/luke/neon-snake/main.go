@@ -23,7 +23,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "neon-snake",
 		Name:             "Neon Snake",
-		ShortDescription: "A retro-inspired premium Neon Snake game built for TUI.",
+		ShortDescription: "Grab glowing food, snatch shield and freeze power-ups, and outlast a rival snake across five modes.",
 		MinPlayers:       1,
 		MaxPlayers:       2,  // two snakes: solo co-op (one seat) or head-to-head (two seats)
 		HeartbeatMS:      50, // 20 ticks per second

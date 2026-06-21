@@ -11,7 +11,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "salvo",
 		Name:             "Salvo",
-		ShortDescription: "Lob shells over destructible hills, read the wind, and blast your rivals off the map — turn-based tank artillery.",
+		ShortDescription: "Lob shells over destructible hills, read the wind, and blast your rivals off the map. Turn-based tank artillery.",
 		MinPlayers:       1,
 		MaxPlayers:       6,
 		Tags:             []string{"artillery", "tanks", "turn-based", "strategy", "destructible"},

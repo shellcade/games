@@ -154,7 +154,7 @@ func (d *delver) pickup(rm *room, dr *drop) {
 			d.weapon = dr.def
 			d.say("You take up the " + dr.def.name + ".")
 		} else {
-			d.say("A " + dr.def.name + " — yours is better. Left for the next delver.")
+			d.say("A " + dr.def.name + " - yours is better. Left for the next delver.")
 			dr.taken = false
 		}
 	case iArmor:
@@ -162,7 +162,7 @@ func (d *delver) pickup(rm *room, dr *drop) {
 			d.armor = dr.def
 			d.say("You strap on the " + dr.def.name + ".")
 		} else {
-			d.say("A " + dr.def.name + " — yours is better.")
+			d.say("A " + dr.def.name + " - yours is better.")
 			dr.taken = false
 		}
 	case iRelic:
@@ -170,7 +170,7 @@ func (d *delver) pickup(rm *room, dr *drop) {
 			d.relic = dr.def
 			d.say("The " + dr.def.name + " hums on your hand.")
 		} else {
-			d.say("A " + dr.def.name + " — but your relic slot is taken.")
+			d.say("A " + dr.def.name + " - but your relic slot is taken.")
 			dr.taken = false
 		}
 	case iPotionHeal:
@@ -207,7 +207,7 @@ func (d *delver) quaff() {
 	d.heals--
 	if !d.knownHeal {
 		d.knownHeal = true
-		d.say("The murk clears — a healing draught!")
+		d.say("The murk clears - a healing draught!")
 	}
 	heal := roll(&d.rng, 8) + roll(&d.rng, 8)
 	d.hp += heal

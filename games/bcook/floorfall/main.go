@@ -31,7 +31,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "floorfall",
 		Name:             "Floorfall",
-		ShortDescription: "Outlast rivals on crumbling stacked floors — step off a tile and it falls away.",
+		ShortDescription: "Outlast rivals on crumbling stacked floors. Step off a tile and it falls away.",
 		MinPlayers:       1,
 		MaxPlayers:       6,
 		Tags:             []string{"action", "arcade", "party", "last-one-standing"},

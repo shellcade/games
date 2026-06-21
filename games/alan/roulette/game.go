@@ -13,7 +13,7 @@ func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "roulette",
 		Name:             "Roulette",
-		ShortDescription: "Gather round one American double-zero wheel — spread your chips and watch it spin.",
+		ShortDescription: "Gather round one American double-zero wheel. Spread your chips and watch it spin.",
 		MinPlayers:       1,
 		MaxPlayers:       6,
 		Tags:             []string{"roulette", "casino", "betting", "american"},

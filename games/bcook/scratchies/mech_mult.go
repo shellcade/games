@@ -10,7 +10,7 @@ import (
 // Two scratch panels: PRIZE (base amount) and MULTIPLIER (integer in [1,MaxMult]).
 // Final win = base × mult. For a winning card the engine factors out.Win into the
 // largest valid mult ≤ MaxMult that divides out.Win evenly (base ≥ 1).
-// For a losing card the prize panel shows "—" and a random mult is displayed for
+// For a losing card the prize panel shows "-" and a random mult is displayed for
 // flavour; Win() returns 0.
 
 // multCard implements Card for the multiplier mechanic.
@@ -63,7 +63,7 @@ func multBuild(t *Ticket, out Outcome, rng *rand.Rand) Card {
 		g.Panels[0].Reveal = commaInt(base)
 		g.Panels[0].Ink = stReveal
 	} else {
-		g.Panels[0].Reveal = " — "
+		g.Panels[0].Reveal = " - "
 		g.Panels[0].Ink = stDim
 	}
 

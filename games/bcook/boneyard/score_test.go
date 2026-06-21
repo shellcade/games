@@ -20,7 +20,7 @@ func TestSoulScoreWorkedExamples(t *testing.T) {
 		t.Fatalf("stair-diver = %d", got)
 	}
 	if engager.soulScore() <= diver.soulScore() {
-		t.Fatal("the stair-diver out-scored the bones-engager — the design inverted")
+		t.Fatal("the stair-diver out-scored the bones-engager - the design inverted")
 	}
 }
 

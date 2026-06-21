@@ -49,7 +49,7 @@ func TestDeadMonstersAreReaped(t *testing.T) {
 	// monotonically (~+250 over this window) toward starving the tick; with the
 	// per-floor cap + reap it stabilizes.
 	if late > early+20 {
-		t.Fatalf("live monsters grew %d -> %d over 40k ticks — still unbounded", early, late)
+		t.Fatalf("live monsters grew %d -> %d over 40k ticks - still unbounded", early, late)
 	}
 	t.Logf("bounded: %d monsters at 20k ticks, %d at 60k ticks", early, late)
 }

@@ -332,9 +332,9 @@ func (c *bingoCard) Prompt() string {
 	if c.Resolved() {
 		w := c.Win()
 		if w > 0 {
-			return "✦ BINGO — WON " + itoa(w) + " CREDITS ✦"
+			return "✦ BINGO - WON " + itoa(w) + " CREDITS ✦"
 		}
-		return "no complete line — no win"
+		return "no complete line - no win"
 	}
 	// Count how many called cells have been revealed.
 	matchRevealed := 0
@@ -344,9 +344,9 @@ func (c *bingoCard) Prompt() string {
 		}
 	}
 	if matchRevealed == 0 {
-		return "scratch the card — complete a line to win"
+		return "scratch the card - complete a line to win"
 	}
-	return fmt.Sprintf("%d called numbers revealed — complete a line to win", matchRevealed)
+	return fmt.Sprintf("%d called numbers revealed - complete a line to win", matchRevealed)
 }
 
 func (c *bingoCard) Move(dx, dy int)          { c.grid.Move(dx, dy) }

@@ -154,6 +154,6 @@ func TestMembersGetIndependentBoards(t *testing.T) {
 	}
 	rm.boards["p1"].score = 100
 	if rm.boards["p2"].score != 0 {
-		t.Error("boards are not independent — p2 inherited p1's score")
+		t.Error("boards are not independent - p2 inherited p1's score")
 	}
 }

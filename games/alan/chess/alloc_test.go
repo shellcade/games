@@ -19,6 +19,6 @@ func TestDrawBoardAllocFree(t *testing.T) {
 		rm.drawBoard(f, tr.Players[0], engine.White)
 	})
 	if allocs != 0 {
-		t.Fatalf("drawBoard allocates %.0f/call — legal-target marks must use the stack array, not a per-render map", allocs)
+		t.Fatalf("drawBoard allocates %.0f/call - legal-target marks must use the stack array, not a per-render map", allocs)
 	}
 }

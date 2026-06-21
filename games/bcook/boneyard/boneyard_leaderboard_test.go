@@ -53,7 +53,7 @@ func TestDisconnectBanksDepthDNF(t *testing.T) {
 	// The run persists in-world for rejoin: the delver is NOT deleted, just
 	// marked offline.
 	if got, ok := rm.delvers[a.AccountID]; !ok || got != d {
-		t.Fatal("OnLeave deleted the in-memory run — it must persist for rejoin")
+		t.Fatal("OnLeave deleted the in-memory run - it must persist for rejoin")
 	}
 	if d.online {
 		t.Fatal("OnLeave left the delver marked online")
