@@ -13,12 +13,13 @@ import "github.com/shellcade/kit/v2"
 // default" can never drift from what the machine actually runs.
 const defaultVariantJSON = `{
   "name": "Default",
-  "weights": {"7": 1, "$": 2, "*": 3, "B": 5, "C": 30, "W": 1, "S": 2},
+  "weights": {"7": 4, "$": 5, "*": 6, "B": 7, "C": 8, "W": 2, "S": 2},
   "paytable": [
-    {"faces": "7", "pay3": 10, "pay4": 30, "pay5": 100},
-    {"faces": "$", "pay3": 6, "pay4": 20, "pay5": 60},
-    {"faces": "*", "pay3": 4, "pay4": 12, "pay5": 36},
-    {"faces": "B", "pay3": 2, "pay4": 6, "pay5": 16}
+    {"faces": "7", "pay3": 1, "pay4": 3, "pay5": 10},
+    {"faces": "$", "pay3": 1, "pay4": 2, "pay5": 7},
+    {"faces": "*", "pay3": 1, "pay4": 2, "pay5": 4},
+    {"faces": "B", "pay3": 1, "pay4": 1, "pay5": 3},
+    {"faces": "C", "pay3": 1, "pay4": 1, "pay5": 2}
   ],
   "scatter": [
     {"count": 3, "spins": 6},
@@ -68,7 +69,7 @@ const oddsVariantSchema = `{
         "required": ["faces", "pay3", "pay4", "pay5"],
         "additionalProperties": false,
         "properties": {
-          "faces": {"type": "string", "enum": ["7", "$", "*", "B", "C"]},
+          "faces": {"type": "string", "enum": ["7", "$", "*", "B", "C"], "description": "C (cherry) may pay a small amount; it is no longer a pure blank."},
           "pay3": {"type": "integer", "minimum": 0},
           "pay4": {"type": "integer", "minimum": 0},
           "pay5": {"type": "integer", "minimum": 0}

@@ -93,7 +93,7 @@ func TestCompileSortsScatterDescAndDefaultsGamble(t *testing.T) {
 	v, err := compileVariant(oddsVariant{
 		Name:     "ok",
 		Weights:  map[string]int{"7": 4, "C": 30, "S": 1},
-		Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 80}},
+		Paytable: []payEntry{{Faces: "7", Pay3: 100, Pay4: 300, Pay5: 800}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 8}, {Count: 5, Spins: 25}},
 	})
 	if err != nil {

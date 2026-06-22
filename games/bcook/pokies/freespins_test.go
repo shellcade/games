@@ -33,7 +33,7 @@ func TestFreeSpinsAwardedDeterministically(t *testing.T) {
 	// each reel's window centre -> 5 scatters -> trigger. Sparse enough to converge.
 	h.variant = mustCompile(t, oddsVariant{
 		Name: "scatterland", Weights: map[string]int{"7": 4, "C": 30, "S": 1},
-		Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100}},
+		Paytable: []payEntry{{Faces: "7", Pay3: 100, Pay4: 300, Pay5: 1000}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 8}},
 	})
 	h.OnJoin(r, p)
@@ -59,7 +59,7 @@ func TestFreeSpinWinCreditsAtLockedBetNoCharge(t *testing.T) {
 	// No scatter on this strip: the 7-run free spin credits without a retrigger.
 	h.variant = mustCompile(t, oddsVariant{
 		Name: "fs", Weights: map[string]int{"7": 3, "C": 30},
-		Paytable: []payEntry{{Faces: "7", Pay3: 5, Pay4: 15, Pay5: 50}},
+		Paytable: []payEntry{{Faces: "7", Pay3: 50, Pay4: 150, Pay5: 500}},
 	})
 	h.OnJoin(r, p)
 	m := h.machines[p.AccountID]
@@ -69,7 +69,7 @@ func TestFreeSpinWinCreditsAtLockedBetNoCharge(t *testing.T) {
 	i7 := firstIdx(t, h.variant.strip, sym7)
 	m.spin = &spinState{startedAt: r.Now(), variant: h.variant,
 		stopIdx: allReels(i7), final: faceRow(sym7)}
-	want := 1000 + 50*h.variant.waysPayout(scatterWindow(h.variant.strip, allReels(i7)))
+	want := 1000 + 50*h.variant.waysPayout(scatterWindow(h.variant.strip, allReels(i7)))/wayScale
 	h.settleSpin(r, p.AccountID)
 
 	if m.balance != want {
@@ -90,7 +90,7 @@ func TestFreeSpinsAutoPlayToCompletion(t *testing.T) {
 	h.OnStart(r)
 	h.variant = mustCompile(t, oddsVariant{
 		Name: "fs", Weights: map[string]int{"7": 3, "C": 30}, // no scatter -> no retrigger
-		Paytable: []payEntry{{Faces: "7", Pay3: 5, Pay4: 15, Pay5: 50}},
+		Paytable: []payEntry{{Faces: "7", Pay3: 50, Pay4: 150, Pay5: 500}},
 	})
 	h.OnJoin(r, p)
 	seatAt0(t, h, p)
@@ -117,7 +117,7 @@ func TestFreeSpinTriggerAnnouncesRoomWide(t *testing.T) {
 	h.OnStart(r)
 	h.variant = mustCompile(t, oddsVariant{
 		Name: "fs", Weights: map[string]int{"7": 4, "C": 30, "S": 1},
-		Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100}},
+		Paytable: []payEntry{{Faces: "7", Pay3: 100, Pay4: 300, Pay5: 1000}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 8}},
 	})
 	h.OnJoin(r, p)

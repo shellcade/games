@@ -87,27 +87,31 @@ func pureIdx(t *testing.T, v *variant, s symbol) int {
 	return 0
 }
 
-// forceWin5 settles a 5-reel run of paying symbol s (scatter-free window) under
-// rm.variant and returns the credited win (bet * ways).
+// forceWin5 settles a full 5-reel run of paying symbol s (an all-s window, so
+// ways = 3^5 — a guaranteed big win) under rm.variant and returns the credited
+// win (bet * ways / wayScale).
 func forceWin5(t *testing.T, rm *room, r *kittest.Room, p kit.Player, s symbol) int {
 	t.Helper()
 	m := rm.machines[p.AccountID]
 	v := rm.variant
-	idx := cleanIdx(t, v, s)
-	win := m.bet * v.waysPayout(scatterWindow(v.strip, allReels(idx)))
+	idx := pureIdx(t, v, s) // all-s window: max ways, scatter-free
+	win := m.bet * v.waysPayout(scatterWindow(v.strip, allReels(idx))) / wayScale
 	m.spin = &spinState{startedAt: r.Now(), variant: v, stopIdx: allReels(idx), final: faceRow(s)}
 	rm.settleSpin(r, p.AccountID)
 	return win
 }
 
-// forceLoss5 settles an all-cherry window (cherry pays nothing) — no win, no
-// trigger — under rm.variant.
+// forceLoss5 settles a window whose leftmost three reels are distinct pure
+// symbols (7, $, *), so no symbol forms a run of 3 from reel 0 — a zero-win, no
+// trigger spin under rm.variant.
 func forceLoss5(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
 	t.Helper()
 	m := rm.machines[p.AccountID]
 	v := rm.variant
-	idx := pureIdx(t, v, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: v, stopIdx: allReels(idx), final: faceRow(symCherry)}
+	i7, iD, iS := pureIdx(t, v, sym7), pureIdx(t, v, symDollar), pureIdx(t, v, symStar)
+	idx := [numReels]int{i7, iD, iS, i7, iD}
+	fin := [numReels]symbol{sym7, symDollar, symStar, sym7, symDollar}
+	m.spin = &spinState{startedAt: r.Now(), variant: v, stopIdx: idx, final: fin}
 	rm.settleSpin(r, p.AccountID)
 }
 
@@ -275,7 +279,7 @@ func TestSpinSettlesToPayoutOverWake(t *testing.T) {
 	if m.freeSpins > 0 {
 		t.Skip("seeded first spin triggered free spins; payout path covered elsewhere")
 	}
-	want := (startBalance - 10) + 10*rm.variant.waysPayout(scatterWindow(rm.variant.strip, m.lastIdx))
+	want := (startBalance - 10) + 10*rm.variant.waysPayout(scatterWindow(rm.variant.strip, m.lastIdx))/wayScale
 	if m.balance != want {
 		t.Fatalf("balance = %d, want %d (ways over %v)", m.balance, want, m.lastIdx)
 	}
@@ -691,7 +695,7 @@ func TestPaytableStripNamesSymbolsWithArt(t *testing.T) {
 	rm.render(r)
 
 	// Seated at machine 0 = the "Lucky 7s" theme; labels are "pay5/pay4/pay3".
-	for _, want := range []string{"147/42/13", "63/21/6", "36/13/4", "16/6/2"} {
+	for _, want := range []string{"14/4/2", "8/3/1", "4/2/1"} {
 		if !frameContains(r, p, want) {
 			t.Errorf("paytable strip missing %q", want)
 		}
@@ -699,7 +703,7 @@ func TestPaytableStripNamesSymbolsWithArt(t *testing.T) {
 	f := r.LastFrame(p)
 	row := -1
 	for rr := 0; rr < kit.Rows; rr++ {
-		if strings.Contains(kittest.String(f, rr), "147/42/13") {
+		if strings.Contains(kittest.String(f, rr), "14/4/2") {
 			row = rr
 			break
 		}
@@ -784,17 +788,19 @@ func TestControlsLineReflectsMode(t *testing.T) {
 
 func TestDefaultVariantTuning(t *testing.T) {
 	v := defaultVariant()
-	if len(v.strip) != 44 { // 1+2+3+5+30+1+2
-		t.Fatalf("default strip length = %d, want 44", len(v.strip))
+	if len(v.strip) != 34 { // 4+5+6+7+8+2+2
+		t.Fatalf("default strip length = %d, want 34", len(v.strip))
 	}
-	if v.weightSummary() != "7:1 $:2 *:3 B:5 C:30 W:1 S:2" {
-		t.Fatalf("weight summary = %q, want 7:1 $:2 *:3 B:5 C:30 W:1 S:2", v.weightSummary())
+	if v.weightSummary() != "7:4 $:5 *:6 B:7 C:8 W:2 S:2" {
+		t.Fatalf("weight summary = %q, want 7:4 $:5 *:6 B:7 C:8 W:2 S:2", v.weightSummary())
 	}
-	if _, ok := v.pays[symCherry]; ok {
-		t.Fatal("cherries must pay nothing in the default variant")
+	// Every regular symbol pays a per-way amount (no dominant blank), with a
+	// gradient (7 top, cherry the lowest).
+	if v.pays[sym7] != [3]int{1, 3, 10} {
+		t.Fatalf("seven pays = %v, want {1,3,10}", v.pays[sym7])
 	}
-	if v.pays[sym7] != [3]int{10, 30, 100} {
-		t.Fatalf("seven pays = %v, want {10,30,100}", v.pays[sym7])
+	if v.pays[symCherry] != [3]int{1, 1, 2} {
+		t.Fatalf("cherry pays = %v, want {1,1,2} (cherry is the low payer now)", v.pays[symCherry])
 	}
 }
 
@@ -855,15 +861,15 @@ func TestParseVariantFirstMatchWins(t *testing.T) {
 	v, err := compileVariant(oddsVariant{
 		Weights: map[string]int{"7": 4, "C": 30},
 		Paytable: []payEntry{
-			{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 80},
+			{Faces: "7", Pay3: 100, Pay4: 300, Pay5: 800},
 			{Faces: "7", Pay3: 9, Pay4: 99, Pay5: 999},
 		},
 	})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	if v.pays[sym7] != [3]int{10, 30, 80} {
-		t.Fatalf("first-match pays = %v, want {10,30,80}", v.pays[sym7])
+	if v.pays[sym7] != [3]int{100, 300, 800} {
+		t.Fatalf("first-match pays = %v, want {100,300,800}", v.pays[sym7])
 	}
 }
 
@@ -884,7 +890,7 @@ func bbbVariantDoc() oddsVariant {
 	doc := defaultDoc()
 	for i := range doc.Paytable {
 		if doc.Paytable[i].Faces == "B" {
-			doc.Paytable[i] = payEntry{Faces: "B", Pay3: 4, Pay4: 12, Pay5: 40}
+			doc.Paytable[i] = payEntry{Faces: "B", Pay3: 2, Pay4: 4, Pay5: 12}
 		}
 	}
 	return doc
@@ -895,8 +901,8 @@ func TestRoomLoadsStoredVariant(t *testing.T) {
 	r.ConfigVals[configKey] = variantBlob(t, bbbVariantDoc())
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r)
-	if h.variant.pays[symBar] != [3]int{4, 12, 40} {
-		t.Fatalf("stored B pays = %v, want override {4,12,40}", h.variant.pays[symBar])
+	if h.variant.pays[symBar] != [3]int{2, 4, 12} {
+		t.Fatalf("stored B pays = %v, want override {2,4,12}", h.variant.pays[symBar])
 	}
 }
 
@@ -905,8 +911,8 @@ func TestRoomFallsBackOnBrokenVariant(t *testing.T) {
 	r.ConfigVals[configKey] = []byte("{ this is not json")
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r)
-	if h.variant.pays[sym7] != [3]int{10, 30, 100} {
-		t.Fatalf("after broken variant, 7 pays = %v, want default {10,30,100}", h.variant.pays[sym7])
+	if h.variant.pays[sym7] != [3]int{1, 3, 10} {
+		t.Fatalf("after broken variant, 7 pays = %v, want default {1,3,10}", h.variant.pays[sym7])
 	}
 }
 
@@ -914,22 +920,22 @@ func TestRoomRefreshAdoptsNewVariant(t *testing.T) {
 	r := kittest.NewRoom()
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r) // no stored variant -> default
-	if h.variant.pays[symBar] != [3]int{2, 6, 16} {
-		t.Fatalf("initial B pays = %v, want default {2,6,16}", h.variant.pays[symBar])
+	if h.variant.pays[symBar] != [3]int{1, 1, 3} {
+		t.Fatalf("initial B pays = %v, want default {1,1,3}", h.variant.pays[symBar])
 	}
 	r.ConfigVals[configKey] = variantBlob(t, bbbVariantDoc())
 
 	// Before the refresh deadline, still the default.
 	r.Advance(configRefresh - time.Second)
 	h.OnWake(r)
-	if h.variant.pays[symBar] != [3]int{2, 6, 16} {
+	if h.variant.pays[symBar] != [3]int{1, 1, 3} {
 		t.Fatalf("before refresh B pays = %v, want still default", h.variant.pays[symBar])
 	}
 	// After the refresh deadline passes, the new variant is live.
 	r.Advance(2 * time.Second)
 	h.OnWake(r)
-	if h.variant.pays[symBar] != [3]int{4, 12, 40} {
-		t.Fatalf("after refresh B pays = %v, want override {4,12,40}", h.variant.pays[symBar])
+	if h.variant.pays[symBar] != [3]int{2, 4, 12} {
+		t.Fatalf("after refresh B pays = %v, want override {2,4,12}", h.variant.pays[symBar])
 	}
 }
 
@@ -954,7 +960,7 @@ func TestMidSpinVariantStability(t *testing.T) {
 	m.spin.final = faceRow(symBar)
 	// The win must settle under the STARTING variant (default B pays), not the
 	// override adopted mid-spin.
-	wantWin := 50 * sv.waysPayout(scatterWindow(sv.strip, allReels(bIdx)))
+	wantWin := 50 * sv.waysPayout(scatterWindow(sv.strip, allReels(bIdx))) / wayScale
 	h.variant = mustCompile(t, bbbVariantDoc()) // override has different B pays
 
 	h.settleSpin(r, p.AccountID)

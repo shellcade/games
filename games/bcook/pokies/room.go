@@ -512,7 +512,7 @@ func (rm *room) settleSpin(r kit.Room, id string) {
 	m.spin = nil
 	m.spun = true
 
-	win := bet * v.waysPayout(scatterWindow(v.strip, m.lastIdx))
+	win := bet * v.waysPayout(scatterWindow(v.strip, m.lastIdx)) / wayScale
 
 	if wasFree {
 		// Free spin: credit at the locked bet (no charge), retrigger, then advance

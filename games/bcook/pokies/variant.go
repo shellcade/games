@@ -32,6 +32,13 @@ const (
 	visRows  = 3
 )
 
+// wayScale is the global pay denominator: a spin credits
+// bet × waysPayout / wayScale. Paytable pays are quoted in per-way units, so EVERY
+// symbol (including the frequent low ones) can pay a small amount without the ways
+// product (counts up to 3^5) blowing past the RTP band — letting the reels show a
+// varied mix of paying symbols instead of one dominant non-paying blank.
+const wayScale = 10
+
 // Validation bounds for an odds variant. They are wide on purpose — this is play
 // money, so the bounds catch fat-fingered mistakes (a zeroed weight set, a
 // negative multiplier, an absurd strip) rather than enforcing real-money policy.
@@ -201,13 +208,14 @@ func defaultDoc() oddsVariant {
 	return oddsVariant{
 		Name: "Default",
 		Weights: map[string]int{
-			"7": 1, "$": 2, "*": 3, "B": 5, "C": 30, "W": 1, "S": 2,
+			"7": 4, "$": 5, "*": 6, "B": 7, "C": 8, "W": 2, "S": 2,
 		},
 		Paytable: []payEntry{
-			{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100},
-			{Faces: "$", Pay3: 6, Pay4: 20, Pay5: 60},
-			{Faces: "*", Pay3: 4, Pay4: 12, Pay5: 36},
-			{Faces: "B", Pay3: 2, Pay4: 6, Pay5: 16},
+			{Faces: "7", Pay3: 1, Pay4: 3, Pay5: 10},
+			{Faces: "$", Pay3: 1, Pay4: 2, Pay5: 7},
+			{Faces: "*", Pay3: 1, Pay4: 2, Pay5: 4},
+			{Faces: "B", Pay3: 1, Pay4: 1, Pay5: 3},
+			{Faces: "C", Pay3: 1, Pay4: 1, Pay5: 2},
 		},
 		Scatter: []scatterEntry{
 			{Count: 3, Spins: 6},
@@ -448,6 +456,7 @@ func (v *variant) stats() variantStats {
 		a3 := a * a * a
 		st.LineRTP += float64(p[0])*a3*z + float64(p[1])*a3*a*z + float64(p[2])*a3*a*a
 	}
+	st.LineRTP /= wayScale // pays are per-way units; a spin credits ways/wayScale
 	// Loose sanity metric: average filled fraction of a single reel window across
 	// the paying symbols (not an exact hit rate; only checked to be positive).
 	st.HitFreq = filled / (float64(len(stripOrder)) * float64(visRows))

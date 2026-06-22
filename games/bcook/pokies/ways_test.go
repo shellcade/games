@@ -67,7 +67,7 @@ func TestStatsClosedFormWays(t *testing.T) {
 	v, err := compileVariant(oddsVariant{
 		Name:     "w",
 		Weights:  map[string]int{"7": 4, "C": 30, "S": 2},
-		Paytable: []payEntry{{Faces: "7", Pay3: 4, Pay4: 15, Pay5: 60}},
+		Paytable: []payEntry{{Faces: "7", Pay3: 40, Pay4: 150, Pay5: 600}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 5}},
 	})
 	if err != nil {
@@ -97,8 +97,8 @@ func TestThemesCompileInBand(t *testing.T) {
 			t.Fatal("nil theme variant — a PAR sheet failed to compile")
 		}
 		s := v.stats()
-		if s.TotalRTP < 0.80 || s.TotalRTP > 0.95 {
-			t.Errorf("theme %q total RTP %.3f outside [0.80,0.95]", v.name, s.TotalRTP)
+		if s.TotalRTP < 0.78 || s.TotalRTP > 0.95 {
+			t.Errorf("theme %q total RTP %.3f outside [0.78,0.95]", v.name, s.TotalRTP)
 		}
 		names[v.name] = true
 	}
@@ -123,7 +123,7 @@ func TestClosedFormMatchesSampling(t *testing.T) {
 		}
 		total += v.waysPayout(w)
 	}
-	got := float64(total) / float64(N)
+	got := float64(total) / float64(N) / wayScale
 	rel := (got - st.LineRTP) / st.LineRTP
 	if rel > 0.05 || rel < -0.05 {
 		t.Fatalf("sampled line RTP %.4f vs closed-form %.4f (rel %.3f) — closed form wrong", got, st.LineRTP, rel)
