@@ -85,10 +85,10 @@ var betTiers = []int{10, 50, 100, 500}
 // change mid-spin never re-evaluates the outcome.
 type spinState struct {
 	startedAt time.Time
-	stopIdx   [3]int    // landing position on the strip per reel
-	final     [3]symbol // center (payline) face per reel = strip[stopIdx]
-	landed    int       // number of reels settled (0..3)
-	variant   *variant  // the odds variant this spin started under (settles under it)
+	stopIdx   [numReels]int    // landing position on the strip per reel
+	final     [numReels]symbol // center face per reel = strip[stopIdx]
+	landed    int              // number of reels settled (0..numReels)
+	variant   *variant         // the odds variant this spin started under (settles under it)
 }
 
 // cycle is the current scroll frame for an in-flight spin, derived from elapsed
@@ -103,10 +103,10 @@ type machine struct {
 	balance    int
 	highScore  int
 	bet        int
-	reels      [3]symbol // last settled center (payline) faces
-	lastIdx    [3]int    // last settled landing index per reel (for the idle window)
-	lastStrip  []symbol  // strip the lastIdx values index into (the variant of the last spin)
-	spun       bool      // false until the first spin settles (shows blanks)
+	reels      [numReels]symbol // last settled center faces
+	lastIdx    [numReels]int    // last settled landing index per reel (for the idle window)
+	lastStrip  []symbol         // strip the lastIdx values index into (the variant of the last spin)
+	spun       bool             // false until the first spin settles (shows blanks)
 	spin       *spinState
 	flash      string    // transient status line: "WIN! +N" / "RE-BUY"
 	flashUntil time.Time // when the flash clears (deadline held in guest memory)
@@ -159,9 +159,9 @@ type room struct {
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 	fmap, fmachines := buildLounge()
-	themes := make([]*variant, len(fmachines))
-	for i := range themes {
-		themes[i] = defaultVariant() // PR2: every machine uses the default odds
+	themes := themeVariants() // one themed 5-reel PAR sheet per machine
+	for len(themes) < len(fmachines) {
+		themes = append(themes, defaultVariant()) // safety: never fewer than machines
 	}
 	return &room{
 		cfg:       cfg,
@@ -389,7 +389,7 @@ func (rm *room) OnWake(r kit.Room) {
 		}
 		// Staggered reel landings: land every reel whose derived deadline has
 		// passed, in order (idiom 2).
-		for i := m.spin.landed; i < 3; i++ {
+		for i := m.spin.landed; i < numReels; i++ {
 			due := m.spin.startedAt.Add(reelStopBase + time.Duration(i)*reelStopStep)
 			if !now.After(due) {
 				break // not due yet, and later reels are even later — stop
@@ -485,7 +485,7 @@ func (rm *room) landReel(r kit.Room, id string, i int) {
 	if v := m.spin.variant; v != nil {
 		m.lastStrip = v.strip
 	}
-	if m.spin.landed >= 3 {
+	if m.spin.landed >= numReels {
 		rm.settleSpin(r, id)
 	}
 }
@@ -512,7 +512,7 @@ func (rm *room) settleSpin(r kit.Room, id string) {
 	m.spin = nil
 	m.spun = true
 
-	win := bet * v.payout(m.reels)
+	win := bet * v.waysPayout(scatterWindow(v.strip, m.lastIdx))
 
 	if wasFree {
 		// Free spin: credit at the locked bet (no charge), retrigger, then advance

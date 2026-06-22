@@ -8,17 +8,32 @@ import (
 	"github.com/shellcade/kit/v2/kittest"
 )
 
+// allReels returns a [numReels]int with every reel stopped at idx.
+func allReels(idx int) (out [numReels]int) {
+	for i := range out {
+		out[i] = idx
+	}
+	return out
+}
+
+// faceRow returns a [numReels]symbol with every reel's center face = s.
+func faceRow(s symbol) (out [numReels]symbol) {
+	for i := range out {
+		out[i] = s
+	}
+	return out
+}
+
 func TestFreeSpinsAwardedDeterministically(t *testing.T) {
 	p := kittest.Player("alice")
 	r := kittest.NewRoom(p)
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
-	h.OnStart(r) // loads the config default; we override h.variant below
-	// One scatter on the strip: stopping all three reels on it puts the scatter
-	// in each reel's window center -> 3 scatters -> trigger. Sparse enough to pass
-	// the convergence gate.
+	h.OnStart(r)
+	// One scatter on the strip: stopping all five reels on it puts the scatter in
+	// each reel's window centre -> 5 scatters -> trigger. Sparse enough to converge.
 	h.variant = mustCompile(t, oddsVariant{
-		Name: "scatterland", Weights: map[string]int{"7": 5, "C": 15, "S": 1},
-		Paytable: []payEntry{{Faces: "7", Multiplier: 20}},
+		Name: "scatterland", Weights: map[string]int{"7": 4, "C": 30, "S": 1},
+		Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 8}},
 	})
 	h.OnJoin(r, p)
@@ -26,7 +41,7 @@ func TestFreeSpinsAwardedDeterministically(t *testing.T) {
 	m.bet, m.balance = 10, startBalance-10
 	idx := firstIdx(t, h.variant.strip, symScatter)
 	m.spin = &spinState{startedAt: r.Now(), variant: h.variant,
-		stopIdx: [3]int{idx, idx, idx}, final: [3]symbol{symScatter, symScatter, symScatter}}
+		stopIdx: allReels(idx), final: faceRow(symScatter)}
 	h.settleSpin(r, p.AccountID)
 	if m.freeSpins != 8 {
 		t.Fatalf("freeSpins = %d, want 8", m.freeSpins)
@@ -40,26 +55,25 @@ func TestFreeSpinWinCreditsAtLockedBetNoCharge(t *testing.T) {
 	p := kittest.Player("alice")
 	r := kittest.NewRoom(p)
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
-	h.OnStart(r) // loads the config default; we override h.variant below
-	// No scatter on this strip: the 777 free spin credits and decrements without
-	// any chance of a retrigger.
+	h.OnStart(r)
+	// No scatter on this strip: the 7-run free spin credits without a retrigger.
 	h.variant = mustCompile(t, oddsVariant{
-		Name: "fs", Weights: map[string]int{"7": 5, "C": 15},
-		Paytable: []payEntry{{Faces: "7", Multiplier: 20}},
+		Name: "fs", Weights: map[string]int{"7": 3, "C": 30},
+		Paytable: []payEntry{{Faces: "7", Pay3: 5, Pay4: 15, Pay5: 50}},
 	})
 	h.OnJoin(r, p)
 	m := h.machines[p.AccountID]
 	m.bet = 10
-	// Enter free spins by hand: 3 spins left, locked bet 50.
 	m.freeSpins, m.freeBet, m.freeVar = 3, 50, h.variant
 	m.balance = 1000
 	i7 := firstIdx(t, h.variant.strip, sym7)
 	m.spin = &spinState{startedAt: r.Now(), variant: h.variant,
-		stopIdx: [3]int{i7, i7, i7}, final: [3]symbol{sym7, sym7, sym7}} // 20x
+		stopIdx: allReels(i7), final: faceRow(sym7)}
+	want := 1000 + 50*h.variant.waysPayout(scatterWindow(h.variant.strip, allReels(i7)))
 	h.settleSpin(r, p.AccountID)
 
-	if m.balance != 1000+50*20 { // credited at the LOCKED bet, no deduction
-		t.Fatalf("balance = %d, want %d", m.balance, 1000+50*20)
+	if m.balance != want {
+		t.Fatalf("balance = %d, want %d (credited at the locked bet, no deduction)", m.balance, want)
 	}
 	if m.freeSpins != 2 {
 		t.Fatalf("freeSpins = %d, want 2 (decremented)", m.freeSpins)
@@ -73,10 +87,10 @@ func TestFreeSpinsAutoPlayToCompletion(t *testing.T) {
 	p := kittest.Player("alice")
 	r := kittest.NewRoom(p)
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
-	h.OnStart(r) // loads the config default; we override h.variant below
+	h.OnStart(r)
 	h.variant = mustCompile(t, oddsVariant{
-		Name: "fs", Weights: map[string]int{"7": 3, "C": 9}, // no scatter -> no retrigger
-		Paytable: []payEntry{{Faces: "7", Multiplier: 20}},
+		Name: "fs", Weights: map[string]int{"7": 3, "C": 30}, // no scatter -> no retrigger
+		Paytable: []payEntry{{Faces: "7", Pay3: 5, Pay4: 15, Pay5: 50}},
 	})
 	h.OnJoin(r, p)
 	seatAt0(t, h, p)
@@ -84,7 +98,7 @@ func TestFreeSpinsAutoPlayToCompletion(t *testing.T) {
 	m.freeSpins, m.freeBet, m.freeVar = 3, 10, h.variant
 	m.balance = 1000
 
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 40; i++ {
 		r.Advance(300 * time.Millisecond)
 		h.OnWake(r)
 	}
@@ -100,10 +114,10 @@ func TestFreeSpinTriggerAnnouncesRoomWide(t *testing.T) {
 	p := kittest.Player("alice")
 	r := kittest.NewRoom(p)
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
-	h.OnStart(r) // loads the config default; we override h.variant below
+	h.OnStart(r)
 	h.variant = mustCompile(t, oddsVariant{
-		Name: "fs", Weights: map[string]int{"7": 5, "C": 15, "S": 1},
-		Paytable: []payEntry{{Faces: "7", Multiplier: 20}},
+		Name: "fs", Weights: map[string]int{"7": 4, "C": 30, "S": 1},
+		Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 8}},
 	})
 	h.OnJoin(r, p)
@@ -111,7 +125,7 @@ func TestFreeSpinTriggerAnnouncesRoomWide(t *testing.T) {
 	m.bet, m.balance = 10, 990
 	idx := firstIdx(t, h.variant.strip, symScatter)
 	m.spin = &spinState{startedAt: r.Now(), variant: h.variant,
-		stopIdx: [3]int{idx, idx, idx}, final: [3]symbol{symScatter, symScatter, symScatter}}
+		stopIdx: allReels(idx), final: faceRow(symScatter)}
 	h.settleSpin(r, p.AccountID)
 	if !h.tickerActive(r.Now()) {
 		t.Fatal("expected an active ticker on a free-spin trigger")

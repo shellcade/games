@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +71,44 @@ func cleanIdx(t *testing.T, v *variant, s symbol) int {
 	}
 	t.Fatalf("no scatter-free %q landing on strip", rune(s))
 	return 0
+}
+
+// pureIdx returns a strip index whose entire 3-window is face s (a reel that
+// contributes nothing to other symbols' runs). Fatal if none.
+func pureIdx(t *testing.T, v *variant, s symbol) int {
+	t.Helper()
+	for i := range v.strip {
+		w := windowAt(v.strip, i)
+		if w[0] == s && w[1] == s && w[2] == s {
+			return i
+		}
+	}
+	t.Fatalf("no pure-%q window on strip", rune(s))
+	return 0
+}
+
+// forceWin5 settles a 5-reel run of paying symbol s (scatter-free window) under
+// rm.variant and returns the credited win (bet * ways).
+func forceWin5(t *testing.T, rm *room, r *kittest.Room, p kit.Player, s symbol) int {
+	t.Helper()
+	m := rm.machines[p.AccountID]
+	v := rm.variant
+	idx := cleanIdx(t, v, s)
+	win := m.bet * v.waysPayout(scatterWindow(v.strip, allReels(idx)))
+	m.spin = &spinState{startedAt: r.Now(), variant: v, stopIdx: allReels(idx), final: faceRow(s)}
+	rm.settleSpin(r, p.AccountID)
+	return win
+}
+
+// forceLoss5 settles an all-cherry window (cherry pays nothing) — no win, no
+// trigger — under rm.variant.
+func forceLoss5(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
+	t.Helper()
+	m := rm.machines[p.AccountID]
+	v := rm.variant
+	idx := pureIdx(t, v, symCherry)
+	m.spin = &spinState{startedAt: r.Now(), variant: v, stopIdx: allReels(idx), final: faceRow(symCherry)}
+	rm.settleSpin(r, p.AccountID)
 }
 
 // frameContains reports whether any row of the player's last frame contains s.
@@ -236,10 +275,9 @@ func TestSpinSettlesToPayoutOverWake(t *testing.T) {
 	if m.freeSpins > 0 {
 		t.Skip("seeded first spin triggered free spins; payout path covered elsewhere")
 	}
-	dv := defaultVariant()
-	want := (startBalance - 10) + 10*dv.payout(m.reels)
+	want := (startBalance - 10) + 10*rm.variant.waysPayout(scatterWindow(rm.variant.strip, m.lastIdx))
 	if m.balance != want {
-		t.Fatalf("balance = %d, want %d (reels %v pay %dx)", m.balance, want, m.reels, dv.payout(m.reels))
+		t.Fatalf("balance = %d, want %d (ways over %v)", m.balance, want, m.lastIdx)
 	}
 }
 
@@ -279,26 +317,27 @@ func TestSettleCreditsJackpot(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 50
 	m.balance = startBalance - 50 // bet already deducted at spin start
-	ci := cleanIdx(t, rm.variant, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, sym7, sym7}}
 
-	rm.settleSpin(r, p.AccountID)
+	win := forceWin5(t, rm, r, p, symStar)
 	takeIfGambling(rm, r, p.AccountID)
 
-	if m.balance != startBalance-50+25000 {
-		t.Errorf("balance = %d, want %d", m.balance, startBalance-50+25000)
+	if win <= 0 {
+		t.Fatalf("expected a paying 5-of-a-kind, got %d", win)
+	}
+	if m.balance != startBalance-50+win {
+		t.Errorf("balance = %d, want %d", m.balance, startBalance-50+win)
 	}
 	if m.highScore != m.balance {
 		t.Errorf("highScore = %d, want %d", m.highScore, m.balance)
 	}
-	if m.reels != [3]symbol{sym7, sym7, sym7} {
-		t.Errorf("reels = %v, want triple seven", m.reels)
+	if m.reels != faceRow(symStar) {
+		t.Errorf("reels = %v, want all stars", m.reels)
 	}
 	if m.spin != nil {
 		t.Error("spin should be nil after settle")
 	}
-	if !strings.Contains(m.flash, "25000") {
-		t.Errorf("flash = %q, want a WIN with 25000", m.flash)
+	if !strings.Contains(m.flash, strconv.Itoa(win)) {
+		t.Errorf("flash = %q, want a WIN with %d", m.flash, win)
 	}
 }
 
@@ -310,10 +349,7 @@ func TestBustRebuysPreservingHighScore(t *testing.T) {
 	m.bet = 10
 	m.highScore = 2500
 	m.balance = 0 // bet already deducted; this spin loses
-	ci := cleanIdx(t, rm.variant, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, symDollar, symStar}}
-
-	rm.settleSpin(r, p.AccountID)
+	forceLoss5(t, rm, r, p)
 
 	if m.balance != rebuyAmount {
 		t.Errorf("balance = %d, want re-buy to %d", m.balance, rebuyAmount)
@@ -335,14 +371,11 @@ func TestBigWinPushesTicker(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 100
 	m.balance = startBalance - 100
-	ci := cleanIdx(t, rm.variant, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{symStar, symStar, symStar}} // 55x
-
-	rm.settleSpin(r, p.AccountID)
+	forceWin5(t, rm, r, p, symStar) // a big 5-of-a-kind at bet 100
 	takeIfGambling(rm, r, p.AccountID)
 
 	if !rm.tickerActive(r.Now()) {
-		t.Fatal("expected ticker active after a 55x win")
+		t.Fatal("expected ticker active after a big win")
 	}
 	if !strings.Contains(rm.ticker.text, "alice") {
 		t.Errorf("ticker = %q, want it to name alice", rm.ticker.text)
@@ -355,15 +388,14 @@ func TestSmallWinDoesNotPushTicker(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 50
-	m.balance = startBalance - 50
-	ci := cleanIdx(t, rm.variant, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{symBar, symBar, symBar}} // 10x, below 12x
-
-	rm.settleSpin(r, p.AccountID)
-	takeIfGambling(rm, r, p.AccountID)
+	// A win below bet*tickerMult (600) must not announce. Bank a held 100 via the
+	// gamble path (the credit/announce path) and check the ticker stays quiet.
+	rm.enterGamble(r, m, 100)
+	m.gamble.sel = selTake
+	rm.gambleConfirm(r, p.AccountID)
 
 	if rm.tickerActive(r.Now()) {
-		t.Error("a 10x win must not trigger the room-wide ticker")
+		t.Error("a small win (below tickerMult) must not trigger the room-wide ticker")
 	}
 }
 
@@ -374,9 +406,7 @@ func TestTickerExpiresOnWake(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 100
 	m.balance = startBalance - 100
-	ci := cleanIdx(t, rm.variant, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{symStar, symStar, symStar}}
-	rm.settleSpin(r, p.AccountID)
+	forceWin5(t, rm, r, p, symStar)
 	takeIfGambling(rm, r, p.AccountID)
 	if !rm.tickerActive(r.Now()) {
 		t.Fatal("ticker should be active right after the win")
@@ -396,10 +426,7 @@ func TestNewPeakPostsToLeaderboard(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 50
 	m.balance = startBalance - 50
-	ci := cleanIdx(t, rm.variant, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, sym7, sym7}} // jackpot, new peak
-
-	rm.settleSpin(r, p.AccountID)
+	forceWin5(t, rm, r, p, symStar) // a win → new peak
 	takeIfGambling(rm, r, p.AccountID)
 
 	if len(r.Posted) != 1 {
@@ -418,10 +445,7 @@ func TestNoPeakDoesNotPost(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 10
 	m.balance = startBalance - 10
-	ci := cleanIdx(t, rm.variant, symCherry)
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{ci, ci, ci}, final: [3]symbol{sym7, symDollar, symStar}} // loss
-
-	rm.settleSpin(r, p.AccountID)
+	forceLoss5(t, rm, r, p) // no win → no new peak
 
 	if len(r.Posted) != 0 {
 		t.Errorf("posts = %d, want 0 when the peak did not increase", len(r.Posted))
@@ -484,8 +508,8 @@ func TestGridBlankBeforeFirstSpin(t *testing.T) {
 	rm.OnJoin(r, p)
 
 	g := rm.grid(rm.machines[p.AccountID])
-	for row := 0; row < 3; row++ {
-		for reel := 0; reel < 3; reel++ {
+	for row := 0; row < visRows; row++ {
+		for reel := 0; reel < numReels; reel++ {
 			if g[row][reel] != symBlank {
 				t.Fatalf("pre-spin grid[%d][%d] = %q, want blank", row, reel, g[row][reel])
 			}
@@ -501,13 +525,18 @@ func TestGridCenterRowIsThePayline(t *testing.T) {
 	m.bet = 10
 	m.balance = startBalance - 10
 	strip := rm.variant.strip
-	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: [3]int{4, 8, 1}}
-	m.spin.final = [3]symbol{strip[4], strip[8], strip[1]}
+	var idx [numReels]int
+	var fin [numReels]symbol
+	for i := 0; i < numReels; i++ {
+		idx[i] = i
+		fin[i] = strip[i]
+	}
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: idx, final: fin}
 
 	rm.settleSpin(r, p.AccountID)
 
 	g := rm.grid(m)
-	for reel := 0; reel < 3; reel++ {
+	for reel := 0; reel < numReels; reel++ {
 		if g[1][reel] != m.reels[reel] {
 			t.Errorf("center grid[1][%d] = %q, want settled face %q", reel, g[1][reel], rune(m.reels[reel]))
 		}
@@ -534,16 +563,9 @@ func TestGridScrollsAsTheClockAdvances(t *testing.T) {
 
 // --- emoji reel faces (v2 grapheme cells) --------------------------------------
 
-// soloCardCol is the left column of the (single) machine cabinet when exactly
-// one player has joined: one card centered on the canvas.
-func soloCardCol() int { return (kit.Cols - cardW) / 2 }
+// seatPayline is the frame row of the seated reel grid's centre (payline) row.
+const seatPayline = seatTop + 2
 
-// soloFaceCol is the frame column of reel face `reel` (0..2) on the solo card:
-// faces are width-2 glyphs packed at screen cols sx+1, sx+3, sx+5.
-func soloFaceCol(reel int) int { return soloCardCol() + 2 + 1 + reel*2 }
-
-// settleKnownFaces drives a deterministic landing: 7 on reel 0, cherry on reel
-// 1, dollar on reel 2 (indices on the default strip), then renders.
 // firstIdx returns the first strip position holding face s (fatal if absent).
 func firstIdx(t *testing.T, strip []symbol, s symbol) int {
 	t.Helper()
@@ -556,6 +578,11 @@ func firstIdx(t *testing.T, strip []symbol, s symbol) int {
 	return 0
 }
 
+// knownFaces are the five center faces settleKnownFaces lands, left-to-right.
+var knownFaces = [numReels]symbol{sym7, symCherry, symDollar, symBar, symStar}
+
+// settleKnownFaces seats the player and drives a deterministic landing with
+// knownFaces on the payline, then renders the seated cabinet.
 func settleKnownFaces(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
 	t.Helper()
 	seatAt0(t, rm, p)
@@ -563,14 +590,13 @@ func settleKnownFaces(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
 	m.bet = 10
 	m.balance = startBalance - 10
 	strip := rm.variant.strip
-	i7, iC, iD := firstIdx(t, strip, sym7), firstIdx(t, strip, symCherry), firstIdx(t, strip, symDollar)
-	m.spin = &spinState{
-		startedAt: r.Now(),
-		variant:   rm.variant,
-		stopIdx:   [3]int{i7, iC, iD},
-		final:     [3]symbol{sym7, symCherry, symDollar},
+	var idx [numReels]int
+	for i, s := range knownFaces {
+		idx[i] = firstIdx(t, strip, s)
 	}
+	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: idx, final: knownFaces}
 	rm.settleSpin(r, p.AccountID)
+	takeIfGambling(rm, r, p.AccountID)
 	rm.render(r)
 }
 
@@ -584,27 +610,24 @@ func TestReelFacesRenderAsWideGraphemes(t *testing.T) {
 	if f == nil {
 		t.Fatal("no frame sent")
 	}
-	payline := cardTop + 3
 	cases := []struct {
 		reel           string
 		col            int
 		base, cp2, cp3 rune
 	}{
-		// Fullwidth seven, NOT the keycap 7️⃣: keycap width is contested
-		// (runewidth/uniseg say 1, x/ansi says 2, terminals split) and a
-		// narrow-rendering viewer desyncs every column to its right. U+FF17
-		// is EAW=Fullwidth — unanimously width 2 everywhere.
-		{"fullwidth seven", soloFaceCol(0), '７', 0, 0},
-		{"cherry", soloFaceCol(1), '\U0001F352', 0, 0},
-		{"diamond", soloFaceCol(2), '\U0001F48E', 0, 0},
+		// Fullwidth seven, NOT the keycap 7️⃣ (contested width). U+FF17 is
+		// EAW=Fullwidth — unanimously width 2 everywhere. knownFaces = 7, C, $...
+		{"fullwidth seven", seatedReelCol(0), '７', 0, 0},
+		{"cherry", seatedReelCol(1), '\U0001F352', 0, 0},
+		{"diamond", seatedReelCol(2), '\U0001F48E', 0, 0},
 	}
 	for _, c := range cases {
-		cell := f.Cells[payline][c.col]
+		cell := f.Cells[seatPayline][c.col]
 		if cell.Rune != c.base || cell.Cp2 != c.cp2 || cell.Cp3 != c.cp3 {
 			t.Errorf("%s cell = %q/%q/%q, want %q/%q/%q",
 				c.reel, cell.Rune, cell.Cp2, cell.Cp3, c.base, c.cp2, c.cp3)
 		}
-		if !f.Cells[payline][c.col+1].Cont {
+		if !f.Cells[seatPayline][c.col+1].Cont {
 			t.Errorf("%s: cell right of the glyph is not a continuation cell", c.reel)
 		}
 	}
@@ -621,20 +644,19 @@ func TestBlankFacesAreSingleWidthDashes(t *testing.T) {
 	if f == nil {
 		t.Fatal("no frame sent")
 	}
-	payline := cardTop + 3
-	for reel := 0; reel < 3; reel++ {
-		c := soloFaceCol(reel)
-		if f.Cells[payline][c].Rune != '-' {
-			t.Errorf("pre-spin face %d = %q, want '-'", reel, f.Cells[payline][c].Rune)
+	for reel := 0; reel < numReels; reel++ {
+		c := seatedReelCol(reel)
+		if f.Cells[seatPayline][c].Rune != '-' {
+			t.Errorf("pre-spin face %d = %q, want '-'", reel, f.Cells[seatPayline][c].Rune)
 		}
-		if f.Cells[payline][c+1].Cont {
+		if f.Cells[seatPayline][c+1].Cont {
 			t.Errorf("pre-spin face %d must not mark a continuation cell", reel)
 		}
 	}
 }
 
-// TestScreenBoxFitsWideFaces: the reel screen box is 8 wide (three packed
-// width-2 faces) with the payline markers hugging its sides.
+// TestScreenBoxFitsWideFaces: the seated reel box frames the 5x3 grid with the
+// payline markers hugging its sides.
 func TestScreenBoxFitsWideFaces(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
@@ -643,18 +665,19 @@ func TestScreenBoxFitsWideFaces(t *testing.T) {
 	rm.render(r)
 
 	f := r.LastFrame(p)
-	sx := soloCardCol() + 2
-	if got := f.Cells[cardTop+1][sx].Rune; got != '╭' {
+	left := seatedReelCol(0) - 2           // box left wall
+	right := seatedReelCol(numReels-1) + 3 // box right wall
+	if got := f.Cells[seatTop][left].Rune; got != '╭' {
 		t.Errorf("screen top-left = %q, want ╭", got)
 	}
-	if got := f.Cells[cardTop+1][sx+7].Rune; got != '╮' {
-		t.Errorf("screen top-right = %q, want ╮ at sx+7 (8-wide box)", got)
+	if got := f.Cells[seatTop][right].Rune; got != '╮' {
+		t.Errorf("screen top-right = %q, want ╮", got)
 	}
-	if got := f.Cells[cardTop+3][sx-1].Rune; got != '>' {
+	if got := f.Cells[seatPayline][left-1].Rune; got != '>' {
 		t.Errorf("left payline marker = %q, want >", got)
 	}
-	if got := f.Cells[cardTop+3][sx+8].Rune; got != '<' {
-		t.Errorf("right payline marker = %q, want < at sx+8", got)
+	if got := f.Cells[seatPayline][right+1].Rune; got != '<' {
+		t.Errorf("right payline marker = %q, want <", got)
 	}
 }
 
@@ -667,7 +690,8 @@ func TestPaytableStripNamesSymbolsWithArt(t *testing.T) {
 	seatAt0(t, rm, p)
 	rm.render(r)
 
-	for _, want := range []string{"x500", "x150", "x55", "x10"} {
+	// Seated at machine 0 = the "Lucky 7s" theme; labels are "pay5/pay4/pay3".
+	for _, want := range []string{"147/42/13", "63/21/6", "36/13/4", "16/6/2"} {
 		if !frameContains(r, p, want) {
 			t.Errorf("paytable strip missing %q", want)
 		}
@@ -675,7 +699,7 @@ func TestPaytableStripNamesSymbolsWithArt(t *testing.T) {
 	f := r.LastFrame(p)
 	row := -1
 	for rr := 0; rr < kit.Rows; rr++ {
-		if strings.Contains(kittest.String(f, rr), "x500") {
+		if strings.Contains(kittest.String(f, rr), "147/42/13") {
 			row = rr
 			break
 		}
@@ -758,54 +782,29 @@ func TestControlsLineReflectsMode(t *testing.T) {
 
 // --- payout / variant --------------------------------------------------------
 
-func TestPayout(t *testing.T) {
-	v := defaultVariant()
-	cases := []struct {
-		name  string
-		reels [3]symbol
-		want  int
-	}{
-		{"triple seven jackpot", [3]symbol{sym7, sym7, sym7}, 500},
-		{"triple dollar", [3]symbol{symDollar, symDollar, symDollar}, 150},
-		{"triple star", [3]symbol{symStar, symStar, symStar}, 55},
-		{"triple bar", [3]symbol{symBar, symBar, symBar}, 10},
-		{"triple cherry pays nothing", [3]symbol{symCherry, symCherry, symCherry}, 0},
-		{"two cherries pay nothing", [3]symbol{symCherry, symCherry, sym7}, 0},
-		{"no match", [3]symbol{sym7, symDollar, symStar}, 0},
-		{"pair is nothing", [3]symbol{symBar, symBar, sym7}, 0},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := v.payout(c.reels); got != c.want {
-				t.Fatalf("payout(%v) = %d, want %d", c.reels, got, c.want)
-			}
-		})
-	}
-}
-
 func TestDefaultVariantTuning(t *testing.T) {
 	v := defaultVariant()
-	if len(v.strip) != 28 { // 1+2+3+6+13+1+2
-		t.Fatalf("default strip length = %d, want 28", len(v.strip))
+	if len(v.strip) != 44 { // 1+2+3+5+30+1+2
+		t.Fatalf("default strip length = %d, want 44", len(v.strip))
 	}
-	if v.weightSummary() != "7:1 $:2 *:3 B:6 C:13 W:1 S:2" {
-		t.Fatalf("weight summary = %q, want 7:1 $:2 *:3 B:6 C:13 W:1 S:2", v.weightSummary())
+	if v.weightSummary() != "7:1 $:2 *:3 B:5 C:30 W:1 S:2" {
+		t.Fatalf("weight summary = %q, want 7:1 $:2 *:3 B:5 C:30 W:1 S:2", v.weightSummary())
 	}
-	if _, ok := v.triples[symCherry]; ok {
+	if _, ok := v.pays[symCherry]; ok {
 		t.Fatal("cherries must pay nothing in the default variant")
 	}
-	if v.topMult != 500 {
-		t.Fatalf("topMult = %d, want 500", v.topMult)
+	if v.pays[sym7] != [3]int{10, 30, 100} {
+		t.Fatalf("seven pays = %v, want {10,30,100}", v.pays[sym7])
 	}
 }
 
-func TestDefaultVariantRTPIsAroundSeventyFivePercent(t *testing.T) {
+func TestDefaultVariantRTPInBand(t *testing.T) {
 	s := defaultVariant().stats()
-	if s.TotalRTP < 0.70 || s.TotalRTP > 0.80 {
-		t.Fatalf("default total RTP = %.4f, want within [0.70, 0.80] (house edge)", s.TotalRTP)
+	if s.TotalRTP < 0.80 || s.TotalRTP > 0.90 {
+		t.Fatalf("default total RTP = %.4f, want within [0.80, 0.90]", s.TotalRTP)
 	}
-	if s.HitFreq <= 0 || s.HitFreq > 0.20 {
-		t.Fatalf("default hit frequency = %.4f, want a small positive share (high variance)", s.HitFreq)
+	if s.HitFreq <= 0 {
+		t.Fatalf("default hit metric = %.4f, want positive", s.HitFreq)
 	}
 }
 
@@ -816,23 +815,23 @@ func TestCompileVariantRejectsOutOfBounds(t *testing.T) {
 	}{
 		{"all weights zero", oddsVariant{
 			Weights:  map[string]int{"7": 0, "$": 0, "*": 0, "B": 0, "C": 0},
-			Paytable: []payEntry{{Faces: "7", Multiplier: 10}},
+			Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100}},
 		}},
 		{"negative weight", oddsVariant{
 			Weights:  map[string]int{"7": -1, "C": 5},
-			Paytable: []payEntry{{Faces: "7", Multiplier: 10}},
+			Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100}},
 		}},
 		{"negative multiplier", oddsVariant{
 			Weights:  map[string]int{"7": 1, "C": 5},
-			Paytable: []payEntry{{Faces: "7", Multiplier: -1}},
+			Paytable: []payEntry{{Faces: "7", Pay3: 1, Pay4: 1, Pay5: -1}},
 		}},
 		{"oversized strip", oddsVariant{
 			Weights:  map[string]int{"7": 40, "C": 40},
-			Paytable: []payEntry{{Faces: "7", Multiplier: 1}},
+			Paytable: []payEntry{{Faces: "7", Pay3: 1, Pay4: 1, Pay5: 1}},
 		}},
 		{"RTP too high (money printer)", oddsVariant{
-			Weights:  map[string]int{"7": 1},
-			Paytable: []payEntry{{Faces: "7", Multiplier: 10}},
+			Weights:  map[string]int{"7": 1, "C": 1},
+			Paytable: []payEntry{{Faces: "7", Pay3: 100, Pay4: 500, Pay5: 5000}},
 		}},
 		{"RTP too low (zeroed paytable)", oddsVariant{
 			Weights:  map[string]int{"7": 1, "$": 2, "*": 3, "B": 5, "C": 7},
@@ -840,7 +839,7 @@ func TestCompileVariantRejectsOutOfBounds(t *testing.T) {
 		}},
 		{"unknown symbol", oddsVariant{
 			Weights:  map[string]int{"X": 1},
-			Paytable: []payEntry{{Faces: "X", Multiplier: 1}},
+			Paytable: []payEntry{{Faces: "X", Pay3: 1, Pay4: 1, Pay5: 1}},
 		}},
 	}
 	for _, c := range cases {
@@ -854,17 +853,17 @@ func TestCompileVariantRejectsOutOfBounds(t *testing.T) {
 
 func TestParseVariantFirstMatchWins(t *testing.T) {
 	v, err := compileVariant(oddsVariant{
-		Weights: map[string]int{"7": 2, "C": 8},
+		Weights: map[string]int{"7": 4, "C": 30},
 		Paytable: []payEntry{
-			{Faces: "7", Multiplier: 50},
-			{Faces: "7", Multiplier: 999},
+			{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 80},
+			{Faces: "7", Pay3: 9, Pay4: 99, Pay5: 999},
 		},
 	})
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	if got := v.payout([3]symbol{sym7, sym7, sym7}); got != 50 {
-		t.Fatalf("first-match multiplier = %d, want 50", got)
+	if v.pays[sym7] != [3]int{10, 30, 80} {
+		t.Fatalf("first-match pays = %v, want {10,30,80}", v.pays[sym7])
 	}
 }
 
@@ -879,11 +878,13 @@ func variantBlob(t *testing.T, doc oddsVariant) []byte {
 	return b
 }
 
+// bbbVariantDoc is the default doc with B's pays bumped — an admin override
+// distinct from the default (B: {2,6,16} -> {4,12,40}).
 func bbbVariantDoc() oddsVariant {
 	doc := defaultDoc()
 	for i := range doc.Paytable {
 		if doc.Paytable[i].Faces == "B" {
-			doc.Paytable[i].Multiplier = 20
+			doc.Paytable[i] = payEntry{Faces: "B", Pay3: 4, Pay4: 12, Pay5: 40}
 		}
 	}
 	return doc
@@ -894,8 +895,8 @@ func TestRoomLoadsStoredVariant(t *testing.T) {
 	r.ConfigVals[configKey] = variantBlob(t, bbbVariantDoc())
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r)
-	if got := h.variant.payout([3]symbol{symBar, symBar, symBar}); got != 20 {
-		t.Fatalf("stored B B B = %d, want 20 (override)", got)
+	if h.variant.pays[symBar] != [3]int{4, 12, 40} {
+		t.Fatalf("stored B pays = %v, want override {4,12,40}", h.variant.pays[symBar])
 	}
 }
 
@@ -904,8 +905,8 @@ func TestRoomFallsBackOnBrokenVariant(t *testing.T) {
 	r.ConfigVals[configKey] = []byte("{ this is not json")
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r)
-	if got := h.variant.payout([3]symbol{sym7, sym7, sym7}); got != 500 {
-		t.Fatalf("after broken variant, 7 7 7 = %d, want default 500", got)
+	if h.variant.pays[sym7] != [3]int{10, 30, 100} {
+		t.Fatalf("after broken variant, 7 pays = %v, want default {10,30,100}", h.variant.pays[sym7])
 	}
 }
 
@@ -913,22 +914,22 @@ func TestRoomRefreshAdoptsNewVariant(t *testing.T) {
 	r := kittest.NewRoom()
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r) // no stored variant -> default
-	if got := h.variant.payout([3]symbol{symBar, symBar, symBar}); got != 10 {
-		t.Fatalf("initial B B B = %d, want default 10", got)
+	if h.variant.pays[symBar] != [3]int{2, 6, 16} {
+		t.Fatalf("initial B pays = %v, want default {2,6,16}", h.variant.pays[symBar])
 	}
 	r.ConfigVals[configKey] = variantBlob(t, bbbVariantDoc())
 
 	// Before the refresh deadline, still the default.
 	r.Advance(configRefresh - time.Second)
 	h.OnWake(r)
-	if got := h.variant.payout([3]symbol{symBar, symBar, symBar}); got != 10 {
-		t.Fatalf("before refresh B B B = %d, want still 10", got)
+	if h.variant.pays[symBar] != [3]int{2, 6, 16} {
+		t.Fatalf("before refresh B pays = %v, want still default", h.variant.pays[symBar])
 	}
 	// After the refresh deadline passes, the new variant is live.
 	r.Advance(2 * time.Second)
 	h.OnWake(r)
-	if got := h.variant.payout([3]symbol{symBar, symBar, symBar}); got != 20 {
-		t.Fatalf("after refresh B B B = %d, want 20", got)
+	if h.variant.pays[symBar] != [3]int{4, 12, 40} {
+		t.Fatalf("after refresh B pays = %v, want override {4,12,40}", h.variant.pays[symBar])
 	}
 }
 
@@ -946,22 +947,22 @@ func TestMidSpinVariantStability(t *testing.T) {
 	if m.spin == nil {
 		t.Fatal("expected a spin in flight")
 	}
-	// Force a deterministic B B B landing on a scatter-free spot of the (default)
-	// strip, so it pays a line without triggering free spins.
-	bIdx := cleanIdx(t, m.spin.variant, symBar)
-	m.spin.stopIdx = [3]int{bIdx, bIdx, bIdx}
-	m.spin.final = [3]symbol{symBar, symBar, symBar}
-
-	// Simulate an admin save having been adopted mid-spin (B B B = 20).
-	h.variant = mustCompile(t, bbbVariantDoc())
+	// Force a deterministic B-run on a scatter-free spot of the (default) strip.
+	sv := m.spin.variant
+	bIdx := cleanIdx(t, sv, symBar)
+	m.spin.stopIdx = allReels(bIdx)
+	m.spin.final = faceRow(symBar)
+	// The win must settle under the STARTING variant (default B pays), not the
+	// override adopted mid-spin.
+	wantWin := 50 * sv.waysPayout(scatterWindow(sv.strip, allReels(bIdx)))
+	h.variant = mustCompile(t, bbbVariantDoc()) // override has different B pays
 
 	h.settleSpin(r, p.AccountID)
-	takeIfGambling(h, r, p.AccountID) // bank the held win to observe the credit
+	takeIfGambling(h, r, p.AccountID)
 
-	// The spin must pay 50 × 10 (the variant it STARTED under), not × 20.
-	if m.balance != (startBalance-50)+50*10 {
-		t.Fatalf("balance = %d, want %d (settled under the starting variant's 10x)",
-			m.balance, (startBalance-50)+50*10)
+	if m.balance != (startBalance-50)+wantWin {
+		t.Fatalf("balance = %d, want %d (settled under the starting variant)",
+			m.balance, (startBalance-50)+wantWin)
 	}
 }
 

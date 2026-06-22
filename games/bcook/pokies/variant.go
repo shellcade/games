@@ -20,8 +20,16 @@ const (
 	symStar    symbol = '*'
 	symBar     symbol = 'B'
 	symCherry  symbol = 'C'
-	symWild    symbol = 'W' // substitutes on the payline to complete a triple
+	symWild    symbol = 'W' // substitutes for any paying symbol within a ways run
 	symScatter symbol = 'S' // counts anywhere in the window; triggers free spins
+)
+
+// The machine is a 5-reel, 3-row grid scored under 243 ways (3^5): a symbol pays
+// its left-aligned run (adjacent reels from reel 0, any rows, wild substituting),
+// credited pays[len] × the product of the per-reel counts ("ways").
+const (
+	numReels = 5
+	visRows  = 3
 )
 
 // Validation bounds for an odds variant. They are wide on purpose — this is play
@@ -71,10 +79,13 @@ type oddsVariant struct {
 	Gamble   *gambleConfig  `json:"gamble,omitempty"`
 }
 
-// payEntry is one paytable row: three of `faces` pays `multiplier` × the bet.
+// payEntry is one paytable row: a left-aligned run of `faces` (wild substituting)
+// pays pay3 / pay4 / pay5 × the per-run `ways` for runs of length 3 / 4 / 5.
 type payEntry struct {
-	Faces      string `json:"faces"`
-	Multiplier int    `json:"multiplier"`
+	Faces string `json:"faces"`
+	Pay3  int    `json:"pay3"`
+	Pay4  int    `json:"pay4"`
+	Pay5  int    `json:"pay5"`
 }
 
 // scatterEntry: `count` scatters anywhere in the 3x3 window award `spins` free
@@ -97,79 +108,82 @@ type gambleConfig struct {
 type variant struct {
 	name    string
 	strip   []symbol
-	triples map[symbol]int // three-of-a-kind multiplier per symbol (absent = pays 0)
-	topMult int            // largest paytable multiplier (all-wild line pays this)
-	scatter []scatterEntry // free-spin trigger table, sorted by Count descending
-	gamble  gambleConfig   // double-up ladder caps (defaults applied at compile)
+	pays    map[symbol][3]int // per symbol, the run-length 3/4/5 multipliers (absent = pays 0)
+	scatter []scatterEntry    // free-spin trigger table, sorted by Count descending
+	gamble  gambleConfig      // double-up ladder caps (defaults applied at compile)
 
 	// Paytable display, computed ONCE at compile time (compilePayTable). The
 	// paytable is static for a variant's life, but drawPaytable runs every render
-	// per viewer — recomputing the sorted rows + " x%d" labels there leaked a
-	// slice and a sort.SliceStable on every wake under -gc=leaking. Cache them.
+	// per viewer — recomputing the sorted rows + labels there would leak a slice
+	// and a sort.SliceStable on every wake under -gc=leaking. Cache them.
 	payRowsCache []payRow
 	payLabels    []string
 }
 
-// topMultiplier returns the largest three-of-a-kind multiplier in the paytable
-// (what an all-wild line, and the wild's own top line, pays).
-func topMultiplier(triples map[symbol]int) int {
-	max := 0
-	for _, m := range triples {
-		if m > max {
-			max = m
+// countFor counts symbol s in a reel's visible window, with WILD substituting for
+// the (regular, paying) symbol s.
+func countFor(s symbol, w [visRows]symbol) int {
+	n := 0
+	for _, x := range w {
+		if x == s || x == symWild {
+			n++
 		}
 	}
-	return max
+	return n
 }
 
-// payout returns the bet multiplier for the three center (payline) faces. Wilds
-// substitute to complete the best three-of-a-kind; an all-wild line pays the top
-// multiplier. A scatter on the payline does not form a line. Only a completed
-// three-of-a-kind whose symbol is in the paytable pays.
-func (v *variant) payout(center [3]symbol) int {
-	anchor := symBlank
-	wilds := 0
-	for _, s := range center {
-		switch {
-		case s == symWild:
-			wilds++
-		case s == symScatter:
-			return 0 // scatters never form a line
-		default:
-			if anchor == symBlank {
-				anchor = s
-			} else if s != anchor {
-				return 0 // two distinct regular symbols
+// waysPayout scores a settled 5x3 window under 243 ways: each paying symbol pays
+// its left-aligned run (wild substituting), credited pays[s][len-3] × the product
+// of the per-reel counts ("ways"); the spin total is the sum over symbols.
+func (v *variant) waysPayout(w [numReels][visRows]symbol) int {
+	total := 0
+	for _, s := range stripOrder {
+		p := v.pays[s]
+		if p == ([3]int{}) {
+			continue
+		}
+		runLen, ways := 0, 1
+		for reel := 0; reel < numReels; reel++ {
+			c := countFor(s, w[reel])
+			if c == 0 {
+				break
 			}
+			runLen++
+			ways *= c
+		}
+		if runLen >= 3 {
+			total += p[runLen-3] * ways
 		}
 	}
-	if wilds == 3 {
-		return v.topMult
-	}
-	return v.triples[anchor] // wilds + matching regulars complete the triple
+	return total
 }
 
-// scatterWindow is the [reel][row] face grid (top/center/bottom per reel) when
-// reels are stopped at the given landing indices.
-func scatterWindow(strip []symbol, idx [3]int) (w [3][3]symbol) {
-	for reel := 0; reel < 3; reel++ {
+// scatterWindow is the [reel][row] face grid when reels are stopped at the given
+// per-reel landing indices.
+func scatterWindow(strip []symbol, idx [numReels]int) (w [numReels][visRows]symbol) {
+	for reel := 0; reel < numReels; reel++ {
 		w[reel] = windowAt(strip, idx[reel]) // [top, center, bottom]
 	}
 	return w
 }
 
-// scatterAward counts scatters across all nine visible cells and returns the free
-// spins for the highest matching threshold (0 if below the lowest, or no table).
-// v.scatter is kept sorted by Count descending at compile time.
-func (v *variant) scatterAward(w [3][3]symbol) int {
+// scatterAward counts scatters across all numReels*visRows visible cells and
+// returns the free spins for the highest matching threshold (0 if below the
+// lowest, or no table). v.scatter is kept sorted by Count descending at compile.
+func (v *variant) scatterAward(w [numReels][visRows]symbol) int {
 	count := 0
-	for reel := 0; reel < 3; reel++ {
-		for row := 0; row < 3; row++ {
+	for reel := 0; reel < numReels; reel++ {
+		for row := 0; row < visRows; row++ {
 			if w[reel][row] == symScatter {
 				count++
 			}
 		}
 	}
+	return v.awardForCount(count)
+}
+
+// awardForCount returns the free spins a total scatter count earns (highest match).
+func (v *variant) awardForCount(count int) int {
 	for _, se := range v.scatter {
 		if count >= se.Count {
 			return se.Spins
@@ -179,27 +193,26 @@ func (v *variant) scatterAward(w [3][3]symbol) int {
 }
 
 // defaultDoc is the compiled-in tuning the machine uses when no config is stored
-// (or a stored variant fails to parse): strip weights 7:1 $:2 *:3 B:6 C:13 W:1
-// S:2 and paytable 500/150/55/10 (cherries pay nothing), one wild and two
-// scatters per strip, free spins at 3/4/5 scatters (8/15/25) and a 5-rung gamble.
-// A high-variance ~73% total RTP profile (line + free-spin EV) matching native
-// pokies.
+// (or a stored variant fails to parse): a 5-reel 243-ways PAR sheet with one wild
+// and two scatters distributed per strip, free spins at 3/4/5 scatters
+// (6/10/15), and a 5-rung gamble. Tuned to a ~84% total RTP (line + free-spin EV)
+// in the modern-pokie range. Cherries are the blank (pay nothing).
 func defaultDoc() oddsVariant {
 	return oddsVariant{
 		Name: "Default",
 		Weights: map[string]int{
-			"7": 1, "$": 2, "*": 3, "B": 6, "C": 13, "W": 1, "S": 2,
+			"7": 1, "$": 2, "*": 3, "B": 5, "C": 30, "W": 1, "S": 2,
 		},
 		Paytable: []payEntry{
-			{Faces: "7", Multiplier: 500},
-			{Faces: "$", Multiplier: 150},
-			{Faces: "*", Multiplier: 55},
-			{Faces: "B", Multiplier: 10},
+			{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 100},
+			{Faces: "$", Pay3: 6, Pay4: 20, Pay5: 60},
+			{Faces: "*", Pay3: 4, Pay4: 12, Pay5: 36},
+			{Faces: "B", Pay3: 2, Pay4: 6, Pay5: 16},
 		},
 		Scatter: []scatterEntry{
-			{Count: 3, Spins: 8},
-			{Count: 4, Spins: 15},
-			{Count: 5, Spins: 25},
+			{Count: 3, Spins: 6},
+			{Count: 4, Spins: 10},
+			{Count: 5, Spins: 15},
 		},
 		Gamble: &gambleConfig{MaxRungs: 5, MaxWin: 1_000_000},
 	}
@@ -256,18 +269,18 @@ func compileVariant(doc oddsVariant) (*variant, error) {
 		return nil, fmt.Errorf("the reel strip has %d stops, the cap is %d", len(strip), maxStops)
 	}
 
-	triples := map[symbol]int{}
+	pays := map[symbol][3]int{}
 	for _, pe := range doc.Paytable {
 		sym, ok := symbolByName[pe.Faces]
 		if !ok {
 			return nil, fmt.Errorf("unknown symbol %q in paytable", pe.Faces)
 		}
-		if pe.Multiplier < 0 {
-			return nil, fmt.Errorf("symbol %q has a negative multiplier %d", pe.Faces, pe.Multiplier)
+		if pe.Pay3 < 0 || pe.Pay4 < 0 || pe.Pay5 < 0 {
+			return nil, fmt.Errorf("symbol %q has a negative multiplier", pe.Faces)
 		}
-		// Top-down, first match wins: keep the first multiplier for a symbol.
-		if _, dup := triples[sym]; !dup {
-			triples[sym] = pe.Multiplier
+		// First row for a symbol wins (top-down).
+		if _, dup := pays[sym]; !dup {
+			pays[sym] = [3]int{pe.Pay3, pe.Pay4, pe.Pay5}
 		}
 	}
 
@@ -293,9 +306,8 @@ func compileVariant(doc oddsVariant) (*variant, error) {
 		gamble = *doc.Gamble
 	}
 
-	v := &variant{name: doc.Name, strip: strip, triples: triples, scatter: scatter, gamble: gamble}
-	v.topMult = topMultiplier(triples)
-	v.payRowsCache, v.payLabels = compilePayTable(triples)
+	v := &variant{name: doc.Name, strip: strip, pays: pays, scatter: scatter, gamble: gamble}
+	v.payRowsCache, v.payLabels = compilePayTable(pays)
 
 	// Convergence guard: the worst-case (largest) award must satisfy t*maxAward < 1
 	// so the retrigger series converges (no money printer).
@@ -357,55 +369,103 @@ func buildStripFrom(weights map[symbol]int) []symbol {
 	return strip
 }
 
-// variantStats is the exact theoretical profile of a variant, enumerated over all
-// strip³ equally-likely outcomes.
+// variantStats is the exact theoretical profile of a variant under 243 ways,
+// computed in closed form from the per-reel symbol marginals.
 type variantStats struct {
-	LineRTP      float64 // mean line payout per spin (bet multiples)
-	HitFreq      float64 // share of outcomes paying a line
-	TriggerRate  float64 // t: share of outcomes triggering free spins
+	LineRTP      float64 // mean ways payout per spin (bet multiples)
+	HitFreq      float64 // loose sanity metric: mean filled fraction of the grid
+	TriggerRate  float64 // t: P(scatter count reaches the lowest threshold)
 	AvgFreeSpins float64 // m: expected free spins per trigger, incl. retrigger
 	TotalRTP     float64 // LineRTP * (1 + t*m): base + free-spin EV
 }
 
-// stats enumerates all len(strip)³ equally-likely outcomes (each reel draws
-// independently and uniformly from the strip) for the exact line RTP and the
-// scatter trigger rate, then folds free spins into total RTP via the
-// branching-process closed form. Free spins pay line RTP at no cost and retrigger
-// at rate t, so the expected free spins per trigger m = avgAward / (1 -
-// t*avgAward). strip³ is tiny (at most maxStops³), so this runs in well under a
-// millisecond.
-func (v *variant) stats() variantStats {
+// reelMarginal returns a = E[countFor(s, window)] and z = P(countFor==0) over all
+// strip stops for one reel (reels are i.i.d.).
+func (v *variant) reelMarginal(s symbol) (a, z float64) {
 	n := len(v.strip)
 	if n == 0 {
-		return variantStats{}
+		return 0, 1
 	}
-	lineTotal, hits, triggers, spinsAwarded := 0, 0, 0, 0
+	sum, zeros := 0, 0
 	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			for k := 0; k < n; k++ {
-				center := [3]symbol{v.strip[i], v.strip[j], v.strip[k]}
-				if p := v.payout(center); p > 0 {
-					lineTotal += p
-					hits++
-				}
-				if award := v.scatterAward(scatterWindow(v.strip, [3]int{i, j, k})); award > 0 {
-					triggers++
-					spinsAwarded += award
-				}
-			}
+		c := countFor(s, windowAt(v.strip, i))
+		sum += c
+		if c == 0 {
+			zeros++
 		}
 	}
-	outcomes := n * n * n
-	st := variantStats{
-		LineRTP: float64(lineTotal) / float64(outcomes),
-		HitFreq: float64(hits) / float64(outcomes),
+	return float64(sum) / float64(n), float64(zeros) / float64(n)
+}
+
+// scatterTotalDist returns P(total scatters across numReels reels = k), for k in
+// 0..numReels*visRows, by convolving the per-reel scatter-count distribution.
+func (v *variant) scatterTotalDist() []float64 {
+	n := len(v.strip)
+	per := make([]float64, visRows+1)
+	if n == 0 {
+		per[0] = 1
+	} else {
+		for i := 0; i < n; i++ {
+			w := windowAt(v.strip, i)
+			c := 0
+			for _, x := range w {
+				if x == symScatter {
+					c++
+				}
+			}
+			per[c] += 1.0 / float64(n)
+		}
 	}
-	st.TriggerRate = float64(triggers) / float64(outcomes)
-	if triggers > 0 {
-		avgAward := float64(spinsAwarded) / float64(triggers)
-		denom := 1 - st.TriggerRate*avgAward
-		if denom > 0 {
-			st.AvgFreeSpins = avgAward / denom
+	dist := []float64{1}
+	for r := 0; r < numReels; r++ {
+		next := make([]float64, len(dist)+visRows)
+		for i, pi := range dist {
+			for k, pk := range per {
+				next[i+k] += pi * pk
+			}
+		}
+		dist = next
+	}
+	return dist
+}
+
+// stats computes the exact theoretical profile under 243 ways. Line RTP is a sum
+// over symbols, so by linearity of expectation it is exact from each symbol's
+// per-reel count marginal (a, z): E[win_s] = pay3·a³·z + pay4·a⁴·z + pay5·a⁵
+// (the run stops at reel L<5 with prob z; a run of 5 has no stopping reel). Scatter
+// trigger uses the convolved total-count distribution; free spins fold in via the
+// branching-process closed form m = avgAward/(1 − t·avgAward).
+func (v *variant) stats() variantStats {
+	st := variantStats{}
+	filled := 0.0
+	for _, s := range stripOrder {
+		p := v.pays[s]
+		a, z := v.reelMarginal(s)
+		filled += a
+		if p == ([3]int{}) {
+			continue
+		}
+		a3 := a * a * a
+		st.LineRTP += float64(p[0])*a3*z + float64(p[1])*a3*a*z + float64(p[2])*a3*a*a
+	}
+	// Loose sanity metric: average filled fraction of a single reel window across
+	// the paying symbols (not an exact hit rate; only checked to be positive).
+	st.HitFreq = filled / (float64(len(stripOrder)) * float64(visRows))
+
+	if len(v.scatter) > 0 {
+		dist := v.scatterTotalDist()
+		minThr := v.scatter[len(v.scatter)-1].Count // smallest threshold (sorted desc)
+		var probSum, awardSum float64
+		for k := minThr; k < len(dist); k++ {
+			probSum += dist[k]
+			awardSum += dist[k] * float64(v.awardForCount(k))
+		}
+		st.TriggerRate = probSum
+		if probSum > 0 {
+			avgAward := awardSum / probSum
+			if d := 1 - st.TriggerRate*avgAward; d > 0 {
+				st.AvgFreeSpins = avgAward / d
+			}
 		}
 	}
 	st.TotalRTP = st.LineRTP * (1 + st.TriggerRate*st.AvgFreeSpins)
@@ -429,30 +489,26 @@ func (v *variant) weightSummary() string {
 	return out
 }
 
-// payRow is one paytable entry: three of sym pays mult × the bet.
+// payRow is one paytable entry: a run of sym pays pays[len-3] × ways.
 type payRow struct {
 	sym  symbol
-	mult int
+	pays [3]int // {pay3, pay4, pay5}
 }
 
-// payRows returns the paying triples highest-multiplier first in a stable
-// order, feeding the paytable strip under the cabinets. Stable sort keeps
-// equal multipliers in stripOrder so the output never depends on map
-// iteration order.
-// compilePayTable builds the descending-by-multiplier pay rows and their
-// " x%d" labels ONCE per variant (called from compileVariant). drawPaytable
-// then reads the cached slices, allocating nothing per render.
-func compilePayTable(triples map[symbol]int) (rows []payRow, labels []string) {
-	// Range stripOrder (not the triples map) so iteration order is deterministic.
+// compilePayTable builds the pay rows (highest 5-of-a-kind first, stable in
+// stripOrder) and their " 5:.. 4:.. 3:.." labels ONCE per variant (called from
+// compileVariant). drawPaytableFor reads the cached slices, allocating nothing
+// per render.
+func compilePayTable(pays map[symbol][3]int) (rows []payRow, labels []string) {
 	for _, s := range stripOrder {
-		if m := triples[s]; m > 0 {
-			rows = append(rows, payRow{s, m})
+		if p := pays[s]; p != ([3]int{}) {
+			rows = append(rows, payRow{s, p})
 		}
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].mult > rows[j].mult })
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].pays[2] > rows[j].pays[2] })
 	labels = make([]string, len(rows))
 	for i, pr := range rows {
-		labels[i] = fmt.Sprintf(" x%d", pr.mult)
+		labels[i] = fmt.Sprintf(" %d/%d/%d", pr.pays[2], pr.pays[1], pr.pays[0])
 	}
 	return rows, labels
 }

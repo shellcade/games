@@ -13,17 +13,17 @@ import "github.com/shellcade/kit/v2"
 // default" can never drift from what the machine actually runs.
 const defaultVariantJSON = `{
   "name": "Default",
-  "weights": {"7": 1, "$": 2, "*": 3, "B": 6, "C": 13, "W": 1, "S": 2},
+  "weights": {"7": 1, "$": 2, "*": 3, "B": 5, "C": 30, "W": 1, "S": 2},
   "paytable": [
-    {"faces": "7", "multiplier": 500},
-    {"faces": "$", "multiplier": 150},
-    {"faces": "*", "multiplier": 55},
-    {"faces": "B", "multiplier": 10}
+    {"faces": "7", "pay3": 10, "pay4": 30, "pay5": 100},
+    {"faces": "$", "pay3": 6, "pay4": 20, "pay5": 60},
+    {"faces": "*", "pay3": 4, "pay4": 12, "pay5": 36},
+    {"faces": "B", "pay3": 2, "pay4": 6, "pay5": 16}
   ],
   "scatter": [
-    {"count": 3, "spins": 8},
-    {"count": 4, "spins": 15},
-    {"count": 5, "spins": 25}
+    {"count": 3, "spins": 6},
+    {"count": 4, "spins": 10},
+    {"count": 5, "spins": 15}
   ],
   "gamble": {"maxRungs": 5, "maxWin": 1000000}
 }`
@@ -61,21 +61,23 @@ const oddsVariantSchema = `{
     },
     "paytable": {
       "type": "array",
-      "description": "Three-of-a-kind payouts, top-down (first match wins). Wilds substitute; an all-wild line pays the top multiplier.",
+      "description": "243-ways payouts: a left-aligned run of faces (wild substituting) pays pay3 / pay4 / pay5 x the ways for runs of 3 / 4 / 5 reels. First row per symbol wins.",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["faces", "multiplier"],
+        "required": ["faces", "pay3", "pay4", "pay5"],
         "additionalProperties": false,
         "properties": {
           "faces": {"type": "string", "enum": ["7", "$", "*", "B", "C"]},
-          "multiplier": {"type": "integer", "minimum": 0}
+          "pay3": {"type": "integer", "minimum": 0},
+          "pay4": {"type": "integer", "minimum": 0},
+          "pay5": {"type": "integer", "minimum": 0}
         }
       }
     },
     "scatter": {
       "type": "array",
-      "description": "Free-spin trigger table: count scatters anywhere in the 3x3 window award spins (highest matching count wins).",
+      "description": "Free-spin trigger table: count scatters anywhere in the 5x3 window award spins (highest matching count wins).",
       "items": {
         "type": "object",
         "required": ["count", "spins"],
@@ -103,7 +105,7 @@ func configSpecs() []kit.ConfigKeySpec {
 	return []kit.ConfigKeySpec{{
 		Key:         configKey, // "odds-variant"
 		Title:       "Odds variant",
-		Description: "PAR sheet: per-symbol reel weights (incl. wild W and scatter S), the three-of-a-kind paytable, the scatter free-spin table, and gamble caps. Applies to new rooms; running rooms refresh within 30s.",
+		Description: "PAR sheet: per-symbol reel weights (incl. wild W and scatter S), the 243-ways paytable, the scatter free-spin table, and gamble caps. Applies to new rooms; running rooms refresh within 30s.",
 		Type:        kit.ConfigJSON,
 		Default:     defaultVariantJSON,
 		Schema:      oddsVariantSchema,

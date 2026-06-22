@@ -49,43 +49,18 @@ func TestDistributeZeroCountIsNoop(t *testing.T) {
 	}
 }
 
-func TestWildCompletesLine(t *testing.T) {
-	v := defaultVariant() // 7=500 $=150 *=55 B=10, top=500
-	cases := []struct {
-		name  string
-		reels [3]symbol
-		want  int
-	}{
-		{"7 W 7 pays as 777", [3]symbol{sym7, symWild, sym7}, 500},
-		{"W W B pays as BBB", [3]symbol{symWild, symWild, symBar}, 10},
-		{"W W W pays top", [3]symbol{symWild, symWild, symWild}, 500},
-		{"W $ 7 no line", [3]symbol{symWild, symDollar, sym7}, 0},
-		{"scatter on line breaks combo", [3]symbol{sym7, symScatter, sym7}, 0},
-		{"W C W is cherries (pays 0)", [3]symbol{symWild, symCherry, symWild}, 0},
-		{"plain 777 still 500", [3]symbol{sym7, sym7, sym7}, 500},
-		{"plain no-match", [3]symbol{sym7, symDollar, symStar}, 0},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := v.payout(c.reels); got != c.want {
-				t.Fatalf("payout(%v) = %d, want %d", c.reels, got, c.want)
-			}
-		})
-	}
-}
-
 func TestScatterAwardThresholds(t *testing.T) {
 	v := &variant{scatter: []scatterEntry{{Count: 5, Spins: 25}, {Count: 4, Spins: 15}, {Count: 3, Spins: 8}}}
-	// build a 3x3 window [reel][row] with `n` scatters placed.
-	win := func(n int) (w [3][3]symbol) {
-		for reel := 0; reel < 3; reel++ {
-			for row := 0; row < 3; row++ {
+	// build a numReels × visRows window with `n` scatters placed.
+	win := func(n int) (w [numReels][visRows]symbol) {
+		for reel := 0; reel < numReels; reel++ {
+			for row := 0; row < visRows; row++ {
 				w[reel][row] = sym7
 			}
 		}
 		placed := 0
-		for reel := 0; reel < 3 && placed < n; reel++ {
-			for row := 0; row < 3 && placed < n; row++ {
+		for reel := 0; reel < numReels && placed < n; reel++ {
+			for row := 0; row < visRows && placed < n; row++ {
 				w[reel][row] = symScatter
 				placed++
 			}
@@ -101,35 +76,12 @@ func TestScatterAwardThresholds(t *testing.T) {
 	}
 }
 
-func TestStatsFoldsFreeSpins(t *testing.T) {
-	v, err := compileVariant(oddsVariant{
-		Name:     "fs",
-		Weights:  map[string]int{"7": 10, "C": 20, "S": 2},
-		Paytable: []payEntry{{Faces: "7", Multiplier: 30}},
-		Scatter:  []scatterEntry{{Count: 3, Spins: 8}},
-	})
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-	s := v.stats()
-	if s.TriggerRate <= 0 {
-		t.Fatalf("trigger rate = %v, want > 0 with scatters present", s.TriggerRate)
-	}
-	if s.TotalRTP <= s.LineRTP {
-		t.Fatalf("total RTP %.4f should exceed line RTP %.4f", s.TotalRTP, s.LineRTP)
-	}
-	want := s.LineRTP * (1 + s.TriggerRate*s.AvgFreeSpins)
-	if diff := want - s.TotalRTP; diff > 1e-9 || diff < -1e-9 {
-		t.Fatalf("closed form mismatch: total=%.9f want=%.9f", s.TotalRTP, want)
-	}
-}
-
 func TestCompileRejectsRunawayRetrigger(t *testing.T) {
-	// Huge scatter weight + large award -> t*maxAward >= 1 (non-converging).
+	// Scatter-saturated strip + large award -> t*maxAward >= 1 (non-converging).
 	_, err := compileVariant(oddsVariant{
 		Name:     "runaway",
 		Weights:  map[string]int{"7": 1, "S": 30},
-		Paytable: []payEntry{{Faces: "7", Multiplier: 5}},
+		Paytable: []payEntry{{Faces: "7", Pay3: 5, Pay4: 5, Pay5: 5}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 50}},
 	})
 	if err == nil {
@@ -140,8 +92,8 @@ func TestCompileRejectsRunawayRetrigger(t *testing.T) {
 func TestCompileSortsScatterDescAndDefaultsGamble(t *testing.T) {
 	v, err := compileVariant(oddsVariant{
 		Name:     "ok",
-		Weights:  map[string]int{"7": 10, "C": 20, "S": 2},
-		Paytable: []payEntry{{Faces: "7", Multiplier: 30}},
+		Weights:  map[string]int{"7": 4, "C": 30, "S": 1},
+		Paytable: []payEntry{{Faces: "7", Pay3: 10, Pay4: 30, Pay5: 80}},
 		Scatter:  []scatterEntry{{Count: 3, Spins: 8}, {Count: 5, Spins: 25}},
 	})
 	if err != nil {

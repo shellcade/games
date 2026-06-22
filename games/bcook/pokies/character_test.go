@@ -27,32 +27,29 @@ func colIndex(row, sub string) int {
 	return -1
 }
 
-// TestCabinetRendersCharacterTile asserts the arcade character tile (kit
-// v2.9.0) lands on the cabinet marquee immediately before the player's name —
-// one styled cell plus one space.
-func TestCabinetRendersCharacterTile(t *testing.T) {
+// TestFloorRendersOwnCharacterTile asserts the arcade character tile (kit
+// v2.9.0) renders as the roaming player's avatar on the lounge floor — a styled
+// cell, not a generic glyph.
+func TestFloorRendersOwnCharacterTile(t *testing.T) {
 	p := kittest.Player("alice")
 	p.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, BgR: 0x2D, BgG: 0x1B, BgB: 0x4E, Fallback: 'L'}
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
-	seatAt0(t, rm, p)
-	rm.render(r)
+	rm.render(r) // roaming on the floor
 
 	f := r.LastFrame(p)
 	if f == nil {
 		t.Fatal("no frame after join")
 	}
-	row := kittest.String(f, cardTop) // the cabinet's top border row
-	idx := colIndex(row, "alice")
-	if idx < 2 {
-		t.Fatalf("name not on the marquee row: %q", row)
+	want := kit.CharacterCell(p.Character)
+	for row := 0; row < kit.Rows; row++ {
+		for col := 0; col < kit.Cols; col++ {
+			if f.Cells[row][col] == want {
+				return // found the styled character tile
+			}
+		}
 	}
-	if got, want := f.Cells[cardTop][idx-2], kit.CharacterCell(p.Character); got != want {
-		t.Errorf("cell before name = %+v, want character tile %+v", got, want)
-	}
-	if sp := f.Cells[cardTop][idx-1].Rune; sp != ' ' {
-		t.Errorf("no space between tile and name (got %q)", sp)
-	}
+	t.Error("the roaming player's character tile should render on the floor")
 }
 
 // TestTickerRendersCharacterTile asserts the big-win banner carries the
