@@ -52,8 +52,8 @@ func TestDeclaredDefaultMatchesCompiledDefault(t *testing.T) {
 	if !reflect.DeepEqual(declared.strip, compiled.strip) {
 		t.Fatalf("strip mismatch:\ndeclared %v\ncompiled %v", declared.strip, compiled.strip)
 	}
-	if !reflect.DeepEqual(declared.triples, compiled.triples) {
-		t.Fatalf("paytable mismatch:\ndeclared %v\ncompiled %v", declared.triples, compiled.triples)
+	if !reflect.DeepEqual(declared.pays, compiled.pays) {
+		t.Fatalf("paytable mismatch:\ndeclared %v\ncompiled %v", declared.pays, compiled.pays)
 	}
 }
 

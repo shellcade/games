@@ -13,21 +13,29 @@ import "github.com/shellcade/kit/v2"
 // default" can never drift from what the machine actually runs.
 const defaultVariantJSON = `{
   "name": "Default",
-  "weights": {"7": 1, "$": 2, "*": 3, "B": 5, "C": 7},
+  "weights": {"7": 4, "$": 5, "*": 6, "B": 7, "C": 8, "W": 2, "S": 2},
   "paytable": [
-    {"faces": "7", "multiplier": 500},
-    {"faces": "$", "multiplier": 150},
-    {"faces": "*", "multiplier": 55},
-    {"faces": "B", "multiplier": 10}
-  ]
+    {"faces": "7", "pay3": 1, "pay4": 3, "pay5": 10},
+    {"faces": "$", "pay3": 1, "pay4": 2, "pay5": 7},
+    {"faces": "*", "pay3": 1, "pay4": 2, "pay5": 4},
+    {"faces": "B", "pay3": 1, "pay4": 1, "pay5": 3},
+    {"faces": "C", "pay3": 1, "pay4": 1, "pay5": 2}
+  ],
+  "scatter": [
+    {"count": 3, "spins": 6},
+    {"count": 4, "spins": 10},
+    {"count": 5, "spins": 15}
+  ],
+  "gamble": {"maxRungs": 5, "maxWin": 1000000}
 }`
 
 // oddsVariantSchema describes the PAR-sheet document within the admin rich-
-// form supported subset: the five symbols as explicit weight properties
-// (non-negative integers), the paytable as rows of {faces enum, multiplier ≥
-// 0}, and a non-empty name. Shape only — the semantic gates (≥1 positive
-// weight, strip cap, RTP bounds) stay in compileVariant, the final word on
-// every read.
+// form supported subset: the regular symbols plus WILD (W) and SCATTER (S) as
+// explicit weight properties (non-negative integers), the paytable as rows of
+// {faces enum, multiplier ≥ 0}, an optional scatter free-spin trigger table, and
+// optional gamble caps. Shape only — the semantic gates (≥1 positive weight,
+// strip cap, retrigger convergence, total-RTP bounds) stay in compileVariant,
+// the final word on every read.
 const oddsVariantSchema = `{
   "type": "object",
   "required": ["name", "weights", "paytable"],
@@ -40,28 +48,54 @@ const oddsVariantSchema = `{
     },
     "weights": {
       "type": "object",
-      "description": "Stops per symbol on the virtual reel strip.",
+      "description": "Stops per symbol on the virtual reel strip. W is the wild, S the scatter.",
       "additionalProperties": false,
       "properties": {
         "7": {"type": "integer", "minimum": 0},
         "$": {"type": "integer", "minimum": 0},
         "*": {"type": "integer", "minimum": 0},
         "B": {"type": "integer", "minimum": 0},
-        "C": {"type": "integer", "minimum": 0}
+        "C": {"type": "integer", "minimum": 0},
+        "W": {"type": "integer", "minimum": 0},
+        "S": {"type": "integer", "minimum": 0}
       }
     },
     "paytable": {
       "type": "array",
-      "description": "Three-of-a-kind payouts, top-down (first match wins).",
+      "description": "243-ways payouts: a left-aligned run of faces (wild substituting) pays pay3 / pay4 / pay5 x the ways for runs of 3 / 4 / 5 reels. First row per symbol wins.",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["faces", "multiplier"],
+        "required": ["faces", "pay3", "pay4", "pay5"],
         "additionalProperties": false,
         "properties": {
-          "faces": {"type": "string", "enum": ["7", "$", "*", "B", "C"]},
-          "multiplier": {"type": "integer", "minimum": 0}
+          "faces": {"type": "string", "enum": ["7", "$", "*", "B", "C"], "description": "C (cherry) may pay a small amount; it is no longer a pure blank."},
+          "pay3": {"type": "integer", "minimum": 0},
+          "pay4": {"type": "integer", "minimum": 0},
+          "pay5": {"type": "integer", "minimum": 0}
         }
+      }
+    },
+    "scatter": {
+      "type": "array",
+      "description": "Free-spin trigger table: count scatters anywhere in the 5x3 window award spins (highest matching count wins).",
+      "items": {
+        "type": "object",
+        "required": ["count", "spins"],
+        "additionalProperties": false,
+        "properties": {
+          "count": {"type": "integer", "minimum": 3},
+          "spins": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "gamble": {
+      "type": "object",
+      "description": "Double-up ladder caps. Omitted blocks default to 5 rungs / 1,000,000 credits.",
+      "additionalProperties": false,
+      "properties": {
+        "maxRungs": {"type": "integer", "minimum": 1},
+        "maxWin": {"type": "integer", "minimum": 1}
       }
     }
   }
@@ -72,7 +106,7 @@ func configSpecs() []kit.ConfigKeySpec {
 	return []kit.ConfigKeySpec{{
 		Key:         configKey, // "odds-variant"
 		Title:       "Odds variant",
-		Description: "PAR sheet: per-symbol reel weights plus the three-of-a-kind paytable. Applies to new rooms; running rooms refresh within 30s.",
+		Description: "PAR sheet: per-symbol reel weights (incl. wild W and scatter S), the 243-ways paytable, the scatter free-spin table, and gamble caps. Applies to new rooms; running rooms refresh within 30s.",
 		Type:        kit.ConfigJSON,
 		Default:     defaultVariantJSON,
 		Schema:      oddsVariantSchema,

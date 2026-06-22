@@ -22,17 +22,16 @@ func (Game) Meta() kit.GameMeta {
 		Name:             "Pokies",
 		ShortDescription: "Pull the lever on your own slot machine and chase your high score.",
 		MinPlayers:       1,
-		MaxPlayers:       5,
-		Tags:             []string{"slots", "casual"},
+		MaxPlayers:       32,
+		Tags:             []string{"slots", "casual", "social"},
 
-		// A casual social room: when everyone leaves, the room closes —
-		// no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
-		Lifecycle: kit.LifecycleEphemeral,
+		// A resident social lounge: the room persists when players leave,
+		// offering Resume-menu entry for returning players (kit v2.7.0+).
+		Lifecycle: kit.LifecycleResident,
 
-		// Per-member arcade characters (kit v2.9.0): each player's tile
-		// renders right before their name on the cabinet marquee and the
-		// big-win ticker.
-		CtxFeatures: kit.CtxFeatCharacter,
+		// Per-member arcade characters (kit v2.9.0) + roster epoch tracking
+		// for multiplayer awareness (kit v2.11.0+).
+		CtxFeatures: kit.CtxFeatCharacter | kit.CtxFeatRosterEpoch,
 
 		QuickModeLabel:    "Quick spin",
 		SoloModeLabel:     "Solo spin",
@@ -66,6 +65,7 @@ const (
 	reelStopStep = 250 * time.Millisecond // stagger between successive reels
 	flashDur     = 1500 * time.Millisecond
 	tickerDur    = 5 * time.Second
+	freeSpinGap  = 700 * time.Millisecond // pause between auto-played free spins
 
 	configRefresh = 30 * time.Second // how often the room re-reads its odds variant
 )
@@ -85,10 +85,10 @@ var betTiers = []int{10, 50, 100, 500}
 // change mid-spin never re-evaluates the outcome.
 type spinState struct {
 	startedAt time.Time
-	stopIdx   [3]int    // landing position on the strip per reel
-	final     [3]symbol // center (payline) face per reel = strip[stopIdx]
-	landed    int       // number of reels settled (0..3)
-	variant   *variant  // the odds variant this spin started under (settles under it)
+	stopIdx   [numReels]int    // landing position on the strip per reel
+	final     [numReels]symbol // center face per reel = strip[stopIdx]
+	landed    int              // number of reels settled (0..numReels)
+	variant   *variant         // the odds variant this spin started under (settles under it)
 }
 
 // cycle is the current scroll frame for an in-flight spin, derived from elapsed
@@ -103,14 +103,27 @@ type machine struct {
 	balance    int
 	highScore  int
 	bet        int
-	reels      [3]symbol // last settled center (payline) faces
-	lastIdx    [3]int    // last settled landing index per reel (for the idle window)
-	lastStrip  []symbol  // strip the lastIdx values index into (the variant of the last spin)
-	spun       bool      // false until the first spin settles (shows blanks)
+	reels      [numReels]symbol // last settled center faces
+	lastIdx    [numReels]int    // last settled landing index per reel (for the idle window)
+	lastStrip  []symbol         // strip the lastIdx values index into (the variant of the last spin)
+	spun       bool             // false until the first spin settles (shows blanks)
 	spin       *spinState
 	flash      string    // transient status line: "WIN! +N" / "RE-BUY"
 	flashUntil time.Time // when the flash clears (deadline held in guest memory)
 	postedPeak int       // last peak posted to the leaderboard (post only on increase)
+	lastVar    *variant  // variant the last spin settled under (for the gamble caps)
+	seatVar    *variant  // variant bound when the player sits at a floor machine (nil = room default)
+
+	// Free spins (the scatter feature). When freeSpins > 0 the reels auto-play
+	// at no cost, paying at freeBet under freeVar; freeWin accumulates the total.
+	freeSpins int
+	freeBet   int
+	freeWin   int
+	freeVar   *variant
+	nextFree  time.Time // earliest time the next auto free spin may start
+
+	// Gamble (double-up). Non-nil while a base-game win is held at risk.
+	gamble *gambleState
 }
 
 // ticker is the room-wide big-win banner. text starts with the winner's
@@ -126,28 +139,42 @@ type room struct {
 	cfg kit.RoomConfig
 	svc kit.Services
 
-	machines map[string]*machine   // keyed by account id (hibernation-safe)
-	order    []string              // join order of account ids, for left-to-right layout
-	names    map[string]kit.Player // account id -> player (for handles + leaderboard Post)
-	ticker   ticker                // room-wide big-win banner
-	variant  *variant              // the active odds variant, refreshed on a deadline
-	nextCfg  time.Time             // next config-refresh deadline
-	lastNow  time.Time             // room clock captured at the last render
+	machines  map[string]*machine   // keyed by account id (hibernation-safe)
+	order     []string              // join order of account ids, for left-to-right layout
+	names     map[string]kit.Player // account id -> player (for handles + leaderboard Post)
+	ticker    ticker                // room-wide big-win banner
+	variant   *variant              // the active odds variant, refreshed on a deadline
+	nextCfg   time.Time             // next config-refresh deadline
+	lastNow   time.Time             // room clock captured at the last render
+	fmap      *floorMap
+	fmachines []floorMachine
+	pawns     map[string]*pawn // account id -> floor presence
+	occupied  map[int]string   // machine id -> account id (exclusive seat)
+	themes    []*variant       // machine id -> bound variant (PR2: all default)
 
 	// sk standardises the durable-wallet KV writes (PersistWallet) and the
-	// new-peak leaderboard posts (Record, OnImprove), replacing the duplicated
-	// persistWallet helper and hand-rolled Post.
+	// new-peak leaderboard posts, replacing the duplicated persistWallet helper.
 	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
+	fmap, fmachines := buildLounge()
+	themes := themeVariants() // one themed 5-reel PAR sheet per machine
+	for len(themes) < len(fmachines) {
+		themes = append(themes, defaultVariant()) // safety: never fewer than machines
+	}
 	return &room{
-		cfg:      cfg,
-		svc:      svc,
-		machines: map[string]*machine{},
-		names:    map[string]kit.Player{},
-		variant:  defaultVariant(),
-		sk:       kit.NewScoreKeeper(kit.OnImprove),
+		cfg:       cfg,
+		svc:       svc,
+		machines:  map[string]*machine{},
+		names:     map[string]kit.Player{},
+		variant:   defaultVariant(),
+		fmap:      fmap,
+		fmachines: fmachines,
+		pawns:     map[string]*pawn{},
+		occupied:  map[int]string{},
+		themes:    themes,
+		sk:        kit.NewScoreKeeper(kit.OnImprove),
 	}
 }
 
@@ -250,6 +277,8 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	bal, peak := rm.seedWallet(r, p)
 	rm.machines[p.AccountID] = &machine{balance: bal, highScore: peak, bet: betTiers[0], postedPeak: peak}
 	rm.order = append(rm.order, p.AccountID)
+	sx, sy := loungeSpawn()
+	rm.pawns[p.AccountID] = &pawn{x: sx, y: sy, seat: -1}
 	rm.render(r)
 }
 
@@ -267,21 +296,59 @@ func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 			break
 		}
 	}
+	if pw := rm.pawns[p.AccountID]; pw != nil && pw.seated {
+		delete(rm.occupied, pw.seat)
+	}
+	delete(rm.pawns, p.AccountID)
 	rm.render(r)
 }
 
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
-	m := rm.machines[p.AccountID]
-	if m == nil {
+	id := p.AccountID
+	pw := rm.pawns[id]
+	if pw == nil {
 		return
 	}
-	switch kit.Resolve(in, kit.CtxNav) {
-	case kit.ActUp:
-		rm.adjustBet(m, +1)
-	case kit.ActDown:
-		rm.adjustBet(m, -1)
-	case kit.ActConfirm:
-		rm.startSpin(r, p)
+	act := kit.Resolve(in, kit.CtxNav)
+	if !pw.seated {
+		// Roaming: arrows move, Confirm sits.
+		switch act {
+		case kit.ActUp:
+			rm.tryMove(id, 0, -1)
+		case kit.ActDown:
+			rm.tryMove(id, 0, +1)
+		case kit.ActLeft:
+			rm.tryMove(id, -1, 0)
+		case kit.ActRight:
+			rm.tryMove(id, +1, 0)
+		case kit.ActConfirm:
+			rm.trySit(id)
+		}
+		rm.render(r)
+		return
+	}
+	// Seated: existing machine controls; Back stands up when idle.
+	m := rm.machines[id]
+	if m == nil {
+		rm.render(r)
+		return
+	}
+	switch {
+	case act == kit.ActBack && m.spin == nil && m.gamble == nil && m.freeSpins == 0:
+		rm.standUp(id)
+	case m.gamble != nil:
+		rm.gambleInput(r, id, act) // double-up ladder owns input
+	case m.freeSpins > 0:
+		// free spins auto-play; ignore bet/spin during the feature
+	default:
+		switch act {
+		case kit.ActUp:
+			rm.adjustBet(m, +1)
+		case kit.ActDown:
+			rm.adjustBet(m, -1)
+		case kit.ActConfirm:
+			rm.startSpin(r, p)
+		}
 	}
 	rm.render(r)
 }
@@ -302,16 +369,27 @@ func (rm *room) OnWake(r kit.Room) {
 		if m == nil {
 			continue
 		}
+		if pw := rm.pawns[id]; pw == nil || !pw.seated {
+			continue // only seated machines animate / auto-play
+		}
 		// One-shot flash expiry (idiom 1).
 		if m.flash != "" && now.After(m.flashUntil) {
 			m.flash = ""
 		}
 		if m.spin == nil {
-			continue
+			// Auto-play free spins: when none is in flight and the inter-spin gap
+			// has elapsed, roll the next free spin (settled by the loop below on
+			// later wakes).
+			if m.freeSpins > 0 && now.After(m.nextFree) {
+				rm.autoFreeSpin(r, id)
+			}
+			if m.spin == nil {
+				continue
+			}
 		}
 		// Staggered reel landings: land every reel whose derived deadline has
 		// passed, in order (idiom 2).
-		for i := m.spin.landed; i < 3; i++ {
+		for i := m.spin.landed; i < numReels; i++ {
 			due := m.spin.startedAt.Add(reelStopBase + time.Duration(i)*reelStopStep)
 			if !now.After(due) {
 				break // not due yet, and later reels are even later — stop
@@ -371,8 +449,8 @@ func (rm *room) clampBet(m *machine) {
 
 func (rm *room) startSpin(r kit.Room, p kit.Player) {
 	m := rm.machines[p.AccountID]
-	if m == nil || m.spin != nil {
-		return
+	if m == nil || m.spin != nil || m.freeSpins > 0 || m.gamble != nil {
+		return // auto-play owns the reels during a feature / gamble holds the win
 	}
 	rm.clampBet(m)
 	if m.bet > m.balance {
@@ -384,9 +462,9 @@ func (rm *room) startSpin(r kit.Room, p kit.Player) {
 	// Pin the variant this spin starts under: a later config refresh never
 	// re-evaluates an in-flight spin. The strip is its variant's strip, so a
 	// seeded room reproduces outcomes for a given variant.
-	v := rm.variant
+	v := m.seatVar
 	if v == nil {
-		v = defaultVariant()
+		v = rm.variant
 	}
 	s := &spinState{startedAt: r.Now(), variant: v}
 	for i := range s.final {
@@ -407,7 +485,7 @@ func (rm *room) landReel(r kit.Room, id string, i int) {
 	if v := m.spin.variant; v != nil {
 		m.lastStrip = v.strip
 	}
-	if m.spin.landed >= 3 {
+	if m.spin.landed >= numReels {
 		rm.settleSpin(r, id)
 	}
 }
@@ -425,43 +503,79 @@ func (rm *room) settleSpin(r kit.Room, id string) {
 		v = defaultVariant()
 	}
 	m.lastStrip = v.strip
+	m.lastVar = v
+	wasFree := m.freeSpins > 0
+	bet := m.bet
+	if wasFree {
+		bet = m.freeBet
+	}
 	m.spin = nil
 	m.spun = true
 
-	mult := v.payout(m.reels)
-	win := m.bet * mult
+	win := bet * v.waysPayout(scatterWindow(v.strip, m.lastIdx)) / wayScale
+
+	if wasFree {
+		// Free spin: credit at the locked bet (no charge), retrigger, then advance
+		// the feature. Gamble is never offered inside a feature.
+		m.freeSpins--
+		m.freeWin += win
+		rm.creditWin(r, id, win, false)
+		rm.triggerFreeSpins(m, v, bet)
+		if win >= bet*tickerMult {
+			rm.announce(r, id, win)
+		}
+		if m.freeSpins == 0 {
+			rm.endFreeSpins(r, id)
+		}
+		rm.scheduleNextFree(r, m)
+		return
+	}
+
+	// Base game. A spin can both pay a line and trigger free spins; on a trigger
+	// credit any line win directly (no gamble) and start the feature.
+	if award := rm.triggerFreeSpins(m, v, bet); award > 0 {
+		rm.creditWin(r, id, win, false)
+		rm.announce(r, id, 0) // "X hit FREE SPINS!"
+		rm.scheduleNextFree(r, m)
+		return
+	}
+
+	if win > 0 {
+		rm.enterGamble(r, m, win) // hold the win on the double-up ladder
+		m.flash = ""
+		return
+	}
+
+	rm.creditWin(r, id, 0, true) // no win: rebuy check + clear flash
+}
+
+// creditWin adds win to the balance, raises the peak, posts a new personal best
+// to the leaderboard, sets the WIN flash, and (when allowZeroRebuy) re-buys a
+// busted machine. It is the single credit path for taken base wins, free-spin
+// wins, and the no-win settle.
+func (rm *room) creditWin(r kit.Room, id string, win int, allowZeroRebuy bool) {
+	m := rm.machines[id]
+	if m == nil {
+		return
+	}
 	m.balance += win
 	if m.balance > m.highScore {
 		m.highScore = m.balance
 	}
-	if mult >= tickerMult {
-		if p, ok := rm.names[id]; ok {
-			rm.ticker = ticker{
-				text:  fmt.Sprintf("%s hit a big win  +%d", p.DisplayName(), win),
-				ch:    p.Character,
-				until: r.Now().Add(tickerDur),
-			}
-		}
-	}
-
 	switch {
-	case m.balance <= 0:
+	case allowZeroRebuy && m.balance <= 0:
 		m.balance = rebuyAmount
 		m.flash = "RE-BUY"
 	case win > 0:
 		m.flash = fmt.Sprintf("WIN! +%d", win)
-	default:
-		m.flash = ""
 	}
 	m.flashUntil = r.Now().Add(flashDur)
 	rm.clampBet(m)
 	if p, ok := rm.names[id]; ok {
-		// Persist the durable wallet after each spin (peak excludes the rebuy).
+		// Persist the durable wallet (peak excludes the rebuy).
 		rm.persistWallet(r, p, m.balance, m.highScore)
-		// Leaderboard: Post feeds the board declared in GameMeta.Leaderboard
-		// (Credits, higher-better, best-result). Post on a new personal peak —
-		// the board keeps each account's best posted Metric. This is THE way a
-		// score reaches the board; KV is durable state, not the leaderboard.
+		// Leaderboard: Post feeds the board declared in GameMeta.Leaderboard.
+		// Post on a new personal peak — the board keeps each account's best.
 		if m.highScore > m.postedPeak {
 			m.postedPeak = m.highScore
 			r.Post(kit.Result{Rankings: []kit.PlayerResult{{
@@ -469,6 +583,20 @@ func (rm *room) settleSpin(r kit.Room, id string) {
 			}}})
 		}
 	}
+}
+
+// announce raises the room-wide ticker: a free-spin trigger banner when win == 0,
+// otherwise the big-win banner naming the player.
+func (rm *room) announce(r kit.Room, id string, win int) {
+	p, ok := rm.names[id]
+	if !ok {
+		return
+	}
+	text := fmt.Sprintf("%s hit a big win  +%d", p.DisplayName(), win)
+	if win == 0 {
+		text = fmt.Sprintf("%s hit FREE SPINS!", p.DisplayName())
+	}
+	rm.ticker = ticker{text: text, ch: p.Character, until: r.Now().Add(tickerDur)}
 }
 
 // --- ticker ------------------------------------------------------------------

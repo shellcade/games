@@ -21,3 +21,38 @@ func TestDrawPaytableAllocFree(t *testing.T) {
 		t.Fatalf("drawPaytable allocates %.0f/call - the paytable rows/labels must be precomputed, not rebuilt per render", allocs)
 	}
 }
+
+// drawGamble runs per render while a gamble is active. Its only allocations are
+// the unavoidable number formatting (the at-risk amount), matching the existing
+// HI/BAL readout cost — the selector itself must build no slices. Pin a small
+// budget so a future change that allocates per option is caught.
+func TestDrawGambleAllocBudget(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, _ := newGame(t, p)
+	m := &machine{balance: 1000, gamble: &gambleState{atRisk: 12345, sel: selRed, card: suitHearts}}
+	rm.machines[p.AccountID] = m
+	f := kit.NewFrame()
+	if n := testing.AllocsPerRun(100, func() { rm.drawGamble(f, 0, 0, m, true) }); n > 2 {
+		t.Fatalf("owner drawGamble allocates %.0f/call, want <= 2 (only the at-risk formatting)", n)
+	}
+}
+
+// drawFloor runs per render for every roaming viewer. It must build no slices —
+// tiles, machine icons, and character-tile avatars are written cell-by-cell, and
+// name labels are substring views (no allocation). Pin zero so a regression that
+// allocates per tile/player is caught.
+func TestDrawFloorAllocFree(t *testing.T) {
+	a := kittest.Player("anna")
+	a.Character = kit.Character{Glyph: "@"}
+	b := kittest.Player("bert")
+	b.Character = kit.Character{Glyph: "&"}
+	rm, r := newGame(t, a, b)
+	rm.OnJoin(r, a)
+	rm.OnJoin(r, b)
+	rm.pawns[a.AccountID].x, rm.pawns[a.AccountID].y = 20, 18
+	rm.pawns[b.AccountID].x, rm.pawns[b.AccountID].y = 22, 18
+	f := kit.NewFrame()
+	if n := testing.AllocsPerRun(100, func() { rm.drawFloor(f, a) }); n != 0 {
+		t.Fatalf("drawFloor allocates %.0f/call, want 0 (cell-by-cell, no slices)", n)
+	}
+}
