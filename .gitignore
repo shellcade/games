@@ -1,15 +1,35 @@
 # build outputs — the catalog never commits artifacts
 *.wasm
+*.exe
+*.dll
+*.dylib
+*.so
+target/
+smoke-out/
+shots/
+dist/
+build/
 
 # native `go build` binaries take the game directory name; authors: run
 # `go build ./...` (no output binary) or clean up before committing.
 games/*/*/blackjack
+games/*/*/boneyard
+games/*/*/breakout
+games/*/*/bytebreaker
+games/*/*/chess
+games/*/*/floorfall
+games/*/*/neon-snake
+games/*/*/paperdrift
 games/*/*/pokies
+games/*/*/putt
+games/*/*/roulette
+games/*/*/salvo
 games/*/*/scratchies
 games/*/*/shellracer
-# ... but the rule above also matches the shellracer SOURCE directory
-# (games/bcook/shellracer/shellracer/); re-include the directory so new
-# source files there are not silently ignored. The built binary is a file,
-# so it stays ignored.
+games/*/*/spaceterm
+games/*/*/tic-tac-toe-rs
+# ... but some rules above also match source directories; re-include directories
+# so new source files there are not silently ignored. Built binaries are files,
+# so they stay ignored.
 !games/*/*/shellracer/
-games/*/*/neon-snake
+!games/*/*/tic-tac-toe-rs/

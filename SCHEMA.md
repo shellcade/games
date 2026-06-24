@@ -10,7 +10,7 @@ nothing is declared twice and nothing can drift.
 
 | File | Rule |
 |---|---|
-| module marker | Every game is a **standalone module** in its source language: `go.mod` for a Go guest (any path; `require github.com/shellcade/kit`), or `Cargo.toml` for a Rust guest (a `cdylib` for `wasm32-wasip1`; implement the ABI from `ABI.md` — see `bcook/tic-tac-toe-rs`). The **built artifact** and its `meta` are the real contract; the language is your choice |
+| module marker | Every game is a **standalone module** in its source language: `go.mod` for a Go guest (new games should use `module shellcade.games/<owner>/<game>` and require `github.com/shellcade/kit`), or `Cargo.toml` for a Rust guest (a `cdylib` for `wasm32-wasip1`; implement the ABI from `ABI.md` — see `bcook/tic-tac-toe-rs`). The **built artifact** and its `meta` are the real contract; the language is your choice |
 | source | Builds with its pinned toolchain profile (TinyGo dev profile, or `cargo build --release --target wasm32-wasip1`) and passes `shellcade-kit check` (the same harness the arcade runs) |
 | `LICENSE` | One of: **MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, Unlicense** |
 | `smoke.yaml` | A deterministic smoke script (seed, seats, steps) that drives your game and names screen dumps — CI runs it on every PR (`shellcade-kit smoke`) and posts the screens as a visual preview comment. Smoke scripts drive at most **8 seats** (the runner clamps `minPlayers` to the seat count, so large-room games still pass smoke; large-room behavior is exercised by `check` and your budget tests). Schema + authoring guidance: [kit GUIDE.md "Smoke scripts"](https://github.com/shellcade/kit/blob/main/GUIDE.md#smoke-scripts-scripted-screens) |
@@ -21,7 +21,7 @@ Your game's platform identity is the path: `<shellcade-username>/<game-name>`.
 Player bounds (`minPlayers`/`maxPlayers` in your meta) must sit within the
 platform's 1..1024.
 
-Built artifacts (`*.wasm`) are **never committed** — CI builds what ships.
+Build artifacts are **never committed** — CI builds what ships. This includes `*.wasm`, native executables such as Mach-O/ELF/PE outputs, executable-bit build outputs, Rust `target/`, and generated smoke/shot output. The local validator checks Git-tracked files for this policy, so ignored local build outputs do not fail validation.
 
 ## Optional
 
@@ -37,7 +37,7 @@ Go guest:
 ```sh
 cd games/<you>/<game>
 go mod tidy
-tinygo build -opt=1 -no-debug -gc=leaking -o game.wasm -target wasip1 -buildmode=c-shared .
+tinygo build -opt=1 -no-debug -gc=conservative -o game.wasm -target wasip1 -buildmode=c-shared .
 shellcade-kit check game.wasm   # full conformance, the merge gate
 shellcade-kit meta game.wasm    # what the platform will read
 shellcade-kit smoke .           # runs smoke.yaml, writes the shot files CI previews

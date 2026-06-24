@@ -22,6 +22,7 @@ a game is a pull request.**
        ├── go.mod             # every game is a standalone module
        ├── main.go …          # your game's source (source is required)
        ├── LICENSE            # MIT, Apache-2.0, BSD-3-Clause, MPL-2.0, or Unlicense
+       ├── smoke.yaml         # deterministic smoke script for CI previews
        └── CHANGELOG.md       # optional: top section becomes the release notes
 
    **Your slug is the path.** The catalog identity is
@@ -39,9 +40,7 @@ a game is a pull request.**
    linked yet, the check posts the linking steps on your PR. While the API is
    being rolled out, the check is skipped and maintainer review is the gate.
 
-4. CI also verifies: the directory meets the [contract](SCHEMA.md), the game
-   builds (TinyGo), `shellcade-kit check` passes — the same gate the arcade
-   runs — and the artifact's own metadata agrees with the path.
+4. CI also verifies: the directory meets the [contract](SCHEMA.md), contains no committed build artifacts, the game builds (TinyGo or Rust), `shellcade-kit check` passes — the same gate the arcade runs — `shellcade-kit smoke` runs, and the artifact's own metadata agrees with the path.
 5. A maintainer reviews and merges. Merge = accepted into the catalog;
    an arcade operator then flips it live, attributed to your handle.
 
@@ -51,7 +50,7 @@ a game is a pull request.**
   compatible; a `LICENSE` file from the allowlist).
 - One directory per game, under your own username. CI rejects PRs that touch
   other authors' games.
-- Keep artifacts out of the repo — CI builds the `.wasm` it publishes.
+- Keep all build artifacts out of the repo — CI builds the `.wasm` it publishes and rejects committed wasm, native executable, Rust `target/`, smoke output, and other build outputs.
 - Hosted content must meet the [content policy](CONTENT_POLICY.md) — it also
   documents how to report a game and how takedowns work (operators can pull a
   game offline immediately; the catalog entry follows by PR).
