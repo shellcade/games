@@ -1,15 +1,11 @@
-# build outputs — the catalog never commits artifacts
+# shared build outputs — the catalog never commits artifacts
 *.wasm
-
-# native `go build` binaries take the game directory name; authors: run
-# `go build ./...` (no output binary) or clean up before committing.
-games/*/*/blackjack
-games/*/*/pokies
-games/*/*/scratchies
-games/*/*/shellracer
-# ... but the rule above also matches the shellracer SOURCE directory
-# (games/bcook/shellracer/shellracer/); re-include the directory so new
-# source files there are not silently ignored. The built binary is a file,
-# so it stays ignored.
-!games/*/*/shellracer/
-games/*/*/neon-snake
+*.exe
+*.dll
+*.dylib
+*.so
+target/
+smoke-out/
+shots/
+dist/
+build/

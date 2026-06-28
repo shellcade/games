@@ -12,10 +12,10 @@ maintainer review is the gate while that endpoint's secret is being rolled out.
 - **NEVER add shellcade-internal material here** — no OpenSpec artifacts, no
   internal specs/designs, no references to private packages or infra. Platform
   design lives in the private repo only.
-- Never commit built `.wasm` artifacts; CI builds what gets published.
+- Never commit build artifacts; CI builds what gets published and rejects wasm, native executable, Rust `target/`, smoke output, and other build outputs.
 - A PR may only touch `games/<shellcade-username>/...` whose shellcade account
   is linked to the PR author's GitHub login (the `authorize.yml` API check
   enforces this once its secret is set; until then, verify the in-arcade link
   during review). Admins may publish to any namespace.
 - Review bar: play it (`shellcade-kit play`), read it (it runs sandboxed but we
-  host it), and check `game.toml` license + slug uniqueness.
+  host it), and check `LICENSE`, `smoke.yaml`, metadata/path agreement, artifact cleanliness, and slug uniqueness.

@@ -1,0 +1,2 @@
+# build outputs (CI builds what ships; never commit binaries)
+/scratchies

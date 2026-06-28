@@ -1,6 +1,9 @@
 # Built artifacts are never committed; CI builds what gets published.
 *.wasm
 
+# Native dev binary. The source package lives in /shellracer/, so only ignore the file.
+/shellracer
+
 # Local module resolution for the private kit module (machine-local paths).
 go.work
 go.work.sum
