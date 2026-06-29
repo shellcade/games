@@ -16,11 +16,15 @@ const (
 	dealerRow    = 4 // dealer card group occupies dealerRow..dealerRow+2
 	dealerValRow = 7 // dealer total / verdict, centred just below the cards
 
-	seatNameRow = 11
-	seatCardRow = 12 // seat card group occupies seatCardRow..seatCardRow+2
-	seatValRow  = 15
-	seatChipRow = 16
-	seatPairRow = 17 // Perfect Pairs side-bet line (stake while betting, result once dealt)
+	// The seat block sits one row higher than the dealer-only layout used to
+	// allow: relocating the rules tagline (it now flanks the dealer) freed rows
+	// 8-9, so the block shifts up to open a dedicated backers line at the bottom.
+	seatNameRow = 10
+	seatCardRow = 11 // seat card group occupies seatCardRow..seatCardRow+2
+	seatValRow  = 14
+	seatChipRow = 15
+	seatPairRow = 16 // Perfect Pairs side-bet line (stake while betting, result once dealt)
+	seatBackRow = 17 // backers line: who is backing this seat, with their tiles
 	actionRow   = 18
 	slotW       = 15
 	maxSeats    = 5
@@ -91,7 +95,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 		}
 		own := s.p.AccountID == v.AccountID
 		isActive := active != nil && active.p.AccountID == s.p.AccountID
-		rm.drawSeat(f, groupLeft+i*slotW, s, own, isActive)
+		rm.drawSeat(f, groupLeft+i*slotW, s, v, own, isActive)
 	}
 
 	rm.drawActionBar(f, v, active)
@@ -139,10 +143,11 @@ func (rm *room) drawDealer(f *kit.Frame) {
 	center(f, dealerValRow, label, st)
 }
 
-func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
+func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, active bool) {
 	if s == nil {
 		return
 	}
+	defer rm.drawBackersLine(f, slot, s, v) // who is backing this seat (its own dedicated line)
 	nameSt := stCard
 	switch {
 	case active:
@@ -279,6 +284,57 @@ func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
 	}
 }
 
+// drawBackersLine renders, on a seat's dedicated backers row, a token per player
+// backing it: their character tile then a compact stake (betting: "25p10") or
+// net (results: "+25"). The viewer's own back is shown even at zero while they
+// are focused on this seat (so "you're editing this" reads) and highlighted.
+// Tokens are drawn left-to-right and truncated with an ellipsis past the slot.
+func (rm *room) drawBackersLine(f *kit.Frame, slot int, target *seat, v kit.Player) {
+	col, limit := slot, slot+slotW
+	for _, id := range rm.order {
+		s := rm.seats[id]
+		if s == nil || s.p.AccountID == target.p.AccountID {
+			continue
+		}
+		b := s.backs[target.p.AccountID]
+		focused := s.p.AccountID == v.AccountID && s.focus == target.p.AccountID
+		if (b == nil || (b.behind == 0 && b.pairs == 0)) && !focused {
+			continue
+		}
+		if b == nil {
+			b = &backBet{}
+		}
+		text, st := backerToken(rm.phase, b), stDim
+		if focused {
+			st = stActive
+		}
+		if col+1+len([]rune(text)) > limit { // no room for tile + token
+			if col < limit {
+				f.SetRune(seatBackRow, col, '…', stDim)
+			}
+			return
+		}
+		f.Set(seatBackRow, col, kit.CharacterCell(s.p.Character))
+		col = f.Text(seatBackRow, col+1, text, st) + 1 // tile, token, then a gap
+	}
+}
+
+// backerToken is one backer's compact cell content on the backers line: the
+// stakes while betting (e.g. "25p10", "p10"), else the round net (e.g. "+25").
+func backerToken(phase string, b *backBet) string {
+	if phase == phBetting {
+		s := ""
+		if b.behind > 0 {
+			s += fmt.Sprintf("%d", b.behind)
+		}
+		if b.pairs > 0 {
+			s += fmt.Sprintf("p%d", b.pairs)
+		}
+		return s
+	}
+	return fmt.Sprintf("%+d", (b.behindWin-b.behind)+(b.pairsWin-b.pairs))
+}
+
 func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 	s := rm.seats[v.AccountID]
 	if s == nil {
@@ -288,10 +344,19 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 	st := stActive
 	switch rm.phase {
 	case phBetting:
+		// When the viewer is focused on another seat, the bar spells out their
+		// back on that seat (the nav axes are editing it) — drawn in parts so the
+		// backed player's character tile rides before their name.
+		if t := rm.seats[s.focus]; s.focus != "" && t != nil {
+			b := s.backOn(s.focus)
+			post := fmt.Sprintf("%s  behind %d  pairs %d   B:next", t.p.Handle, b.behind, b.pairs)
+			centerWithChar(f, actionRow, "BACKING ", kit.CharacterCell(t.p.Character), post, stPrompt)
+			return
+		}
 		if !s.placed {
 			// Prominent, highlighted call to bet for a viewer who hasn't yet.
 			// ASCII-only so it reads identically on non-UTF-8 sessions.
-			msg, st = "PLACE YOUR BET - Up/Down stake  Left/Right pairs  SPACE bet", stPrompt
+			msg, st = "PLACE YOUR BET - Up/Down stake  Left/Right pairs  B back  SPACE bet", stPrompt
 		} else if n := rm.unplacedCount(); n > 0 {
 			noun := "player"
 			if n != 1 {

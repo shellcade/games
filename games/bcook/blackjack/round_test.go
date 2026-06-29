@@ -114,6 +114,25 @@ func TestPerfectPairsOutcome(t *testing.T) {
 	}
 }
 
+func TestAffordTier(t *testing.T) {
+	tiers := []int{0, 10, 25, 50, 100}
+	cases := []struct {
+		want, budget, out int
+	}{
+		{100, 1000, 100}, // wanted tier fits the budget
+		{100, 30, 25},    // capped to the highest tier within budget
+		{50, 5, 0},       // nothing but "off" fits
+		{25, 25, 25},     // exact fit
+		{100, 0, 0},      // no budget -> off
+		{100, -5, 0},     // negative budget -> off (never panics)
+	}
+	for _, c := range cases {
+		if got := affordTier(tiers, c.want, c.budget); got != c.out {
+			t.Errorf("affordTier(want=%d, budget=%d) = %d, want %d", c.want, c.budget, got, c.out)
+		}
+	}
+}
+
 func TestPairsCreditFor(t *testing.T) {
 	cases := []struct {
 		mult int
