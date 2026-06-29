@@ -87,3 +87,32 @@ func insuranceCredit(dealerBlackjack bool, ins int) int {
 	}
 	return 0
 }
+
+// perfectPairsOutcome classifies a player's first two cards for the Perfect
+// Pairs side bet and returns the result kind and its payout multiplier (the X
+// in X:1), or ("", 0) when the cards are not a pair. A perfect pair is the same
+// rank and suit (25:1), a colored pair is the same rank and colour but different
+// suit (12:1), and a mixed pair is the same rank in different colours (6:1).
+func perfectPairsOutcome(a, b card) (kind string, mult int) {
+	switch {
+	case a.r != b.r:
+		return "", 0
+	case a.s == b.s:
+		return "perfect", 25
+	case a.s.red() == b.s.red():
+		return "colored", 12
+	default:
+		return "mixed", 6
+	}
+}
+
+// pairsCreditFor is the chips returned to a player on a Perfect Pairs side bet of
+// `bet` at multiplier `mult` (the X in X:1). The stake was deducted when the bet
+// was placed, so a winning pair returns stake + mult×stake and a loss (mult 0)
+// returns nothing.
+func pairsCreditFor(mult, bet int) int {
+	if mult <= 0 {
+		return 0
+	}
+	return bet * (mult + 1)
+}

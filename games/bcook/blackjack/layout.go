@@ -15,12 +15,12 @@ const (
 	feltBottom   = 19
 	dealerRow    = 4 // dealer card group occupies dealerRow..dealerRow+2
 	dealerValRow = 7 // dealer total / verdict, centred just below the cards
-	taglineRow   = 9
 
 	seatNameRow = 11
 	seatCardRow = 12 // seat card group occupies seatCardRow..seatCardRow+2
 	seatValRow  = 15
 	seatChipRow = 16
+	seatPairRow = 17 // Perfect Pairs side-bet line (stake while betting, result once dealt)
 	actionRow   = 18
 	slotW       = 15
 	maxSeats    = 5
@@ -70,11 +70,13 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	drawFelt(f, feltTop, feltBottom)
 	center(f, feltTop, " B L A C K J A C K ", stFelt)
 
-	// Dealer, centred near the top of the felt.
+	// Dealer, centred near the top of the felt, with the table rules as subtle
+	// signage flanking the DEALER label (left + right) rather than a banner
+	// across the middle of the felt — keeping the centre clear for the cards.
+	f.Text(dealerRow-1, 2, "blackjack pays 3:2", stDim)
+	f.TextRight(dealerRow-1, kit.Cols-3, "dealer stands on 17", stDim)
 	center(f, dealerRow-1, "D E A L E R", stTitle)
 	rm.drawDealer(f)
-
-	center(f, taglineRow, "~ blackjack pays 3:2  ·  dealer stands on 17 ~", stFelt)
 
 	// Seats along the rail, centred as a group.
 	n := len(rm.order)
@@ -167,6 +169,8 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
 	f.Set(seatNameRow, nameCol, kit.CharacterCell(s.p.Character))
 	f.Text(seatNameRow, nameCol+2, name, nameSt)
 
+	rm.drawPairsLine(f, slot, s, own)
+
 	if rm.phase == phBetting {
 		status := "--"
 		if s.placed {
@@ -186,6 +190,25 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
 		centerSlot(f, seatCardRow+1, slot, "no bet", stDim)
 		centerSlot(f, seatValRow, slot, "sat out", stDim)
 		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+		return
+	}
+
+	// A split seat (2+ hands) renders one compact line per hand, stacked down the
+	// seat rows, so every hand's cards stay visible and the hand on turn is
+	// marked — the 15-col slot cannot fit multiple card boxes side by side, which
+	// is why the old layout collapsed later hands to a bare "+". A single hand
+	// keeps the full card box below.
+	if len(s.hands) >= 2 {
+		_, ah := rm.firstUnresolved()
+		for hi, h := range s.hands {
+			line, st := compactHandLine(h, active && ah == h)
+			centerSlot(f, seatCardRow+hi, slot, line, st)
+		}
+		if rm.phase == phResults && s.result != "" {
+			centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
+		} else {
+			centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+		}
 		return
 	}
 
@@ -221,6 +244,41 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, own, active bool) {
 	}
 }
 
+// pairsMult maps a Perfect Pairs result kind to its payout multiplier (X:1),
+// for the result label; 0 for no pair.
+func pairsMult(kind string) int {
+	switch kind {
+	case "perfect":
+		return 25
+	case "colored":
+		return 12
+	case "mixed":
+		return 6
+	}
+	return 0
+}
+
+// drawPairsLine renders the seat's Perfect Pairs side-bet line. While betting it
+// sits directly beneath that seat's main bet (seatCardRow+2), so each seat's
+// bet+pairs read as one contiguous block and whose side bet is whose is never
+// ambiguous; it shows only once placed, or for the seat's owner, matching how
+// the main bet stays private until placed. Once the cards are dealt it moves to
+// seatPairRow below the seat's hand, showing the win label (e.g. "COLORED 12:1")
+// or a quiet "pairs lost".
+func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
+	ch := kit.CharacterCell(s.p.Character) // the placing player's face, beside their side bet
+	switch {
+	case rm.phase == phBetting:
+		if s.pairsBet > 0 && (s.placed || own) {
+			centerSlotChar(f, seatCardRow+2, slot, ch, fmt.Sprintf("+pairs %d", s.pairsBet), stOwn)
+		}
+	case s.pairsKind != "":
+		centerSlotChar(f, seatPairRow, slot, ch, fmt.Sprintf("%s %d:1", strings.ToUpper(s.pairsKind), pairsMult(s.pairsKind)), stWin)
+	case s.pairsBet > 0:
+		centerSlotChar(f, seatPairRow, slot, ch, "pairs lost", stDim)
+	}
+}
+
 func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 	s := rm.seats[v.AccountID]
 	if s == nil {
@@ -233,7 +291,7 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 		if !s.placed {
 			// Prominent, highlighted call to bet for a viewer who hasn't yet.
 			// ASCII-only so it reads identically on non-UTF-8 sessions.
-			msg, st = "PLACE YOUR BET - Up/Down stake  SPACE bet", stPrompt
+			msg, st = "PLACE YOUR BET - Up/Down stake  Left/Right pairs  SPACE bet", stPrompt
 		} else if n := rm.unplacedCount(); n > 0 {
 			noun := "player"
 			if n != 1 {
@@ -620,6 +678,21 @@ func centerSlot(f *kit.Frame, row, slot int, s string, st kit.Style) {
 	f.Text(row, slot+(slotW-n)/2, s, st)
 }
 
+// centerSlotChar centres "<character tile> <text>" within a slotW-wide column:
+// the styled character cell (width 1) plus a space precede the text, tying the
+// line to a specific player by face. The text is clamped so the tile + text
+// never overflow the slot.
+func centerSlotChar(f *kit.Frame, row, slot int, ch kit.Cell, text string, st kit.Style) {
+	tr := []rune(text)
+	if len(tr) > slotW-2 {
+		tr = tr[:slotW-2]
+	}
+	w := 2 + len(tr)
+	col := slot + (slotW-w)/2
+	f.Set(row, col, ch)
+	f.Text(row, col+2, string(tr), st)
+}
+
 func (rm *room) remaining() int {
 	if rm.deadline.IsZero() || rm.lastNow.IsZero() {
 		return 0
@@ -632,6 +705,37 @@ func (rm *room) remaining() int {
 }
 
 func clock(secs int) string { return fmt.Sprintf("0:%02d", secs) }
+
+// compactHandLine formats one split hand as a single slot-wide line —
+// "<marker><cards> <total>", e.g. "►8♠3♥ 11" — for the stacked split layout.
+// The on-turn hand carries a ► marker (degrades to > on non-UTF-8) and the
+// active style; a busted hand reads red. The card tokens are truncated with an
+// ellipsis if a long (hit-heavy) hand would otherwise overflow the slot, so the
+// total always stays visible.
+func compactHandLine(h *phand, active bool) (string, kit.Style) {
+	var cards strings.Builder
+	for _, c := range h.cards {
+		cards.WriteString(c.r.boxLabel())
+		cards.WriteRune(c.s.pip())
+	}
+	total := valueLabel(h.cards)
+	marker, st := " ", stCard
+	if h.cards.isBust() {
+		st = stLose
+	}
+	if active {
+		marker, st = "►", stActive
+	}
+	budget := slotW - len([]rune(marker)) - 1 - len([]rune(total)) // marker + space + total
+	if budget < 1 {
+		budget = 1
+	}
+	cr := []rune(cards.String())
+	if len(cr) > budget {
+		cr = append(cr[:budget-1:budget-1], '…')
+	}
+	return marker + string(cr) + " " + total, st
+}
 
 func valueLabel(h hand) string {
 	if h.isBlackjack() {

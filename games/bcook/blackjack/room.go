@@ -43,6 +43,10 @@ const (
 // betTiers are the selectable stakes, lowest first.
 var betTiers = []int{10, 25, 50, 100}
 
+// pairsTiers are the Perfect Pairs side-bet stakes, lowest first; index 0 is
+// "off" (no side bet). Adjusted on the Left/Right axis during betting.
+var pairsTiers = []int{0, 10, 25, 50, 100}
+
 // phand is one hand a seat plays (a seat holds more than one after a split).
 type phand struct {
 	cards       hand
@@ -62,6 +66,9 @@ type seat struct {
 	postedPeak       int // last peak Posted to the board (post only on increase)
 	bet              int // currently selected/placed stake
 	placed           bool
+	pairsBet         int    // Perfect Pairs side stake (0 = off), carried between rounds like bet
+	pairsKind        string // this round's pairs result: "" | "mixed" | "colored" | "perfect"
+	pairsWin         int    // chips credited on the pairs side bet this round (0 = lost/none)
 	insurance        int
 	insuranceDecided bool
 	hands            []*phand
@@ -310,9 +317,12 @@ func (rm *room) enterBetting(r kit.Room) {
 		s.insurance = 0
 		s.insuranceDecided = false
 		s.result = ""
+		s.pairsKind = ""
+		s.pairsWin = 0
 		if s.bet > s.chips {
 			s.bet = clampBet(s.chips)
 		}
+		rm.clampPairs(s) // a thinned stack may no longer afford the carried side bet
 	}
 	rm.deadline = r.Now().Add(bettingDur)
 	r.SetInputContext(kit.CtxNav) // bet up/down + confirm
@@ -397,6 +407,39 @@ func tierIndex(bet int) int {
 	return 0
 }
 
+// adjustPairs steps the Perfect Pairs side stake through pairsTiers, clamped so
+// the main bet plus the side bet never exceeds the seat's chips (the side bet
+// shrinks to the highest affordable tier, down to off).
+func (rm *room) adjustPairs(s *seat, dir int) {
+	i := pairsTierIndex(s.pairsBet) + dir
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(pairsTiers) {
+		i = len(pairsTiers) - 1
+	}
+	s.pairsBet = pairsTiers[i]
+	rm.clampPairs(s)
+}
+
+// clampPairs lowers the side bet to the highest tier the seat can still afford
+// alongside its main bet (down to off), so a raised main bet or a thin stack can
+// never leave an unaffordable side bet placed.
+func (rm *room) clampPairs(s *seat) {
+	for s.pairsBet > 0 && s.bet+s.pairsBet > s.chips {
+		s.pairsBet = pairsTiers[pairsTierIndex(s.pairsBet)-1]
+	}
+}
+
+func pairsTierIndex(bet int) int {
+	for i, t := range pairsTiers {
+		if t == bet {
+			return i
+		}
+	}
+	return 0
+}
+
 // --- dealing ---------------------------------------------------------------
 
 func (rm *room) deal(r kit.Room) {
@@ -420,6 +463,7 @@ func (rm *room) deal(r kit.Room) {
 			h.resolved = true
 		}
 		s.hands = []*phand{h}
+		rm.resolvePairs(s, h.cards)
 	}
 
 	rm.recordDeal(r)
@@ -437,6 +481,24 @@ func (rm *room) deal(r kit.Room) {
 	default:
 		rm.enterTurns(r)
 	}
+}
+
+// resolvePairs settles a seat's Perfect Pairs side bet against its dealt cards:
+// the stake is deducted (the main bet was already taken above) and any winning
+// pair is credited immediately — the casino way, where the side bet stands apart
+// from how the hand goes on to play out.
+func (rm *room) resolvePairs(s *seat, dealt hand) {
+	if s.pairsBet <= 0 || len(dealt) < 2 {
+		return
+	}
+	if s.pairsBet > s.chips {
+		s.pairsBet = s.chips // defensive: never deduct more than the seat has left
+	}
+	s.chips -= s.pairsBet
+	kind, mult := perfectPairsOutcome(dealt[0], dealt[1])
+	s.pairsKind = kind
+	s.pairsWin = pairsCreditFor(mult, s.pairsBet)
+	s.chips += s.pairsWin
 }
 
 // --- animation schedule ----------------------------------------------------
@@ -857,6 +919,10 @@ func (rm *room) settle(r kit.Room) {
 			s.chips += credit
 			net += credit - h.bet
 		}
+		// The Perfect Pairs side bet was settled at deal (stake deducted, any win
+		// credited there); fold its delta into the round net so the seat's
+		// WIN/LOSE summary reconciles with the chips that actually changed hands.
+		net += s.pairsWin - s.pairsBet
 		s.result = resultText(net)
 		if s.chips <= 0 {
 			s.chips = rebuyChips
@@ -922,13 +988,19 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 		switch kit.Resolve(in, kit.CtxNav) {
 		case kit.ActUp:
 			rm.adjustBet(s, +1)
+			rm.clampPairs(s) // a raised main bet may crowd out the side bet
 		case kit.ActDown:
 			rm.adjustBet(s, -1)
+		case kit.ActRight:
+			rm.adjustPairs(s, +1) // raise the Perfect Pairs side bet
+		case kit.ActLeft:
+			rm.adjustPairs(s, -1) // lower it (down to off)
 		case kit.ActConfirm:
 			if s.chips >= betTiers[0] {
 				if s.bet > s.chips {
 					s.bet = clampBet(s.chips)
 				}
+				rm.clampPairs(s)
 				s.placed = true
 				rm.maybeCloseEarly(r) // deal early once every seat has bet
 			}
