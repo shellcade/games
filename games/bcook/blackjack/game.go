@@ -53,9 +53,10 @@ func (Game) Meta() kit.GameMeta {
 			kit.RuneControl('r', "SURRENDER"),
 			kit.RuneControl('y', "YES"),
 			kit.RuneControl('n', "NO"),
-			// Betting: cycle the editing focus across yourself and each other
-			// seat, to place a behind bet / their-pairs on the focused seat.
-			kit.RuneControl('b', "BACK"),
+			// Betting: P/B cycle the Perfect Pairs side bet up/down for the
+			// focused seat (Left/Right pick the seat, including other players to
+			// back). P doubles as SPLIT during a turn; B is betting-only.
+			kit.RuneControl('b', "PAIRS"),
 		},
 	}
 }

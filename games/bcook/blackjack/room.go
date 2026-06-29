@@ -494,29 +494,25 @@ func (rm *room) backTargets(self *seat) []string {
 	return ids
 }
 
-// cycleBackFocus advances the seat's betting focus across ["" (self), t1, t2, …]
-// where t1… are the other occupied seats. With no other seats it stays on self.
-func (rm *room) cycleBackFocus(s *seat) {
+// cycleFocus moves the seat's betting focus `dir` steps (Right = +1, Left = -1)
+// around ["" (self), t1, t2, …] where t1… are the other occupied seats, wrapping
+// at both ends. With no other seats it stays on self.
+func (rm *room) cycleFocus(s *seat, dir int) {
 	targets := rm.backTargets(s)
 	if len(targets) == 0 {
 		s.focus = ""
 		return
 	}
-	if s.focus == "" {
-		s.focus = targets[0]
-		return
-	}
-	for i, id := range targets {
+	list := append([]string{""}, targets...) // index 0 = self
+	cur := 0
+	for i, id := range list {
 		if id == s.focus {
-			if i+1 < len(targets) {
-				s.focus = targets[i+1]
-			} else {
-				s.focus = "" // wrapped past the last target -> back to self
-			}
-			return
+			cur = i
+			break
 		}
 	}
-	s.focus = "" // focus pointed at a seat that has since left
+	n := len(list)
+	s.focus = list[((cur+dir)%n+n)%n]
 }
 
 // backOn returns the seat's backBet on target (creating it on first use).
@@ -1190,13 +1186,10 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	}
 	switch rm.phase {
 	case phBetting:
-		// B cycles the editing focus across self and each other seat; the nav
-		// axes then edit whoever is focused (own bet/pairs, or a back's
-		// behind/their-pairs). B is unmapped in CtxNav, so it is read raw.
-		if in.Kind == kit.InputRune && (in.Rune == 'b' || in.Rune == 'B') {
-			rm.cycleBackFocus(s)
-			break
-		}
+		// Left/Right change which seat you're betting on (self, then each other
+		// seat); Up/Down set that seat's hand bet (your stake, or the behind bet
+		// on a backed seat). P/B cycle the pairs side bet (yours, or theirs) for
+		// the focused seat — both runes are unmapped in CtxNav, so read raw.
 		switch kit.Resolve(in, kit.CtxNav) {
 		case kit.ActUp:
 			if s.focus == "" {
@@ -1211,18 +1204,10 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 			} else {
 				rm.adjustBackBehind(s, -1)
 			}
-		case kit.ActRight:
-			if s.focus == "" {
-				rm.adjustPairs(s, +1) // raise your own Perfect Pairs side bet
-			} else {
-				rm.adjustBackPairs(s, +1) // raise the backed seat's their-pairs bet
-			}
 		case kit.ActLeft:
-			if s.focus == "" {
-				rm.adjustPairs(s, -1) // lower it (down to off)
-			} else {
-				rm.adjustBackPairs(s, -1)
-			}
+			rm.cycleFocus(s, -1)
+		case kit.ActRight:
+			rm.cycleFocus(s, +1)
 		case kit.ActConfirm:
 			if s.chips >= betTiers[0] {
 				if s.bet > s.chips {
@@ -1231,6 +1216,22 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 				rm.clampPairs(s)
 				s.placed = true
 				rm.maybeCloseEarly(r) // deal early once every seat has bet
+			}
+		}
+		if in.Kind == kit.InputRune {
+			switch in.Rune {
+			case 'p', 'P': // raise the focused seat's pairs side bet
+				if s.focus == "" {
+					rm.adjustPairs(s, +1)
+				} else {
+					rm.adjustBackPairs(s, +1)
+				}
+			case 'b', 'B': // lower it (down to off)
+				if s.focus == "" {
+					rm.adjustPairs(s, -1)
+				} else {
+					rm.adjustBackPairs(s, -1)
+				}
 			}
 		}
 	case phInsurance:

@@ -36,7 +36,7 @@ func runeInput(r rune) kit.Input { return kit.Input{Kind: kit.InputRune, Rune: r
 
 func keyInput(k kit.Key) kit.Input { return kit.Input{Kind: kit.InputKey, Key: k} }
 
-func TestPairsSideBetAdjustsOnLeftRight(t *testing.T) {
+func TestPairsSideBetAdjustsOnPB(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
@@ -44,13 +44,13 @@ func TestPairsSideBetAdjustsOnLeftRight(t *testing.T) {
 	if s.pairsBet != 0 {
 		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
 	}
-	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // raise to the first tier
+	rm.OnInput(tr, a, runeInput('p')) // P raises to the first tier
 	if s.pairsBet != pairsTiers[1] {
-		t.Fatalf("after Right, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
+		t.Fatalf("after P, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
 	}
-	rm.OnInput(tr, a, keyInput(kit.KeyLeft)) // back to off
+	rm.OnInput(tr, a, runeInput('b')) // B lowers back to off
 	if s.pairsBet != 0 {
-		t.Fatalf("after Left, pairsBet = %d, want 0 (off)", s.pairsBet)
+		t.Fatalf("after B, pairsBet = %d, want 0 (off)", s.pairsBet)
 	}
 }
 
@@ -62,14 +62,14 @@ func TestPairsSideBetClampedToChips(t *testing.T) {
 	s.bet = 100
 	s.chips = 105 // can afford the 100 main bet + at most a 5-chip side bet, so only "off"
 	for i := 0; i < len(pairsTiers); i++ {
-		rm.OnInput(tr, a, keyInput(kit.KeyRight))
+		rm.OnInput(tr, a, runeInput('p'))
 	}
 	if s.bet+s.pairsBet > s.chips {
 		t.Fatalf("main %d + pairs %d exceeds chips %d (clamp failed)", s.bet, s.pairsBet, s.chips)
 	}
 }
 
-func TestBackFocusCyclesOtherSeats(t *testing.T) {
+func TestBackFocusCyclesSeatsOnLeftRight(t *testing.T) {
 	a, b, c := mkPlayer("a"), mkPlayer("b"), mkPlayer("c")
 	rm, tr := newGame(t, a, b, c)
 	rm.OnJoin(tr, a)
@@ -79,17 +79,22 @@ func TestBackFocusCyclesOtherSeats(t *testing.T) {
 	if sa.focus != "" {
 		t.Fatalf("focus starts %q, want self (empty)", sa.focus)
 	}
-	rm.OnInput(tr, a, runeInput('b'))
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
 	if sa.focus != b.AccountID {
-		t.Fatalf("after B, focus = %q, want b", sa.focus)
+		t.Fatalf("after Right, focus = %q, want b", sa.focus)
 	}
-	rm.OnInput(tr, a, runeInput('b'))
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
 	if sa.focus != c.AccountID {
-		t.Fatalf("after B B, focus = %q, want c", sa.focus)
+		t.Fatalf("after Right Right, focus = %q, want c", sa.focus)
 	}
-	rm.OnInput(tr, a, runeInput('b'))
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
 	if sa.focus != "" {
-		t.Fatalf("after cycling through all, focus = %q, want back to self", sa.focus)
+		t.Fatalf("after cycling through all seats, focus = %q, want back to self", sa.focus)
+	}
+	// Left walks the other way: from self, wrap to the last seat.
+	rm.OnInput(tr, a, keyInput(kit.KeyLeft))
+	if sa.focus != c.AccountID {
+		t.Fatalf("after Left from self, focus = %q, want c (wrap backward)", sa.focus)
 	}
 }
 
@@ -97,9 +102,9 @@ func TestBackFocusSoloIsNoOp(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
-	rm.OnInput(tr, a, runeInput('b'))
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
 	if rm.seats[a.AccountID].focus != "" {
-		t.Fatal("with no other seats, B must stay on self")
+		t.Fatal("with no other seats, Left/Right must stay on self")
 	}
 }
 
@@ -111,9 +116,9 @@ func TestBackBetAdjustsWhenFocused(t *testing.T) {
 	sa := rm.seats[a.AccountID]
 	sa.bet = 25
 	sa.chips = 1000
-	rm.OnInput(tr, a, runeInput('b'))         // focus seat b
+	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // focus seat b
 	rm.OnInput(tr, a, keyInput(kit.KeyUp))    // behind +1 tier -> 10
-	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // their-pairs +1 tier -> 10
+	rm.OnInput(tr, a, runeInput('p'))         // their-pairs +1 tier -> 10
 	bb := sa.backs[b.AccountID]
 	if bb == nil || bb.behind != 10 || bb.pairs != 10 {
 		t.Fatalf("back on b = %+v, want behind 10 / pairs 10", bb)
@@ -132,10 +137,10 @@ func TestBackBetBudgetClamped(t *testing.T) {
 	sa := rm.seats[a.AccountID]
 	sa.bet = 100
 	sa.chips = 105 // only 5 chips beyond the main bet — no back tier fits
-	rm.OnInput(tr, a, runeInput('b'))
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
 	for i := 0; i < len(pairsTiers); i++ {
-		rm.OnInput(tr, a, keyInput(kit.KeyUp))    // try to max the behind stake
-		rm.OnInput(tr, a, keyInput(kit.KeyRight)) // and the their-pairs stake
+		rm.OnInput(tr, a, keyInput(kit.KeyUp)) // try to max the behind stake
+		rm.OnInput(tr, a, runeInput('p'))      // and the their-pairs stake
 	}
 	committed := sa.bet + sa.pairsBet
 	if bb := sa.backs[b.AccountID]; bb != nil {
