@@ -89,3 +89,45 @@ func TestInsuranceCredit(t *testing.T) {
 		t.Errorf("insurance with no dealer blackjack = %d, want 0", got)
 	}
 }
+
+func TestPerfectPairsOutcome(t *testing.T) {
+	cases := []struct {
+		name     string
+		a, b     card
+		wantKind string
+		wantMult int
+	}{
+		{"perfect: same rank and suit", card{8, suitHeart}, card{8, suitHeart}, "perfect", 25},
+		{"colored: same rank, both red", card{8, suitHeart}, card{8, suitDiamond}, "colored", 12},
+		{"colored: same rank, both black", card{rankKing, suitSpade}, card{rankKing, suitClub}, "colored", 12},
+		{"mixed: same rank, different colour", card{8, suitSpade}, card{8, suitHeart}, "mixed", 6},
+		{"no pair: different rank", card{8, suitSpade}, card{9, suitSpade}, "", 0},
+		{"no pair: ten and face are not a pair", card{10, suitSpade}, card{rankKing, suitSpade}, "", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			kind, mult := perfectPairsOutcome(c.a, c.b)
+			if kind != c.wantKind || mult != c.wantMult {
+				t.Fatalf("perfectPairsOutcome = (%q, %d), want (%q, %d)", kind, mult, c.wantKind, c.wantMult)
+			}
+		})
+	}
+}
+
+func TestPairsCreditFor(t *testing.T) {
+	cases := []struct {
+		mult int
+		bet  int
+		want int
+	}{
+		{0, 10, 0},     // no pair: side stake lost
+		{6, 10, 70},    // mixed 6:1: stake 10 + 60
+		{12, 25, 325},  // colored 12:1: stake 25 + 300
+		{25, 50, 1300}, // perfect 25:1: stake 50 + 1250
+	}
+	for _, c := range cases {
+		if got := pairsCreditFor(c.mult, c.bet); got != c.want {
+			t.Errorf("pairsCreditFor(%d, %d) = %d, want %d", c.mult, c.bet, got, c.want)
+		}
+	}
+}

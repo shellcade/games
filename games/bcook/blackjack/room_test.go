@@ -34,6 +34,92 @@ func pump(rm *room, tr *kittest.Room, d time.Duration) {
 
 func runeInput(r rune) kit.Input { return kit.Input{Kind: kit.InputRune, Rune: r} }
 
+func keyInput(k kit.Key) kit.Input { return kit.Input{Kind: kit.InputKey, Key: k} }
+
+func TestPairsSideBetAdjustsOnLeftRight(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	if s.pairsBet != 0 {
+		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
+	}
+	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // raise to the first tier
+	if s.pairsBet != pairsTiers[1] {
+		t.Fatalf("after Right, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
+	}
+	rm.OnInput(tr, a, keyInput(kit.KeyLeft)) // back to off
+	if s.pairsBet != 0 {
+		t.Fatalf("after Left, pairsBet = %d, want 0 (off)", s.pairsBet)
+	}
+}
+
+func TestPairsSideBetClampedToChips(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.bet = 100
+	s.chips = 105 // can afford the 100 main bet + at most a 5-chip side bet, so only "off"
+	for i := 0; i < len(pairsTiers); i++ {
+		rm.OnInput(tr, a, keyInput(kit.KeyRight))
+	}
+	if s.bet+s.pairsBet > s.chips {
+		t.Fatalf("main %d + pairs %d exceeds chips %d (clamp failed)", s.bet, s.pairsBet, s.chips)
+	}
+}
+
+func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.bet = 50
+	s.placed = true
+	s.pairsBet = 10
+	s.chips = 1000
+	// Stack the shoe: dealer up + hole, then the seat's two cards — a mixed pair.
+	rm.sh.cards = hand{
+		{10, suitClub}, {9, suitDiamond}, // dealer 19
+		{8, suitSpade}, {8, suitHeart}, // seat: mixed pair of 8s
+		{2, suitClub}, {3, suitClub}, {4, suitClub}, // filler draws
+	}
+	rm.sh.pos = 0
+	rm.sh.roundStart = 0
+	rm.deal(tr)
+
+	if s.pairsKind != "mixed" {
+		t.Fatalf("pairsKind = %q, want mixed", s.pairsKind)
+	}
+	if s.pairsWin != 70 { // mixed 6:1 on 10 -> 10 + 60
+		t.Fatalf("pairsWin = %d, want 70", s.pairsWin)
+	}
+	// 1000 - 50 (bet) - 10 (pairs stake) + 70 (mixed payout) = 1010.
+	if s.chips != 1010 {
+		t.Fatalf("chips = %d, want 1010 (bet + pairs deducted at deal, mixed pair paid 70)", s.chips)
+	}
+}
+
+func TestSettleFoldsPairsResultIntoNet(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.bet = 50
+	s.chips = 1000
+	s.pairsBet = 10
+	s.pairsWin = 70 // a mixed pair already paid at deal
+	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}} // 19
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}                          // 19 -> hand pushes
+	rm.settle(tr)
+	// Hand pushes (net 0); the pairs win folds in: net = (70 - 10) = +60.
+	if s.result != "WIN +60" {
+		t.Fatalf("result = %q, want WIN +60 (pairs win folded into the round net)", s.result)
+	}
+}
+
 func TestJoinSeatsPlayer(t *testing.T) {
 	p := mkPlayer("alice")
 	rm, tr := newGame(t, p)
@@ -679,6 +765,146 @@ func TestReadyUpSkipsTheResultsWait(t *testing.T) {
 	rm.OnInput(tr, a, runeInput(' '))
 	if rm.phase != phBetting {
 		t.Fatalf("phase = %q, want betting (an all-ready table skips the wait)", rm.phase)
+	}
+}
+
+// TestBettingShowsPairsSideBet asserts a seat's selected Perfect Pairs side
+// stake is shown during betting directly beneath that seat's main bet — so the
+// two lines form one contiguous per-seat block and it's unambiguous whose side
+// bet is whose at a multi-seat table.
+func TestBettingShowsPairsSideBet(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.bet = 50
+	s.pairsBet = 25
+	rm.render(tr)
+	f := tr.LastFrame(a)
+
+	betRow := kittest.String(f, seatCardRow+1)  // where the "bet N" status sits
+	pairRow := kittest.String(f, seatCardRow+2) // pairs must sit immediately below it
+	if !strings.Contains(betRow, "bet 50") {
+		t.Fatalf("expected the bet status on row %d: %q", seatCardRow+1, betRow)
+	}
+	if !strings.Contains(pairRow, "+pairs 25") {
+		t.Fatalf("expected the pairs side bet directly below the bet on row %d: %q", seatCardRow+2, pairRow)
+	}
+	// The two lines must align under the same seat slot.
+	if colIndex(betRow, "bet 50") < 0 || colIndex(pairRow, "+pairs 25") < 0 {
+		t.Fatalf("bet and pairs lines not aligned in the seat slot:\n%q\n%q", betRow, pairRow)
+	}
+}
+
+// TestPairsLineCarriesCharacterTile asserts the Perfect Pairs side-bet line is
+// prefixed with the placing player's arcade character tile, so whose side bet is
+// whose reads from the face beside it, not just the column.
+func TestPairsLineCarriesCharacterTile(t *testing.T) {
+	a := mkPlayer("alice")
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, Fallback: 'L'}
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	rm.seats[a.AccountID].pairsBet = 25
+	rm.render(tr)
+	f := tr.LastFrame(a)
+
+	row := kittest.String(f, seatCardRow+2)
+	idx := colIndex(row, "+pairs 25")
+	if idx < 2 {
+		t.Fatalf("pairs line not found (or no room for a tile) on row %d: %q", seatCardRow+2, row)
+	}
+	if got, want := f.Cells[seatCardRow+2][idx-2], kit.CharacterCell(a.Character); got != want {
+		t.Errorf("cell before the pairs bet = %+v, want the character tile %+v", got, want)
+	}
+	if sp := f.Cells[seatCardRow+2][idx-1].Rune; sp != ' ' && sp != 0 {
+		t.Errorf("no space between the character tile and the pairs bet (got %q)", sp)
+	}
+}
+
+// TestResultsShowsPerfectPairsWin asserts a winning Perfect Pairs side bet is
+// surfaced on the seat with its category and multiplier during results.
+func TestResultsShowsPerfectPairsWin(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.bet = 50
+	s.chips = 1000
+	s.pairsBet = 25
+	s.pairsKind = "colored"
+	s.pairsWin = 325
+	s.hands = []*phand{{cards: hand{{8, suitHeart}, {8, suitDiamond}}, bet: 50}}
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
+	rm.settle(tr) // -> results phase
+	rm.render(tr)
+
+	row := kittest.String(tr.LastFrame(a), seatPairRow)
+	if !strings.Contains(row, "COLORED 12:1") {
+		t.Fatalf("results row %d does not show the pairs win: %q", seatPairRow, row)
+	}
+}
+
+// TestRulesTaglineFlanksTheDealer asserts the rules signage moved out of the
+// mid-felt row up to the dealer's label row, split into a left and a right
+// label, leaving the old mid-felt tagline row clear.
+func TestRulesTaglineFlanksTheDealer(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	rm.render(tr)
+	f := tr.LastFrame(a)
+
+	dealerLabelRow := kittest.String(f, dealerRow-1)
+	if !strings.Contains(dealerLabelRow, "blackjack pays 3:2") {
+		t.Errorf("payout rule not on the dealer label row: %q", dealerLabelRow)
+	}
+	if !strings.Contains(dealerLabelRow, "dealer stands on 17") {
+		t.Errorf("dealer rule not on the dealer label row: %q", dealerLabelRow)
+	}
+	if !strings.Contains(dealerLabelRow, "D E A L E R") {
+		t.Errorf("DEALER label should remain centred between the rules: %q", dealerLabelRow)
+	}
+	// The old mid-felt tagline (row 9) must be clear now.
+	if mid := kittest.String(f, 9); strings.Contains(mid, "blackjack pays") {
+		t.Errorf("rules tagline still sits mid-felt on row 9: %q", mid)
+	}
+}
+
+// TestSplitSeatShowsEveryHandsCards is the regression guard for the reported
+// bug: a seat split into two hands must render BOTH hands' cards (each on its
+// own compact line), not collapse the second hand to a bare "+". The active
+// hand is marked so the player can see which one they are acting on.
+func TestSplitSeatShowsEveryHandsCards(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.chips = 800
+	s.hands = []*phand{
+		{cards: hand{{8, suitSpade}, {3, suitHeart}}, bet: 50, fromSplit: true},
+		{cards: hand{{8, suitClub}, {10, suitDiamond}}, bet: 50, fromSplit: true},
+	}
+	rm.dealer = hand{{10, suitSpade}, {7, suitHeart}}
+	rm.phase = phTurns
+	rm.render(tr)
+
+	f := tr.LastFrame(a)
+	// Gather the seat's content rows into one blob.
+	var blob string
+	for _, row := range []int{seatCardRow, seatCardRow + 1, seatCardRow + 2, seatCardRow + 3} {
+		blob += kittest.String(f, row) + "\n"
+	}
+	// Both hands' cards must be present — second hand included.
+	for _, tok := range []string{"8♠", "3♥", "8♣", "T♦"} {
+		if !strings.Contains(blob, tok) {
+			t.Fatalf("split seat is missing card %q from its hands:\n%s", tok, blob)
+		}
+	}
+	if strings.Contains(blob, "+") {
+		t.Fatalf("split seat collapsed a hand to \"+\" instead of showing its cards:\n%s", blob)
 	}
 }
 
