@@ -53,6 +53,10 @@ func (Game) Meta() kit.GameMeta {
 			kit.RuneControl('r', "SURRENDER"),
 			kit.RuneControl('y', "YES"),
 			kit.RuneControl('n', "NO"),
+			// Betting: P loops the Perfect Pairs side bet and B loops the behind
+			// bet for the focused seat (Left/Right pick the seat, including other
+			// players to back). P doubles as SPLIT during a turn; B is betting-only.
+			kit.RuneControl('b', "BEHIND"),
 		},
 	}
 }

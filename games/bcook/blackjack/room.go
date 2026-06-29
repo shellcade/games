@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -57,6 +58,18 @@ type phand struct {
 	fromSplit   bool // a split hand: a two-card 21 is a plain 21, not a blackjack
 }
 
+// backBet is one seat's wager ON ANOTHER seat: a "behind" bet that rides the
+// backed player's first hand vs the dealer, and/or a Perfect Pairs bet on the
+// backed player's first two cards. Stakes are chosen during betting; the result
+// fields are filled at settlement (their-pairs at the deal, behind at settle).
+type backBet struct {
+	behind    int    // behind-bet stake (0 = none)
+	pairs     int    // their-Perfect-Pairs stake (0 = none)
+	pairsKind string // resolved at deal: "" | "mixed" | "colored" | "perfect"
+	pairsWin  int    // their-pairs chips credited at deal (0 = lost/none)
+	behindWin int    // behind chips credited at settle (0 = lost)
+}
+
 // seat is one player's place at the table. Keyed by account id in the room map
 // so it survives a hibernation freeze/thaw (connections change; accounts don't).
 type seat struct {
@@ -66,9 +79,11 @@ type seat struct {
 	postedPeak       int // last peak Posted to the board (post only on increase)
 	bet              int // currently selected/placed stake
 	placed           bool
-	pairsBet         int    // Perfect Pairs side stake (0 = off), carried between rounds like bet
-	pairsKind        string // this round's pairs result: "" | "mixed" | "colored" | "perfect"
-	pairsWin         int    // chips credited on the pairs side bet this round (0 = lost/none)
+	pairsBet         int                 // Perfect Pairs side stake (0 = off), carried between rounds like bet
+	pairsKind        string              // this round's pairs result: "" | "mixed" | "colored" | "perfect"
+	pairsWin         int                 // chips credited on the pairs side bet this round (0 = lost/none)
+	focus            string              // betting UI: "" edits own bet, else the account id whose backs are being edited
+	backs            map[string]*backBet // wagers on other seats, keyed by target account id (iterate via rm.order)
 	insurance        int
 	insuranceDecided bool
 	hands            []*phand
@@ -319,6 +334,8 @@ func (rm *room) enterBetting(r kit.Room) {
 		s.result = ""
 		s.pairsKind = ""
 		s.pairsWin = 0
+		s.focus = ""  // re-open editing on the seat's own bet
+		s.backs = nil // backs are round-specific to particular opponents; never carried
 		if s.bet > s.chips {
 			s.bet = clampBet(s.chips)
 		}
@@ -407,19 +424,10 @@ func tierIndex(bet int) int {
 	return 0
 }
 
-// adjustPairs steps the Perfect Pairs side stake through pairsTiers, clamped so
-// the main bet plus the side bet never exceeds the seat's chips (the side bet
-// shrinks to the highest affordable tier, down to off).
-func (rm *room) adjustPairs(s *seat, dir int) {
-	i := pairsTierIndex(s.pairsBet) + dir
-	if i < 0 {
-		i = 0
-	}
-	if i >= len(pairsTiers) {
-		i = len(pairsTiers) - 1
-	}
-	s.pairsBet = pairsTiers[i]
-	rm.clampPairs(s)
+// cycleOwnPairs advances the seat's own Perfect Pairs stake one tier, wrapping
+// back to 0 past the top (and resetting to 0 if the next tier is unaffordable).
+func (rm *room) cycleOwnPairs(s *seat) {
+	s.pairsBet = loopTier(pairsTiers, s.pairsBet, s.chips-(s.committed()-s.pairsBet))
 }
 
 // clampPairs lowers the side bet to the highest tier the seat can still afford
@@ -431,6 +439,21 @@ func (rm *room) clampPairs(s *seat) {
 	}
 }
 
+// affordTier returns the highest tier not exceeding `want` that still fits
+// `budget` (the chips left for this stake after the seat's other commitments).
+// tiers must be ascending and start at 0, so a zero/negative budget yields the
+// "off" tier rather than panicking.
+func affordTier(tiers []int, want, budget int) int {
+	best := 0
+	for _, t := range tiers {
+		if t > want || t > budget {
+			break
+		}
+		best = t
+	}
+	return best
+}
+
 func pairsTierIndex(bet int) int {
 	for i, t := range pairsTiers {
 		if t == bet {
@@ -438,6 +461,86 @@ func pairsTierIndex(bet int) int {
 		}
 	}
 	return 0
+}
+
+// committed totals every chip the seat has wagered this betting window: its main
+// bet, its own Perfect Pairs, and every behind/their-pairs stake across backs.
+func (s *seat) committed() int {
+	total := s.bet + s.pairsBet
+	for _, b := range s.backs {
+		total += b.behind + b.pairs
+	}
+	return total
+}
+
+// backTargets is the account ids a seat may back: every OTHER occupied seat, in
+// join order (never map order).
+func (rm *room) backTargets(self *seat) []string {
+	var ids []string
+	for _, id := range rm.order {
+		if rm.seats[id] != nil && id != self.p.AccountID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// cycleFocus moves the seat's betting focus `dir` steps (Right = +1, Left = -1)
+// around ["" (self), t1, t2, …] where t1… are the other occupied seats, wrapping
+// at both ends. With no other seats it stays on self.
+func (rm *room) cycleFocus(s *seat, dir int) {
+	targets := rm.backTargets(s)
+	if len(targets) == 0 {
+		s.focus = ""
+		return
+	}
+	list := append([]string{""}, targets...) // index 0 = self
+	cur := 0
+	for i, id := range list {
+		if id == s.focus {
+			cur = i
+			break
+		}
+	}
+	n := len(list)
+	s.focus = list[((cur+dir)%n+n)%n]
+}
+
+// backOn returns the seat's backBet on target (creating it on first use).
+func (s *seat) backOn(target string) *backBet {
+	if s.backs == nil {
+		s.backs = map[string]*backBet{}
+	}
+	b := s.backs[target]
+	if b == nil {
+		b = &backBet{}
+		s.backs[target] = b
+	}
+	return b
+}
+
+// cycleBackPairs / cycleBackBehind advance the focused back's pairs / behind
+// stake one tier, wrapping to 0 past the top, budget-clamped against the seat's
+// other commitments (an unaffordable next tier also resets to 0).
+func (rm *room) cycleBackPairs(s *seat) {
+	b := s.backOn(s.focus)
+	b.pairs = loopTier(pairsTiers, b.pairs, s.chips-(s.committed()-b.pairs))
+}
+
+func (rm *room) cycleBackBehind(s *seat) {
+	b := s.backOn(s.focus)
+	b.behind = loopTier(pairsTiers, b.behind, s.chips-(s.committed()-b.behind))
+}
+
+// loopTier returns the tier one step above cur, wrapping back to 0 (the "off"
+// tier) past the top — so a side bet cycles 0 -> 10 -> … -> top -> 0. A next tier
+// the budget can't cover also resets to 0 (higher tiers are unaffordable too).
+func loopTier(tiers []int, cur, budget int) int {
+	next := tiers[(pairsTierIndex(cur)+1)%len(tiers)]
+	if next > budget {
+		return 0
+	}
+	return next
 }
 
 // --- dealing ---------------------------------------------------------------
@@ -465,6 +568,8 @@ func (rm *room) deal(r kit.Room) {
 		s.hands = []*phand{h}
 		rm.resolvePairs(s, h.cards)
 	}
+
+	rm.resolveBackPairs() // every hand is now dealt; settle the their-pairs side of each back
 
 	rm.recordDeal(r)
 
@@ -499,6 +604,59 @@ func (rm *room) resolvePairs(s *seat, dealt hand) {
 	s.pairsKind = kind
 	s.pairsWin = pairsCreditFor(mult, s.pairsBet)
 	s.chips += s.pairsWin
+}
+
+// sortedBackIDs returns a seat's back target ids in a deterministic (sorted)
+// order. Backs are keyed by account id in a map; the targets are independent
+// (settlement is purely additive), so a stable sort is enough to avoid relying
+// on Go's map iteration order — and it still visits a target that has since left
+// the table (which join order no longer lists).
+func sortedBackIDs(s *seat) []string {
+	if len(s.backs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(s.backs))
+	for id := range s.backs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// resolveBackPairs settles the their-Perfect-Pairs side of every seat's backs,
+// once all hands are dealt: a back on a seat that didn't get dealt in is voided
+// (never charged); otherwise the stake is deducted and any winning pair on the
+// target's first two cards is credited to the backer immediately. The behind bet
+// is committed here too (deducted, held) and settled later against the dealer.
+func (rm *room) resolveBackPairs() {
+	for _, id := range rm.order {
+		s := rm.seats[id]
+		if s == nil || !s.placed {
+			continue
+		}
+		for _, tid := range sortedBackIDs(s) {
+			b := s.backs[tid]
+			t := rm.seats[tid]
+			if t == nil || !t.placed || len(t.hands) == 0 {
+				b.behind, b.pairs = 0, 0 // target sat out / gone -> void the back
+				continue
+			}
+			if b.pairs > s.chips {
+				b.pairs = s.chips // defensive
+			}
+			if b.pairs > 0 {
+				s.chips -= b.pairs
+				kind, mult := perfectPairsOutcome(t.hands[0].cards[0], t.hands[0].cards[1])
+				b.pairsKind = kind
+				b.pairsWin = pairsCreditFor(mult, b.pairs)
+				s.chips += b.pairsWin
+			}
+			if b.behind > s.chips {
+				b.behind = s.chips // defensive
+			}
+			s.chips -= b.behind // committed now; the dealer comparison happens at settle
+		}
+	}
 }
 
 // --- animation schedule ----------------------------------------------------
@@ -923,6 +1081,7 @@ func (rm *room) settle(r kit.Room) {
 		// credited there); fold its delta into the round net so the seat's
 		// WIN/LOSE summary reconciles with the chips that actually changed hands.
 		net += s.pairsWin - s.pairsBet
+		net += rm.settleBacks(s, dbj)
 		s.result = resultText(net)
 		if s.chips <= 0 {
 			s.chips = rebuyChips
@@ -939,6 +1098,37 @@ func (rm *room) settle(r kit.Room) {
 		s.placed = false
 	}
 	rm.enterResults(r)
+}
+
+// settleBacks settles seat s's behind bets and folds every back's delta into the
+// round, returning the net chip change to add to s's summary. Their-pairs were
+// settled at the deal (only their delta folds here); each behind bet is judged
+// now against the target's first hand vs the dealer — even money on a win, 3:2 on
+// a natural blackjack, push returned — and is refunded if the target has left
+// (their hand can't be judged) or loses if that hand surrendered.
+func (rm *room) settleBacks(s *seat, dealerBJ bool) int {
+	net := 0
+	for _, tid := range sortedBackIDs(s) {
+		b := s.backs[tid]
+		net += b.pairsWin - b.pairs // their-pairs delta (settled at the deal)
+		if b.behind <= 0 {
+			continue
+		}
+		t := rm.seats[tid]
+		switch {
+		case t == nil || len(t.hands) == 0:
+			b.behindWin = b.behind // target left: refund the behind stake (push)
+		case t.hands[0].surrendered:
+			b.behindWin = 0 // backed a hand that bailed out
+		default:
+			h0 := t.hands[0]
+			o := settleHandEx(h0.cards, h0.cards.isBlackjack() && !h0.fromSplit, rm.dealer, dealerBJ)
+			b.behindWin = creditFor(o, b.behind)
+		}
+		s.chips += b.behindWin
+		net += b.behindWin - b.behind
+	}
+	return net
 }
 
 func (rm *room) enterResults(r kit.Room) {
@@ -985,16 +1175,20 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	}
 	switch rm.phase {
 	case phBetting:
+		// Up/Down set your own main stake; Left/Right change which seat you're
+		// betting on (self, then each other seat). P loops the pairs side bet and
+		// B loops the behind bet for the focused seat — each cycles up a tier and
+		// resets to 0 past the top. Both runes are unmapped in CtxNav, read raw.
 		switch kit.Resolve(in, kit.CtxNav) {
 		case kit.ActUp:
 			rm.adjustBet(s, +1)
 			rm.clampPairs(s) // a raised main bet may crowd out the side bet
 		case kit.ActDown:
 			rm.adjustBet(s, -1)
-		case kit.ActRight:
-			rm.adjustPairs(s, +1) // raise the Perfect Pairs side bet
 		case kit.ActLeft:
-			rm.adjustPairs(s, -1) // lower it (down to off)
+			rm.cycleFocus(s, -1)
+		case kit.ActRight:
+			rm.cycleFocus(s, +1)
 		case kit.ActConfirm:
 			if s.chips >= betTiers[0] {
 				if s.bet > s.chips {
@@ -1003,6 +1197,20 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 				rm.clampPairs(s)
 				s.placed = true
 				rm.maybeCloseEarly(r) // deal early once every seat has bet
+			}
+		}
+		if in.Kind == kit.InputRune {
+			switch in.Rune {
+			case 'p', 'P': // loop the focused seat's pairs side bet (yours, or theirs)
+				if s.focus == "" {
+					rm.cycleOwnPairs(s)
+				} else {
+					rm.cycleBackPairs(s)
+				}
+			case 'b', 'B': // loop the behind bet on the focused seat (none on yourself)
+				if s.focus != "" {
+					rm.cycleBackBehind(s)
+				}
 			}
 		}
 	case phInsurance:

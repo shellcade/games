@@ -36,7 +36,7 @@ func runeInput(r rune) kit.Input { return kit.Input{Kind: kit.InputRune, Rune: r
 
 func keyInput(k kit.Key) kit.Input { return kit.Input{Kind: kit.InputKey, Key: k} }
 
-func TestPairsSideBetAdjustsOnLeftRight(t *testing.T) {
+func TestPairsSideBetLoopsOnP(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
@@ -44,13 +44,21 @@ func TestPairsSideBetAdjustsOnLeftRight(t *testing.T) {
 	if s.pairsBet != 0 {
 		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
 	}
-	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // raise to the first tier
+	rm.OnInput(tr, a, runeInput('p')) // P advances one tier
 	if s.pairsBet != pairsTiers[1] {
-		t.Fatalf("after Right, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
+		t.Fatalf("after P, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
 	}
-	rm.OnInput(tr, a, keyInput(kit.KeyLeft)) // back to off
+	for i := 0; i < len(pairsTiers)-1; i++ { // loop the rest of the way round
+		rm.OnInput(tr, a, runeInput('p'))
+	}
 	if s.pairsBet != 0 {
-		t.Fatalf("after Left, pairsBet = %d, want 0 (off)", s.pairsBet)
+		t.Fatalf("after a full loop, pairsBet = %d, want reset to 0 at the end", s.pairsBet)
+	}
+	// B is the behind bet, not pairs — it must not touch your own pairs.
+	rm.OnInput(tr, a, runeInput('p')) // -> 10
+	rm.OnInput(tr, a, runeInput('b'))
+	if s.pairsBet != pairsTiers[1] {
+		t.Fatalf("B changed own pairs (B should be behind-only): %d", s.pairsBet)
 	}
 }
 
@@ -62,10 +70,92 @@ func TestPairsSideBetClampedToChips(t *testing.T) {
 	s.bet = 100
 	s.chips = 105 // can afford the 100 main bet + at most a 5-chip side bet, so only "off"
 	for i := 0; i < len(pairsTiers); i++ {
-		rm.OnInput(tr, a, keyInput(kit.KeyRight))
+		rm.OnInput(tr, a, runeInput('p'))
 	}
 	if s.bet+s.pairsBet > s.chips {
 		t.Fatalf("main %d + pairs %d exceeds chips %d (clamp failed)", s.bet, s.pairsBet, s.chips)
+	}
+}
+
+func TestBackFocusCyclesSeatsOnLeftRight(t *testing.T) {
+	a, b, c := mkPlayer("a"), mkPlayer("b"), mkPlayer("c")
+	rm, tr := newGame(t, a, b, c)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	rm.OnJoin(tr, c)
+	sa := rm.seats[a.AccountID]
+	if sa.focus != "" {
+		t.Fatalf("focus starts %q, want self (empty)", sa.focus)
+	}
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
+	if sa.focus != b.AccountID {
+		t.Fatalf("after Right, focus = %q, want b", sa.focus)
+	}
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
+	if sa.focus != c.AccountID {
+		t.Fatalf("after Right Right, focus = %q, want c", sa.focus)
+	}
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
+	if sa.focus != "" {
+		t.Fatalf("after cycling through all seats, focus = %q, want back to self", sa.focus)
+	}
+	// Left walks the other way: from self, wrap to the last seat.
+	rm.OnInput(tr, a, keyInput(kit.KeyLeft))
+	if sa.focus != c.AccountID {
+		t.Fatalf("after Left from self, focus = %q, want c (wrap backward)", sa.focus)
+	}
+}
+
+func TestBackFocusSoloIsNoOp(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
+	if rm.seats[a.AccountID].focus != "" {
+		t.Fatal("with no other seats, Left/Right must stay on self")
+	}
+}
+
+func TestBackBetAdjustsWhenFocused(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa := rm.seats[a.AccountID]
+	sa.bet = 25
+	sa.chips = 1000
+	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // focus seat b
+	rm.OnInput(tr, a, runeInput('b'))         // behind loops 0 -> 10
+	rm.OnInput(tr, a, runeInput('p'))         // their-pairs loops 0 -> 10
+	bb := sa.backs[b.AccountID]
+	if bb == nil || bb.behind != 10 || bb.pairs != 10 {
+		t.Fatalf("back on b = %+v, want behind 10 / pairs 10", bb)
+	}
+	// The viewer's own bet must be untouched while editing a back.
+	if sa.bet != 25 || sa.pairsBet != 0 {
+		t.Fatalf("own bet changed while editing a back: bet=%d pairs=%d", sa.bet, sa.pairsBet)
+	}
+}
+
+func TestBackBetBudgetClamped(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa := rm.seats[a.AccountID]
+	sa.bet = 100
+	sa.chips = 105 // only 5 chips beyond the main bet — no back tier fits
+	rm.OnInput(tr, a, keyInput(kit.KeyRight))
+	for i := 0; i < len(pairsTiers); i++ {
+		rm.OnInput(tr, a, runeInput('b')) // try to raise the behind stake
+		rm.OnInput(tr, a, runeInput('p')) // and the their-pairs stake
+	}
+	committed := sa.bet + sa.pairsBet
+	if bb := sa.backs[b.AccountID]; bb != nil {
+		committed += bb.behind + bb.pairs
+	}
+	if committed > sa.chips {
+		t.Fatalf("total commitment %d exceeds chips %d (budget clamp failed)", committed, sa.chips)
 	}
 }
 
@@ -98,6 +188,107 @@ func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
 	// 1000 - 50 (bet) - 10 (pairs stake) + 70 (mixed payout) = 1010.
 	if s.chips != 1010 {
 		t.Fatalf("chips = %d, want 1010 (bet + pairs deducted at deal, mixed pair paid 70)", s.chips)
+	}
+}
+
+func TestDealResolvesBackPairs(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
+	sa.bet, sa.placed, sa.chips = 25, true, 1000
+	sb.bet, sb.placed, sb.chips = 25, true, 1000
+	sa.backs = map[string]*backBet{b.AccountID: {pairs: 10}} // a backs b's pairs
+	// dealer up+hole, then seat a's two cards, then seat b's two cards (a mixed pair).
+	rm.sh.cards = hand{
+		{10, suitClub}, {9, suitDiamond}, // dealer
+		{2, suitSpade}, {7, suitHeart}, // seat a (no pair)
+		{8, suitSpade}, {8, suitHeart}, // seat b: mixed pair of 8s
+		{3, suitClub}, {4, suitClub}, {5, suitClub}, // filler
+	}
+	rm.sh.pos, rm.sh.roundStart = 0, 0
+	rm.deal(tr)
+
+	bb := sa.backs[b.AccountID]
+	if bb.pairsKind != "mixed" || bb.pairsWin != 70 {
+		t.Fatalf("back-pairs on b = kind %q win %d, want mixed/70", bb.pairsKind, bb.pairsWin)
+	}
+	// a paid main 25 + back-pairs 10 and won 70: 1000 - 25 - 10 + 70 = 1035.
+	if sa.chips != 1035 {
+		t.Fatalf("a chips = %d, want 1035", sa.chips)
+	}
+}
+
+func TestDealVoidsBackOnSatOutTarget(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
+	sa.bet, sa.placed, sa.chips = 25, true, 1000
+	sb.placed = false // b sits this round out
+	sa.backs = map[string]*backBet{b.AccountID: {behind: 50, pairs: 10}}
+	rm.sh.cards = hand{{10, suitClub}, {9, suitDiamond}, {2, suitSpade}, {7, suitHeart}, {3, suitClub}, {4, suitClub}}
+	rm.sh.pos, rm.sh.roundStart = 0, 0
+	rm.deal(tr)
+
+	if sa.chips != 975 { // only a's own 25 bet deducted; the back on a sat-out seat is voided
+		t.Fatalf("a chips = %d, want 975 (back on sat-out target voided, not deducted)", sa.chips)
+	}
+	if bb := sa.backs[b.AccountID]; bb != nil && (bb.behind != 0 || bb.pairs != 0) {
+		t.Fatalf("back on sat-out target not voided: %+v", bb)
+	}
+}
+
+func TestSettleBehindBetWinFolds(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
+	sa.placed, sa.bet, sa.chips = true, 25, 1000
+	sa.hands = []*phand{{cards: hand{{2, suitSpade}, {3, suitHeart}}, bet: 25}} // a: 5, loses
+	sb.placed, sb.bet = true, 25
+	sb.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 25}} // b: 19, beats dealer
+	sa.backs = map[string]*backBet{b.AccountID: {behind: 50}}                    // a backs b's hand
+	rm.dealer = hand{{10, suitClub}, {7, suitDiamond}}                           // 17
+
+	rm.settle(tr)
+
+	bb := sa.backs[b.AccountID]
+	if bb.behindWin != 100 { // even money: 50 stake + 50
+		t.Fatalf("behindWin = %d, want 100 (behind paid even money on b's win)", bb.behindWin)
+	}
+	// a's own hand loses 25; the behind nets +50: round net = +25.
+	if sa.result != "WIN +25" {
+		t.Fatalf("a result = %q, want WIN +25 (behind win folded into net)", sa.result)
+	}
+}
+
+func TestSettleBehindRefundsWhenTargetLeft(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa := rm.seats[a.AccountID]
+	sa.placed, sa.bet, sa.chips = true, 25, 900 // behind 50 already deducted at deal
+	sa.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 25}} // 19, pushes
+	sa.backs = map[string]*backBet{b.AccountID: {behind: 50}}
+	delete(rm.seats, b.AccountID) // b left mid-round
+	rm.order = []string{a.AccountID}
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}} // 19
+
+	rm.settle(tr)
+
+	if bb := sa.backs[b.AccountID]; bb.behindWin != 50 {
+		t.Fatalf("behindWin = %d, want 50 (behind refunded when target left)", bb.behindWin)
+	}
+	// own hand pushes (+25 returned), behind refunded (+50): 900 + 25 + 50 = 975.
+	if sa.chips != 975 {
+		t.Fatalf("a chips = %d, want 975 (push + behind refund)", sa.chips)
 	}
 }
 
@@ -765,6 +956,62 @@ func TestReadyUpSkipsTheResultsWait(t *testing.T) {
 	rm.OnInput(tr, a, runeInput(' '))
 	if rm.phase != phBetting {
 		t.Fatalf("phase = %q, want betting (an all-ready table skips the wait)", rm.phase)
+	}
+}
+
+// cellCol returns the column of the first cell on row matching want, or -1.
+func cellCol(f *kit.Frame, row int, want kit.Cell) int {
+	for c := range f.Cells[row] {
+		if f.Cells[row][c] == want {
+			return c
+		}
+	}
+	return -1
+}
+
+// TestBackersLineShowsBackerTile asserts that a seat being backed shows, on its
+// dedicated backers line, the backing player's character tile and stake — so you
+// can see who is backing whom.
+func TestBackersLineShowsBackerTile(t *testing.T) {
+	a, b := mkPlayer("alice"), mkPlayer("bob")
+	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, Fallback: 'L'}
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa := rm.seats[a.AccountID]
+	sa.placed = true
+	sa.backs = map[string]*backBet{b.AccountID: {behind: 25}}
+	rm.render(tr)
+	f := tr.LastFrame(b)
+
+	if cellCol(f, seatBackRow, kit.CharacterCell(a.Character)) < 0 {
+		t.Fatalf("backer alice's character tile not on the backers line (row %d): %q",
+			seatBackRow, kittest.String(f, seatBackRow))
+	}
+	if row := kittest.String(f, seatBackRow); !strings.Contains(row, "25") {
+		t.Fatalf("backers line does not show the behind stake: %q", row)
+	}
+}
+
+// TestFocusedTargetShowsBackDetail asserts that while a viewer is focused on a
+// seat they are backing, the action bar spells out their behind/their-pairs
+// stakes on that seat.
+func TestFocusedTargetShowsBackDetail(t *testing.T) {
+	a, b := mkPlayer("alice"), mkPlayer("bob")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa := rm.seats[a.AccountID]
+	sa.focus = b.AccountID
+	sa.backs = map[string]*backBet{b.AccountID: {behind: 25, pairs: 10}}
+	rm.render(tr)
+
+	row := kittest.String(tr.LastFrame(a), actionRow)
+	if !strings.Contains(row, "BACKING") || !strings.Contains(row, "bob") {
+		t.Fatalf("focused action bar does not name the backed seat: %q", row)
+	}
+	if !strings.Contains(row, "25") || !strings.Contains(row, "10") {
+		t.Fatalf("focused action bar does not show behind/their-pairs stakes: %q", row)
 	}
 }
 

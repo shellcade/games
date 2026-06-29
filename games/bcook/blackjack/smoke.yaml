@@ -2,36 +2,42 @@ seed: 58
 seats: 2
 heartbeat: 50ms
 steps:
-  # (a) Initial table: both seats parked at the bet prompt. The table rules now
-  # flank the dealer (out of the mid-felt), and the betting prompt offers the
-  # Left/Right Perfect Pairs axis alongside the Up/Down stake.
+  # (a) Initial table: both seats at the bet prompt. Rules flank the dealer, and
+  # the betting prompt offers Up/Down stake, P pairs, and Left/Right (pick the
+  # seat you're betting on — yourself or another player to back).
   - shot: bet
 
-  # Seat 0 turns on a Perfect Pairs side bet (Right -> 10) and bets the default
-  # stake (25); seat 1 sets a larger side bet (Right Right -> 25) and bets. Once
-  # both seated players have placed, a 1s grace beat elapses and the table deals.
+  # Seat 0 loops its own Perfect Pairs on (P -> 10), then presses Right to focus
+  # seat 1 and backs it: B B -> behind 25, P -> their-pairs 10. With seat 1
+  # focused, the action bar spells out the back ("BACKING seat1 ...").
   - seat: 0
+  - rune: "p"
   - key: right
+  - rune: "b"
+  - rune: "b"
+  - rune: "p"
+  - shot: backing
+
+  # Seat 0 places (Confirm places everything, focus or not); seat 1 sets its own
+  # pairs and places too.
   - key: space
   - seat: 1
-  - key: right
-  - key: right
+  - rune: "p"
   - key: space
 
-  # (b) Both placed: each seat shows its side stake as "+pairs N" beside the bet.
+  # (b) Both placed: seat 1's dedicated backers line shows seat 0's character tile
+  # and the back stakes; each seat shows its own "+pairs" beneath its bet.
   - shot: sidebet
 
-  # Grace beat (1s) -> deal fires. Sweep past the staggered slide+flip deal
-  # animation (6 cards), as the original scenario did.
+  # Grace beat (1s) -> deal; sweep the staggered slide+flip deal animation.
   - advance: 1200ms
   - advance: 1200ms
 
-  # (c) Deal complete: seed 58 deals BOTH seats a pair, so Perfect Pairs pays out
-  # at the deal (mixed 6:1 each); seat 0 (a pair of tens) is first on turn.
+  # (c) Deal complete: both seats dealt a pair (own pairs pay out), and seat 0's
+  # back-pairs on seat 1 pay too; seat 0 (a pair of tens) is first on turn.
   - shot: dealt
 
-  # Seat 0 splits its pair -> two hands, rendered as stacked compact lines with
-  # the hand on turn marked. Sweep the split deal animation before the shot.
+  # Seat 0 splits its pair -> two hands stacked, the hand on turn marked.
   - seat: 0
   - rune: "p"
   - advance: 700ms
@@ -48,18 +54,17 @@ steps:
   - rune: "s"
   - advance: 200ms
 
-  # All hands resolved -> the dealer reveals its hole card and stands; sweep the
-  # paced reveal into the results flash.
+  # All hands resolved -> the dealer reveals and stands; sweep the paced reveal.
   - advance: 1600ms
   - advance: 1600ms
   - advance: 1600ms
 
-  # (d) Settlement: per-seat result, with the Perfect Pairs win folded into each
-  # seat's net and the winning category shown beneath the seat.
+  # (d) Settlement: each seat's result, with own pairs and (for seat 0) the
+  # behind + back-pairs on seat 1 all folded into the net; the backers line shows
+  # seat 0's net on seat 1.
   - shot: payout
 
-  # (e) Ready-up: seat 0 confirms and reads READY while the table waits on seat 1;
-  # once seat 1 confirms too the round skips the flash and deals again.
+  # (e) Ready-up flow preserved.
   - seat: 0
   - key: space
   - shot: ready
