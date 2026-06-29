@@ -3,18 +3,18 @@ seats: 2
 heartbeat: 50ms
 steps:
   # (a) Initial table: both seats at the bet prompt. Rules flank the dealer, and
-  # the betting prompt offers Up/Down stake, P/B pairs, and Left/Right (pick the
+  # the betting prompt offers Up/Down stake, P pairs, and Left/Right (pick the
   # seat you're betting on — yourself or another player to back).
   - shot: bet
 
-  # Seat 0 sets its own Perfect Pairs (P -> 10), then presses Right to focus
-  # seat 1 and backs it: Up/Up -> behind 25, P -> their-pairs 10. With seat 1
+  # Seat 0 loops its own Perfect Pairs on (P -> 10), then presses Right to focus
+  # seat 1 and backs it: B B -> behind 25, P -> their-pairs 10. With seat 1
   # focused, the action bar spells out the back ("BACKING seat1 ...").
   - seat: 0
   - rune: "p"
   - key: right
-  - key: up
-  - key: up
+  - rune: "b"
+  - rune: "b"
   - rune: "p"
   - shot: backing
 

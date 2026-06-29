@@ -349,14 +349,14 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 		// backed player's character tile rides before their name.
 		if t := rm.seats[s.focus]; s.focus != "" && t != nil {
 			b := s.backOn(s.focus)
-			post := fmt.Sprintf("%s  Up/Down behind %d  P/B pairs %d  Left/Right seat", t.p.Handle, b.behind, b.pairs)
+			post := fmt.Sprintf("%s  B behind %d  P pairs %d  Left/Right seat", t.p.Handle, b.behind, b.pairs)
 			centerWithChar(f, actionRow, "BACKING ", kit.CharacterCell(t.p.Character), post, stPrompt)
 			return
 		}
 		if !s.placed {
 			// Prominent, highlighted call to bet for a viewer who hasn't yet.
 			// ASCII-only so it reads identically on non-UTF-8 sessions.
-			msg, st = "BET: Up/Down stake  P/B pairs  Left/Right back a seat  SPACE bet", stPrompt
+			msg, st = "BET: Up/Down stake  P pairs  Left/Right back a seat  SPACE bet", stPrompt
 		} else if n := rm.unplacedCount(); n > 0 {
 			noun := "player"
 			if n != 1 {

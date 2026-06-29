@@ -424,19 +424,10 @@ func tierIndex(bet int) int {
 	return 0
 }
 
-// adjustPairs steps the Perfect Pairs side stake through pairsTiers, clamped so
-// the main bet plus the side bet never exceeds the seat's chips (the side bet
-// shrinks to the highest affordable tier, down to off).
-func (rm *room) adjustPairs(s *seat, dir int) {
-	i := pairsTierIndex(s.pairsBet) + dir
-	if i < 0 {
-		i = 0
-	}
-	if i >= len(pairsTiers) {
-		i = len(pairsTiers) - 1
-	}
-	s.pairsBet = pairsTiers[i]
-	rm.clampPairs(s)
+// cycleOwnPairs advances the seat's own Perfect Pairs stake one tier, wrapping
+// back to 0 past the top (and resetting to 0 if the next tier is unaffordable).
+func (rm *room) cycleOwnPairs(s *seat) {
+	s.pairsBet = loopTier(pairsTiers, s.pairsBet, s.chips-(s.committed()-s.pairsBet))
 }
 
 // clampPairs lowers the side bet to the highest tier the seat can still afford
@@ -528,30 +519,28 @@ func (s *seat) backOn(target string) *backBet {
 	return b
 }
 
-// adjustBackBehind / adjustBackPairs step the focused back's stake through
-// pairsTiers, clamped so the seat's total commitment never exceeds its chips.
-func (rm *room) adjustBackBehind(s *seat, dir int) {
+// cycleBackPairs / cycleBackBehind advance the focused back's pairs / behind
+// stake one tier, wrapping to 0 past the top, budget-clamped against the seat's
+// other commitments (an unaffordable next tier also resets to 0).
+func (rm *room) cycleBackPairs(s *seat) {
 	b := s.backOn(s.focus)
-	want := stepTier(pairsTiers, b.behind, dir)
-	b.behind = affordTier(pairsTiers, want, s.chips-(s.committed()-b.behind))
+	b.pairs = loopTier(pairsTiers, b.pairs, s.chips-(s.committed()-b.pairs))
 }
 
-func (rm *room) adjustBackPairs(s *seat, dir int) {
+func (rm *room) cycleBackBehind(s *seat) {
 	b := s.backOn(s.focus)
-	want := stepTier(pairsTiers, b.pairs, dir)
-	b.pairs = affordTier(pairsTiers, want, s.chips-(s.committed()-b.pairs))
+	b.behind = loopTier(pairsTiers, b.behind, s.chips-(s.committed()-b.behind))
 }
 
-// stepTier returns the tier `dir` steps from `cur` (clamped to the ends).
-func stepTier(tiers []int, cur, dir int) int {
-	i := pairsTierIndex(cur) + dir
-	if i < 0 {
-		i = 0
+// loopTier returns the tier one step above cur, wrapping back to 0 (the "off"
+// tier) past the top — so a side bet cycles 0 -> 10 -> … -> top -> 0. A next tier
+// the budget can't cover also resets to 0 (higher tiers are unaffordable too).
+func loopTier(tiers []int, cur, budget int) int {
+	next := tiers[(pairsTierIndex(cur)+1)%len(tiers)]
+	if next > budget {
+		return 0
 	}
-	if i >= len(tiers) {
-		i = len(tiers) - 1
-	}
-	return tiers[i]
+	return next
 }
 
 // --- dealing ---------------------------------------------------------------
@@ -1186,24 +1175,16 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	}
 	switch rm.phase {
 	case phBetting:
-		// Left/Right change which seat you're betting on (self, then each other
-		// seat); Up/Down set that seat's hand bet (your stake, or the behind bet
-		// on a backed seat). P/B cycle the pairs side bet (yours, or theirs) for
-		// the focused seat — both runes are unmapped in CtxNav, so read raw.
+		// Up/Down set your own main stake; Left/Right change which seat you're
+		// betting on (self, then each other seat). P loops the pairs side bet and
+		// B loops the behind bet for the focused seat — each cycles up a tier and
+		// resets to 0 past the top. Both runes are unmapped in CtxNav, read raw.
 		switch kit.Resolve(in, kit.CtxNav) {
 		case kit.ActUp:
-			if s.focus == "" {
-				rm.adjustBet(s, +1)
-				rm.clampPairs(s) // a raised main bet may crowd out the side bet
-			} else {
-				rm.adjustBackBehind(s, +1)
-			}
+			rm.adjustBet(s, +1)
+			rm.clampPairs(s) // a raised main bet may crowd out the side bet
 		case kit.ActDown:
-			if s.focus == "" {
-				rm.adjustBet(s, -1)
-			} else {
-				rm.adjustBackBehind(s, -1)
-			}
+			rm.adjustBet(s, -1)
 		case kit.ActLeft:
 			rm.cycleFocus(s, -1)
 		case kit.ActRight:
@@ -1220,17 +1201,15 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 		}
 		if in.Kind == kit.InputRune {
 			switch in.Rune {
-			case 'p', 'P': // raise the focused seat's pairs side bet
+			case 'p', 'P': // loop the focused seat's pairs side bet (yours, or theirs)
 				if s.focus == "" {
-					rm.adjustPairs(s, +1)
+					rm.cycleOwnPairs(s)
 				} else {
-					rm.adjustBackPairs(s, +1)
+					rm.cycleBackPairs(s)
 				}
-			case 'b', 'B': // lower it (down to off)
-				if s.focus == "" {
-					rm.adjustPairs(s, -1)
-				} else {
-					rm.adjustBackPairs(s, -1)
+			case 'b', 'B': // loop the behind bet on the focused seat (none on yourself)
+				if s.focus != "" {
+					rm.cycleBackBehind(s)
 				}
 			}
 		}

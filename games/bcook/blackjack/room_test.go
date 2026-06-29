@@ -36,7 +36,7 @@ func runeInput(r rune) kit.Input { return kit.Input{Kind: kit.InputRune, Rune: r
 
 func keyInput(k kit.Key) kit.Input { return kit.Input{Kind: kit.InputKey, Key: k} }
 
-func TestPairsSideBetAdjustsOnPB(t *testing.T) {
+func TestPairsSideBetLoopsOnP(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
@@ -44,13 +44,21 @@ func TestPairsSideBetAdjustsOnPB(t *testing.T) {
 	if s.pairsBet != 0 {
 		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
 	}
-	rm.OnInput(tr, a, runeInput('p')) // P raises to the first tier
+	rm.OnInput(tr, a, runeInput('p')) // P advances one tier
 	if s.pairsBet != pairsTiers[1] {
 		t.Fatalf("after P, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
 	}
-	rm.OnInput(tr, a, runeInput('b')) // B lowers back to off
+	for i := 0; i < len(pairsTiers)-1; i++ { // loop the rest of the way round
+		rm.OnInput(tr, a, runeInput('p'))
+	}
 	if s.pairsBet != 0 {
-		t.Fatalf("after B, pairsBet = %d, want 0 (off)", s.pairsBet)
+		t.Fatalf("after a full loop, pairsBet = %d, want reset to 0 at the end", s.pairsBet)
+	}
+	// B is the behind bet, not pairs — it must not touch your own pairs.
+	rm.OnInput(tr, a, runeInput('p')) // -> 10
+	rm.OnInput(tr, a, runeInput('b'))
+	if s.pairsBet != pairsTiers[1] {
+		t.Fatalf("B changed own pairs (B should be behind-only): %d", s.pairsBet)
 	}
 }
 
@@ -117,13 +125,13 @@ func TestBackBetAdjustsWhenFocused(t *testing.T) {
 	sa.bet = 25
 	sa.chips = 1000
 	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // focus seat b
-	rm.OnInput(tr, a, keyInput(kit.KeyUp))    // behind +1 tier -> 10
-	rm.OnInput(tr, a, runeInput('p'))         // their-pairs +1 tier -> 10
+	rm.OnInput(tr, a, runeInput('b'))         // behind loops 0 -> 10
+	rm.OnInput(tr, a, runeInput('p'))         // their-pairs loops 0 -> 10
 	bb := sa.backs[b.AccountID]
 	if bb == nil || bb.behind != 10 || bb.pairs != 10 {
 		t.Fatalf("back on b = %+v, want behind 10 / pairs 10", bb)
 	}
-	// The viewer's own bet must be untouched while focused on b.
+	// The viewer's own bet must be untouched while editing a back.
 	if sa.bet != 25 || sa.pairsBet != 0 {
 		t.Fatalf("own bet changed while editing a back: bet=%d pairs=%d", sa.bet, sa.pairsBet)
 	}
@@ -139,8 +147,8 @@ func TestBackBetBudgetClamped(t *testing.T) {
 	sa.chips = 105 // only 5 chips beyond the main bet — no back tier fits
 	rm.OnInput(tr, a, keyInput(kit.KeyRight))
 	for i := 0; i < len(pairsTiers); i++ {
-		rm.OnInput(tr, a, keyInput(kit.KeyUp)) // try to max the behind stake
-		rm.OnInput(tr, a, runeInput('p'))      // and the their-pairs stake
+		rm.OnInput(tr, a, runeInput('b')) // try to raise the behind stake
+		rm.OnInput(tr, a, runeInput('p')) // and the their-pairs stake
 	}
 	committed := sa.bet + sa.pairsBet
 	if bb := sa.backs[b.AccountID]; bb != nil {
