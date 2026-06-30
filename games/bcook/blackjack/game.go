@@ -42,20 +42,24 @@ func (Game) Meta() kit.GameMeta {
 			Format:      kit.Integer,
 		},
 
-		// Touch deck chips (kit v2.10.0): the turn actions and the insurance
-		// answers are all letter commands (CtxCommand), so every one needs a
-		// chip. Betting stays on the canonical Up/Down + Confirm.
+		// Touch deck chips (kit v2.10.0): every input beyond the canonical
+		// vocabulary (arrows/Confirm/Back, which the deck always provides) needs
+		// a chip so it is reachable on touch. The turn actions, the insurance
+		// answers, and the betting side-bet keys are all letter commands. Betting
+		// itself drives stake (Up/Down), the backed seat (Left/Right), and place
+		// (Confirm) off the canonical arrows; only P/B need declaring.
 		Controls: []kit.ControlDecl{
 			kit.RuneControl('h', "HIT"),
 			kit.RuneControl('s', "STAND"),
 			kit.RuneControl('d', "DOUBLE"),
-			kit.RuneControl('p', "SPLIT"),
+			// P splits a pair on a turn AND loops the Perfect Pairs side bet
+			// during betting — one rune, so the chip carries both meanings.
+			kit.RuneControl('p', "SPLIT/PAIRS"),
 			kit.RuneControl('r', "SURRENDER"),
 			kit.RuneControl('y', "YES"),
 			kit.RuneControl('n', "NO"),
-			// Betting: P loops the Perfect Pairs side bet and B loops the behind
-			// bet for the focused seat (Left/Right pick the seat, including other
-			// players to back). P doubles as SPLIT during a turn; B is betting-only.
+			// Betting only: B loops the behind bet on the focused seat (Left/Right
+			// pick the seat); P (above) loops that seat's Perfect Pairs.
 			kit.RuneControl('b', "BEHIND"),
 		},
 	}
