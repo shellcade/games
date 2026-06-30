@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Bot token so the PR triggers validate.yml (which gates auto-merge).
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.KIT_RELEASE_TOKEN }}
       - uses: actions/setup-go@v6
