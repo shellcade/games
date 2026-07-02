@@ -229,7 +229,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 		}
 		drawCardsAnim(f, seatCardRow, col, h.cards, -1, rm.seatResolver(s.p, hi, h))
 		col += w + 1
-		vals = append(vals, valueLabel(h.cards))
+		vals = append(vals, valueLabel(h.cards)+dblTag(h))
 	}
 	// During results the value line doubles as the ready indicator: a readied
 	// seat shows READY where its hand total was, so who's holding up the table
@@ -783,7 +783,7 @@ func compactHandLine(h *phand, active bool) (string, kit.Style) {
 		cards.WriteString(c.r.boxLabel())
 		cards.WriteRune(c.s.pip())
 	}
-	total := valueLabel(h.cards)
+	total := valueLabel(h.cards) + dblTag(h)
 	marker, st := " ", stCard
 	if h.cards.isBust() {
 		st = stLose
@@ -800,6 +800,15 @@ func compactHandLine(h *phand, active bool) (string, kit.Style) {
 		cr = append(cr[:budget-1:budget-1], '…')
 	}
 	return marker + string(cr) + " " + total, st
+}
+
+// dblTag is the " DBL" flag appended to a doubled hand's total, so a hand that
+// doubled down reads as such on the felt (its stake was doubled at the deal).
+func dblTag(h *phand) string {
+	if h.doubled {
+		return " DBL"
+	}
+	return ""
 }
 
 func valueLabel(h hand) string {

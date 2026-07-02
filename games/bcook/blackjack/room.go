@@ -41,12 +41,15 @@ const (
 	keyPeak    = "peak"
 )
 
-// betTiers are the selectable stakes, lowest first.
-var betTiers = []int{10, 25, 50, 100}
+// betTiers are the selectable stakes, lowest first. The ×2.5/×2/×2 climb repeats
+// each decade (10→100, 100→1000, 1000→10000) so the ladder runs from a 10-chip
+// minimum up to a 10k high roller.
+var betTiers = []int{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
 
-// pairsTiers are the Perfect Pairs side-bet stakes, lowest first; index 0 is
-// "off" (no side bet). Adjusted on the Left/Right axis during betting.
-var pairsTiers = []int{0, 10, 25, 50, 100}
+// pairsTiers are the Perfect Pairs / behind side-bet stakes, lowest first; index
+// 0 is "off" (no side bet). Adjusted on the Left/Right axis during betting, and
+// mirrors betTiers' upper reaches so side action can scale with the main bet.
+var pairsTiers = []int{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
 
 // phand is one hand a seat plays (a seat holds more than one after a split).
 type phand struct {
@@ -334,12 +337,13 @@ func (rm *room) enterBetting(r kit.Room) {
 		s.result = ""
 		s.pairsKind = ""
 		s.pairsWin = 0
-		s.focus = ""  // re-open editing on the seat's own bet
-		s.backs = nil // backs are round-specific to particular opponents; never carried
+		s.focus = ""     // re-open editing on the seat's own bet
+		rm.carryBacks(s) // behind/their-pairs stakes are sticky between rounds
 		if s.bet > s.chips {
 			s.bet = clampBet(s.chips)
 		}
 		rm.clampPairs(s) // a thinned stack may no longer afford the carried side bet
+		rm.clampBacks(s) // nor its carried backs
 	}
 	rm.deadline = r.Now().Add(bettingDur)
 	r.SetInputContext(kit.CtxNav) // bet up/down + confirm
@@ -436,6 +440,32 @@ func (rm *room) cycleOwnPairs(s *seat) {
 func (rm *room) clampPairs(s *seat) {
 	for s.pairsBet > 0 && s.bet+s.pairsBet > s.chips {
 		s.pairsBet = pairsTiers[pairsTierIndex(s.pairsBet)-1]
+	}
+}
+
+// carryBacks makes a seat's backs sticky between rounds: it prunes any back on a
+// target that has left the table (keying by account id, so a still-seated target
+// is kept even if it sits the round out — resolveBackPairs voids that round's
+// stakes) and clears last round's per-back result fields so they re-settle fresh.
+func (rm *room) carryBacks(s *seat) {
+	for tid, b := range s.backs {
+		if rm.seats[tid] == nil {
+			delete(s.backs, tid)
+			continue
+		}
+		b.pairsKind, b.pairsWin, b.behindWin = "", 0, 0
+	}
+}
+
+// clampBacks lowers each carried back's stakes to the highest tiers the seat can
+// still afford alongside its main bet, own pairs, and the other backs (down to
+// off). Visits backs in a deterministic order so the clamp never depends on Go's
+// map iteration order.
+func (rm *room) clampBacks(s *seat) {
+	for _, tid := range sortedBackIDs(s) {
+		b := s.backs[tid]
+		b.pairs = affordTier(pairsTiers, b.pairs, s.chips-(s.committed()-b.pairs))
+		b.behind = affordTier(pairsTiers, b.behind, s.chips-(s.committed()-b.behind))
 	}
 }
 
@@ -1083,7 +1113,11 @@ func (rm *room) settle(r kit.Room) {
 		net += s.pairsWin - s.pairsBet
 		net += rm.settleBacks(s, dbj)
 		s.result = resultText(net)
-		if s.chips <= 0 {
+		// A seat that can no longer cover the minimum stake is staked back to the
+		// re-buy stack — otherwise it would be soft-locked in betting, unable to
+		// place any bet (Confirm requires chips >= betTiers[0]) and never reaching
+		// this re-buy path again.
+		if s.chips < betTiers[0] {
 			s.chips = rebuyChips
 			s.result = "BUST - re-buy"
 		}
