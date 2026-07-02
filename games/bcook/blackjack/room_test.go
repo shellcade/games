@@ -44,6 +44,7 @@ func TestPairsSideBetLoopsOnP(t *testing.T) {
 	if s.pairsBet != 0 {
 		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
 	}
+	s.chips = 100000 // deep enough to afford every tier, so the loop wraps only at the top
 	rm.OnInput(tr, a, runeInput('p')) // P advances one tier
 	if s.pairsBet != pairsTiers[1] {
 		t.Fatalf("after P, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
@@ -494,6 +495,71 @@ func TestBustRebuysAndKeepsHighScore(t *testing.T) {
 	}
 }
 
+func TestRebuyWhenBelowMinimumBet(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.chips = 5 // above zero but can't cover the 10-chip minimum -> soft-lock without a re-buy
+	s.hands = []*phand{{cards: hand{{10, suitSpade}, {8, suitHeart}}, bet: 5}}
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}} // dealer 19 beats 18
+
+	rm.settle(tr)
+
+	if s.chips != rebuyChips {
+		t.Errorf("chips = %d, want re-buy to %d (a stack under the minimum bet must re-buy)", s.chips, rebuyChips)
+	}
+}
+
+func TestBehindBetsAreStickyAcrossRounds(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa := rm.seats[a.AccountID]
+	sa.chips = 1000
+	sa.backs = map[string]*backBet{b.AccountID: {behind: 50, pairs: 10}}
+
+	rm.enterBetting(tr) // a fresh betting window must carry a's back on b
+
+	back := sa.backs[b.AccountID]
+	if back == nil {
+		t.Fatalf("back on b was dropped; behind bets should be sticky")
+	}
+	if back.behind != 50 || back.pairs != 10 {
+		t.Fatalf("carried back = behind %d pairs %d, want behind 50 pairs 10", back.behind, back.pairs)
+	}
+}
+
+func TestStickyBackPrunedWhenTargetLeaves(t *testing.T) {
+	a, b := mkPlayer("a"), mkPlayer("b")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa := rm.seats[a.AccountID]
+	sa.chips = 1000
+	sa.backs = map[string]*backBet{b.AccountID: {behind: 50}}
+
+	rm.OnLeave(tr, b)   // b leaves the table
+	rm.enterBetting(tr) // a's carried back on the now-absent b must be pruned
+
+	if _, ok := sa.backs[b.AccountID]; ok {
+		t.Fatalf("a back on a departed target should be pruned, not carried")
+	}
+}
+
+func TestDoubledHandTagged(t *testing.T) {
+	doubled := &phand{cards: hand{{5, suitSpade}, {6, suitHeart}, {10, suitClub}}, bet: 100, doubled: true}
+	if got := dblTag(doubled); got != " DBL" {
+		t.Errorf("dblTag(doubled) = %q, want %q", got, " DBL")
+	}
+	plain := &phand{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}
+	if got := dblTag(plain); got != "" {
+		t.Errorf("dblTag(plain) = %q, want empty", got)
+	}
+}
+
 func TestBlackjackPays3to2(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
@@ -720,6 +786,26 @@ func TestHibernationStableDealReplays(t *testing.T) {
 		if after[i] != dealt[i] {
 			t.Fatalf("card %d changed across waking: %v -> %v", i, dealt[i], after[i])
 		}
+	}
+}
+
+// TestDoubledHandRendersDBL confirms a doubled hand's value line carries the DBL
+// flag on the frame, so onlookers can see who doubled down.
+func TestDoubledHandRendersDBL(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.hands = []*phand{{cards: hand{{5, suitSpade}, {6, suitHeart}, {10, suitClub}}, bet: 200, doubled: true, resolved: true}} // 21 after doubling
+	rm.phase = phTurns
+	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
+
+	rm.render(tr)
+
+	if row := kittest.String(tr.LastFrame(a), seatValRow); !strings.Contains(row, "DBL") {
+		t.Fatalf("doubled hand value row = %q, want it to contain DBL", row)
 	}
 }
 
