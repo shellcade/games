@@ -3,9 +3,10 @@
 // buys a themed ticket, and scratches the latex off panel by panel. Sixteen
 // tickets ride on four reusable mechanic engines (match-3, key-number,
 // multiplier, find-the-symbol); every card's outcome is drawn at purchase from
-// the ticket's prize table, so scratching is honest reveal theatre. The durable
-// wallet uses the casino kv pattern (balance summed, peak max-merged) with a
-// peak-ranked "Credits" leaderboard and a rebuy-to-1000 safety net.
+// the ticket's prize table, so scratching is honest reveal theatre. Money runs
+// on the platform casino Credits ABI: one Wager per ticket, one gross-inclusive
+// Settle when it resolves, Buyback for the broke-relief rebuy, and a peak
+// account-wide "Credits" leaderboard.
 //
 // Build (dev profile):
 //

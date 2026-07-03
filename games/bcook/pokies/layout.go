@@ -133,9 +133,13 @@ func (rm *room) composeFloor(f *kit.Frame, v kit.Player) {
 		rm.drawTicker(f)
 	}
 	rm.drawFloor(f, v)
-	f.Text(kit.Rows-1, 2, "Arrows move   SPACE sit   Esc leave", stDim)
+	controls := "Arrows move   SPACE sit   Esc leave"
+	if rm.economyOff {
+		controls = "CREDITS OUT OF SERVICE"
+	}
+	f.Text(kit.Rows-1, 2, controls, stDim)
 	if m := rm.machines[v.AccountID]; m != nil {
-		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.balance, m.highScore), stDim)
+		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.credits, m.peak), stDim)
 	}
 }
 
@@ -164,7 +168,10 @@ func (rm *room) composeSeated(f *kit.Frame, v kit.Player) {
 		case m.freeSpins > 0:
 			controls = "FREE SPINS auto-playing...   Esc stand"
 		}
-		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.balance, m.highScore), stDim)
+		f.TextRight(kit.Rows-1, kit.Cols-2, fmt.Sprintf("BAL %d   HI %d", m.credits, m.peak), stDim)
+	}
+	if rm.economyOff {
+		controls = "CREDITS OUT OF SERVICE"
 	}
 	f.Text(kit.Rows-1, 2, controls, stDim)
 }
@@ -255,10 +262,10 @@ func (rm *room) drawSeated(f *kit.Frame, m *machine) {
 	}
 
 	// Readout line: BET (or FREE during a feature), BAL, HI.
-	info := fmt.Sprintf("BET %d     BAL %d     HI %d", m.bet, m.balance, m.highScore)
+	info := fmt.Sprintf("BET %d     BAL %d     HI %d", m.bet, m.credits, m.peak)
 	st := stTitle
 	if m.freeSpins > 0 {
-		info = fmt.Sprintf("FREE %d     BAL %d     HI %d", m.freeSpins, m.balance, m.highScore)
+		info = fmt.Sprintf("FREE %d     BAL %d     HI %d", m.freeSpins, m.credits, m.peak)
 		st = stWin
 	}
 	f.Text(seatTop+visRows+3, (kit.Cols-len(info))/2, info, st)
@@ -283,8 +290,8 @@ func (rm *room) drawGamble(f *kit.Frame, col, top int, m *machine, own bool) {
 		f.Text(top+2, col+2, "GAMBLE", stGamOpt)
 		f.SetGraphemeWide(top+4, col+3, "\U0001F3B2", stGamble) // 🎲
 		f.Text(top+4, col+6, risk, stGamble)
-		f.Text(top+6, col+2, fmt.Sprintf("HI %d", m.highScore), stLabel)
-		f.Text(top+7, col+2, fmt.Sprintf("BAL %d", m.balance), stLabel)
+		f.Text(top+6, col+2, fmt.Sprintf("HI %d", m.peak), stLabel)
+		f.Text(top+7, col+2, fmt.Sprintf("BAL %d", m.credits), stLabel)
 		return
 	}
 	f.Text(top+1, col+2, "GAMBLE", stGamble)

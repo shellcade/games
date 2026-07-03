@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 
 	kit "github.com/shellcade/kit/v2"
@@ -54,9 +55,11 @@ func suitIsRed(s int) bool { return s == suitHearts || s == suitDiamonds }
 func suitOf(sel int) int { return sel - selSpades }
 
 // enterGamble holds a base-game win at risk and opens the ladder, highlighting
-// TAKE so an accidental confirm banks the win rather than risking it.
+// TAKE so an accidental confirm banks the win rather than risking it. The held
+// win is clamped stake-relative up front so the ladder never starts above the
+// payout ceiling.
 func (rm *room) enterGamble(r kit.Room, m *machine, win int) {
-	m.gamble = &gambleState{atRisk: win, sel: selTake, card: -1}
+	m.gamble = &gambleState{atRisk: capGross(win, m.stake), sel: selTake, card: -1}
 }
 
 // gambleInput moves the selector or confirms (called from OnInput while a gamble
@@ -111,30 +114,46 @@ func (rm *room) resolveGuess(r kit.Room, id string, suit int) {
 	}
 	g.last = win
 	if !win {
+		// Wrong guess: forfeit the held win and settle the open stake as a loss.
 		m.gamble = nil
 		m.flash = "GAMBLED AWAY"
 		m.flashUntil = r.Now().Add(flashDur)
-		rm.creditWin(r, id, 0, true) // rebuy check; nothing credited
+		rm.settle(r, id, 0)
 		return
 	}
 	g.atRisk *= mult
+	// Hold the at-risk win stake-relative: cap it (and the effective auto-take
+	// ceiling) at stake*maxPayoutMult so the gross can never exceed what the host
+	// will pay, and a run at the ceiling auto-takes rather than risking a win it
+	// cannot grow.
+	cap := m.stake * maxPayoutMult
+	if m.stake > 0 && g.atRisk > cap {
+		g.atRisk = cap
+	}
 	g.rungs++
 	gc := rm.gambleCap(m)
-	if g.rungs >= gc.MaxRungs || g.atRisk >= gc.MaxWin {
+	maxWin := gc.MaxWin
+	if m.stake > 0 && cap < maxWin {
+		maxWin = cap
+	}
+	if g.rungs >= gc.MaxRungs || g.atRisk >= maxWin {
 		rm.takeWin(r, id)
 	}
 }
 
-// takeWin banks the at-risk win through the normal credit path (peak, leaderboard,
-// big-win ticker), then clears the gamble.
+// takeWin banks the at-risk win: it is the single Settle for the gamble path,
+// closing the one open stake with the clamped gross, then fires the big-win
+// ticker and clears the gamble.
 func (rm *room) takeWin(r kit.Room, id string) {
 	m := rm.machines[id]
 	if m == nil || m.gamble == nil {
 		return
 	}
-	win := m.gamble.atRisk
+	win := capGross(m.gamble.atRisk, m.stake)
 	m.gamble = nil
-	rm.creditWin(r, id, win, true)
+	m.flash = fmt.Sprintf("WIN! +%d", win)
+	m.flashUntil = r.Now().Add(flashDur)
+	rm.settle(r, id, win)
 	if win >= m.bet*tickerMult {
 		rm.announce(r, id, win)
 	}

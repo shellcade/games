@@ -18,9 +18,15 @@ func (Game) Meta() kit.GameMeta {
 		MaxPlayers:       6,
 		Tags:             []string{"roulette", "casino", "betting", "american"},
 
-		// Player characters: each player's tile renders beside their name in
-		// the seat strip under the table.
-		CtxFeatures: kit.CtxFeatCharacter,
+		// A casino game: players wager their account-wide platform Credits. The
+		// richest wager is a straight-up (35:1), so a winning stake returns
+		// stake*(35+1) = stake*36 and no board can pay more than 36x its stake.
+		Kind:                kit.GameKindCasino,
+		MaxPayoutMultiplier: 36,
+
+		// Player characters (seat tiles) + Credits (the host owns every balance;
+		// this game calls Wager/Settle/Buyback/Balance).
+		CtxFeatures: kit.CtxFeatCharacter | kit.CtxFeatCredits,
 
 		// A casual social table: when everyone leaves, the room closes — no
 		// hibernation snapshot, no Resume-menu entry.
@@ -31,7 +37,7 @@ func (Game) Meta() kit.GameMeta {
 		PrivateInviteLine: "Friends pull up a chair when they enter the code.",
 
 		Leaderboard: &kit.LeaderboardSpec{
-			MetricLabel: "Chips",
+			MetricLabel: "Credits",
 			Direction:   kit.HigherBetter,
 			Aggregation: kit.BestResult,
 			Format:      kit.Integer,

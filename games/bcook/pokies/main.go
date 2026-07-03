@@ -3,11 +3,13 @@
 // fixed 80x24 canvas. A wake-driven port of the native pokies game to the
 // shellcade wasm ABI: the reel animation is a clock derived from CallContext
 // time, reel landings are one-shot deadlines held in guest memory, odds are
-// admin-tunable via config, and the durable wallet uses the casino kv pattern
-// (balance summed, peak max-merged) with a peak-ranked leaderboard.
+// admin-tunable via config, and every bet wagers account-wide platform Credits
+// through the casino Credits ABI (kit v2.16.0) with a peak-credits leaderboard.
 //
-// The machine is a 5-reel, 243-ways pokie (a shared resident lounge floor; sit
-// at one of six themed machines). Features layer onto a single weighted strip:
+// The machine is a 5-reel, 243-ways pokie played for account-wide platform
+// Credits (casino-kind; the host owns the wallet). Players enter a resumable
+// lounge session and sit at one of six themed machines. Features layer onto a
+// single weighted strip:
 //   - 243 WAYS: a symbol pays its left-aligned run (adjacent reels from reel 0,
 //     any rows), credited pays[len] × the product of per-reel counts.
 //   - WILD (👑) substitutes for any paying symbol within a run.

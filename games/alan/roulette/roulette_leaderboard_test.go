@@ -2,13 +2,13 @@ package main
 
 import (
 	"testing"
-	"time"
 
 	kit "github.com/shellcade/kit/v2"
+	"github.com/shellcade/kit/v2/kittest"
 )
 
-// peakOf returns the metric of the most recent peak post for the given account
-// in r.Posted, or (0, false) if the player has no post.
+// lastPostedMetric returns the metric of the most recent leaderboard post for
+// the given account in r.Posted, or (0, false) if the player has no post.
 func lastPostedMetric(posted []kit.Result, id string) (int, bool) {
 	metric, ok := 0, false
 	for _, res := range posted {
@@ -21,40 +21,60 @@ func lastPostedMetric(posted []kit.Result, id string) (int, bool) {
 	return metric, ok
 }
 
-// TestPeriodicPeakFlush locks in the "constantly saved" guarantee for an
-// abandoned table: a seated player whose peak does NOT change is still re-posted
-// to the leaderboard on the throttled OnWake interval, so the board reflects a
-// still-seated player even when the table is idle mid-round. A wake BEFORE the
-// interval elapses must not re-post.
-func TestPeriodicPeakFlush(t *testing.T) {
+// settleStraight drives one seat through a single Wager -> forced result ->
+// Settle for a whole-stake straight bet on number n, returning the seat.
+func settleStraight(t *testing.T, r *kittest.Room, rm *room, id string, n int, chips int) *player {
+	t.Helper()
+	pl := rm.players[id]
+	setCursorNumber(rm, id, n)
+	pl.stakeIdx = defaultStakeIdx // chip 10
+	pl.bets = nil
+	for i := 0; i < chips; i++ {
+		rm.placeBet(pl)
+	}
+	if err := r.Services().Credits.Wager(pl.p, int64(pl.staked())); err != nil {
+		t.Fatalf("wager: %v", err)
+	}
+	pl.wagered = true
+	rm.result = n // force the outcome so we control win/loss deterministically
+	rm.settle(r)
+	return pl
+}
+
+// TestLeaderboardPostsCreditsPeak locks in the converted board: the metric is
+// the account-wide Credits balance, posted only when it sets a new personal high
+// after a Settle; a losing round (a lower balance) never regresses the board.
+func TestLeaderboardPostsCreditsPeak(t *testing.T) {
 	r, rm := newGame(t, "p1")
-	pl := rm.players["p1"]
 
-	// Establish a peak via the normal increase path so the keeper is tracking
-	// the player, then clear the recorded posts.
-	pl.peak = 4242
-	rm.postPeak(r, pl)
-	if _, ok := lastPostedMetric(r.Posted, "p1"); !ok {
-		t.Fatal("postPeak did not record an initial leaderboard post")
-	}
-	r.Posted = nil
-
-	// A wake BEFORE the interval elapses must NOT re-post (still inside the
-	// open betting window, so no round one-shot fires either).
-	r.Advance(peakFlushInterval - time.Second)
-	rm.OnWake(r)
-	if _, ok := lastPostedMetric(r.Posted, "p1"); ok {
-		t.Fatalf("re-posted before the flush interval elapsed: %+v", r.Posted)
-	}
-
-	// Crossing the interval (with NO new peak/bet) must re-post the current peak.
-	r.Advance(2 * time.Second) // now past peakFlushInterval since last flush
-	rm.OnWake(r)
+	// A winning round: whole 100 on straight 20 that hits -> balance jumps to
+	// seed - 100 + 100*36, which posts as the new peak.
+	settleStraight(t, r, rm, "p1", 20, 10)
+	wantPeak := int64(seedBal - 100 + 100*36)
 	got, ok := lastPostedMetric(r.Posted, "p1")
 	if !ok {
-		t.Fatal("periodic flush did not re-post the seated player's peak")
+		t.Fatal("winning round did not post a leaderboard peak")
 	}
-	if got != pl.peak {
-		t.Errorf("periodic flush posted metric %d, want current peak %d", got, pl.peak)
+	if int64(got) != wantPeak {
+		t.Errorf("posted peak = %d, want %d (account-wide credits)", got, wantPeak)
+	}
+
+	// A losing round afterwards drops the balance well below the peak; it must
+	// NOT post a regressed metric.
+	r.Posted = nil
+	// Advance into a fresh betting window then bet-and-miss.
+	rm.enterBetting(r)
+	pl := rm.players["p1"]
+	setCursorNumber(rm, "p1", 5)
+	pl.stakeIdx = defaultStakeIdx
+	rm.placeBet(pl) // 10 on straight 5
+	if err := r.Services().Credits.Wager(pl.p, int64(pl.staked())); err != nil {
+		t.Fatalf("wager: %v", err)
+	}
+	pl.wagered = true
+	rm.result = 6 // 5 loses
+	rm.settle(r)
+	if _, ok := lastPostedMetric(r.Posted, "p1"); ok {
+		t.Errorf("a losing round regressed the leaderboard: %+v", r.Posted)
 	}
 }

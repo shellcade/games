@@ -5,8 +5,10 @@
 // Chips are integers: an odd bet's half-chip on the 3:2 payout and on a
 // surrender return rounds UP to the player; the insurance stake is half the
 // bet rounded down and pays exactly 2:1 on what was staked. Leaving with a
-// live hand forfeits its stake. Each seat carries a durable wallet (start
-// 1000, re-buy on bust) and the board ranks your high-water mark.
+// live hand forfeits its stake. Stakes are the platform's account-wide Credits
+// (kit v2.16.0 casino ABI): every bet Wagers onto the seat's single open stake
+// and the round Settles that stake exactly once with the gross payout; the host
+// owns every balance and the board ranks your peak credits.
 //
 // The wasm ABI has no timers, ticks, or phases: every "later…" here is a
 // deadline held in guest memory and checked against r.Now() inside OnWake (the
@@ -18,7 +20,7 @@
 // This is the native entry point; the wasm exports live in exports.go. The game
 // logic shares this package so `go run .` plays it.
 //
-//	Build (artifact): tinygo build -opt=1 -no-debug -gc=leaking \
+//	Build (artifact): tinygo build -opt=1 -no-debug -gc=conservative \
 //	  -o game.wasm -target wasip1 -buildmode=c-shared .
 package main
 

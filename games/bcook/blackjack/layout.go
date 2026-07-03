@@ -61,6 +61,15 @@ func (rm *room) render(r kit.Room) {
 }
 
 func (rm *room) compose(f *kit.Frame, v kit.Player) {
+	// A casino game with no host economy renders out-of-service rather than
+	// trapping: the table cannot take a bet without the Credits service.
+	if rm.economyOff() {
+		f.Text(0, 1, "♠♥♦♣ BLACKJACK", stTitle)
+		drawFelt(f, feltTop, feltBottom)
+		center(f, (feltTop+feltBottom)/2, "table closed — credits unavailable", stDim)
+		return
+	}
+
 	active, _ := rm.firstUnresolved()
 
 	// Title + phase/time above the felt.
@@ -102,7 +111,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 
 	f.Text(kit.Rows-1, 1, "Esc leave", stDim)
 	if s := rm.seats[v.AccountID]; s != nil {
-		f.TextRight(kit.Rows-1, kit.Cols-1, fmt.Sprintf("chips %d   HI %d", s.chips, s.highScore), stDim)
+		f.TextRight(kit.Rows-1, kit.Cols-1, fmt.Sprintf("credits %d   HI %d", s.bal, s.highScore), stDim)
 	}
 }
 
@@ -184,7 +193,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 			status = fmt.Sprintf("bet %d?", s.bet)
 		}
 		centerSlot(f, seatCardRow+1, slot, status, stDim)
-		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.bal), stDim)
 		return
 	}
 	// A seat with no hand sat the round out (it never placed a bet). This keys off
@@ -194,7 +203,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 	if len(s.hands) == 0 {
 		centerSlot(f, seatCardRow+1, slot, "no bet", stDim)
 		centerSlot(f, seatValRow, slot, "sat out", stDim)
-		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.bal), stDim)
 		return
 	}
 
@@ -221,7 +230,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 		if rm.phase == phResults && s.result != "" {
 			centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
 		} else {
-			centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+			centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.bal), stDim)
 		}
 		return
 	}
@@ -254,7 +263,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 	if rm.phase == phResults && s.result != "" {
 		centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
 	} else {
-		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.chips), stDim)
+		centerSlot(f, seatChipRow, slot, fmt.Sprintf("$%d", s.bal), stDim)
 	}
 }
 
@@ -476,10 +485,10 @@ func legalActions(s *seat, h *phand) string {
 	}
 	parts := []string{"[H]it", "[S]tand"}
 	first := len(h.cards) == 2 && !h.doubled
-	if first && s.chips >= h.bet {
+	if first && s.bal >= h.bet {
 		parts = append(parts, "[D]ouble")
 	}
-	if first && h.cards[0].r == h.cards[1].r && s.chips >= h.bet && len(s.hands) < maxHands {
+	if first && h.cards[0].r == h.cards[1].r && s.bal >= h.bet && len(s.hands) < maxHands {
 		parts = append(parts, "[P]split")
 	}
 	if first && len(s.hands) == 1 {

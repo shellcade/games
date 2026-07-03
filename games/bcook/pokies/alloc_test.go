@@ -29,7 +29,7 @@ func TestDrawPaytableAllocFree(t *testing.T) {
 func TestDrawGambleAllocBudget(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, _ := newGame(t, p)
-	m := &machine{balance: 1000, gamble: &gambleState{atRisk: 12345, sel: selRed, card: suitHearts}}
+	m := &machine{credits: 1000, gamble: &gambleState{atRisk: 12345, sel: selRed, card: suitHearts}}
 	rm.machines[p.AccountID] = m
 	f := kit.NewFrame()
 	if n := testing.AllocsPerRun(100, func() { rm.drawGamble(f, 0, 0, m, true) }); n > 2 {

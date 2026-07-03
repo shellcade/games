@@ -61,9 +61,9 @@ func bingoLines(cols, rows int) [][]int {
 type bingoCard struct {
 	t          *Ticket
 	out        Outcome
-	calledNums []int       // the pre-revealed "called" numbers (length == t.WinNumbers)
+	calledNums []int        // the pre-revealed "called" numbers (length == t.WinNumbers)
 	calledSet  map[int]bool // O(1) membership test
-	cardNums   []int       // card number at each grid cell index
+	cardNums   []int        // card number at each grid cell index
 	grid       *Grid
 	view       int
 	resolved   bool
@@ -349,7 +349,7 @@ func (c *bingoCard) Prompt() string {
 	return fmt.Sprintf("%d called numbers revealed - complete a line to win", matchRevealed)
 }
 
-func (c *bingoCard) Move(dx, dy int)          { c.grid.Move(dx, dy) }
+func (c *bingoCard) Move(dx, dy int) { c.grid.Move(dx, dy) }
 func (c *bingoCard) Scratch() (revealed bool) {
 	revealed = c.grid.Scratch()
 	if revealed && c.bingoHasCompletedLine() {

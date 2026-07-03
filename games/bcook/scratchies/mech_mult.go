@@ -109,9 +109,9 @@ func (c *multCard) Move(dx, dy int) {
 		}
 	}
 }
-func (c *multCard) Scratch() bool   { return c.grid.Scratch() }
-func (c *multCard) ScratchAll()     { c.grid.ScratchAll() }
-func (c *multCard) Resolved() bool  { return c.grid.AllRevealed() }
+func (c *multCard) Scratch() bool  { return c.grid.Scratch() }
+func (c *multCard) ScratchAll()    { c.grid.ScratchAll() }
+func (c *multCard) Resolved() bool { return c.grid.AllRevealed() }
 func (c *multCard) Win() int {
 	if !c.Resolved() {
 		return 0
