@@ -1271,6 +1271,53 @@ func TestReadyUpWaitsOnOtherPlayers(t *testing.T) {
 	}
 }
 
+// TestValueLabelSplit21NotBlackjack asserts a two-card 21 formed by splitting
+// reads as a plain "21", while a natural two-card 21 still reads "BJ" — a split
+// 21 pays even money, not 3:2, so labelling it "BJ" would mislead.
+func TestValueLabelSplit21NotBlackjack(t *testing.T) {
+	twentyOne := hand{{rankAce, suitSpade}, {rankKing, suitHeart}}
+	if got := valueLabel(twentyOne, false); got != "BJ" {
+		t.Errorf("natural two-card 21 label = %q, want BJ", got)
+	}
+	if got := valueLabel(twentyOne, true); got != "21" {
+		t.Errorf("split two-card 21 label = %q, want 21 (not BJ)", got)
+	}
+}
+
+// TestSplitAcesShowOneCardNote asserts a split pair of aces — which take one card
+// each and lock, passing the turn on immediately — names that rule on the felt,
+// so the player understands why the hands can't be played rather than reading it
+// as a bug.
+func TestSplitAcesShowOneCardNote(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.chips = 900
+	s.hands = []*phand{
+		{cards: hand{{rankAce, suitSpade}, {rankKing, suitHeart}}, bet: 50, fromSplit: true, resolved: true}, // 21
+		{cards: hand{{rankAce, suitClub}, {6, suitDiamond}}, bet: 50, fromSplit: true, resolved: true},       // soft 17
+	}
+	rm.dealer = hand{{10, suitSpade}, {7, suitHeart}}
+	rm.phase = phTurns
+	rm.render(tr)
+
+	f := tr.LastFrame(a)
+	if row := kittest.String(f, seatValRow); !strings.Contains(row, "aces") {
+		t.Fatalf("split-aces seat missing the one-card note on row %d: %q", seatValRow, row)
+	}
+	// And the split 21 must not read as a blackjack on the compact hand line.
+	var hands string
+	for _, row := range []int{seatCardRow, seatCardRow + 1} {
+		hands += kittest.String(f, row) + "\n"
+	}
+	if strings.Contains(hands, "BJ") {
+		t.Fatalf("split-ace 21 mislabeled BJ on the felt:\n%s", hands)
+	}
+}
+
 // TestPairsVerdictHeldUntilCardsLand is the regression guard for the reported
 // bug: the Perfect Pairs result must not appear while the seat's second card is
 // still animating in. The outcome is fixed at the deal, but revealing it early

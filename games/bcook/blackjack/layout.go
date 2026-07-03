@@ -212,6 +212,12 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 			line, st := compactHandLine(h, active && ah == h)
 			centerSlot(f, seatCardRow+hi, slot, line, st)
 		}
+		// Split aces take exactly one card each and stand — so both hands lock the
+		// moment they're split and the turn passes on. Name the rule beneath them,
+		// so a locked "can't hit, turn moved on" reads as intended, not broken.
+		if splitAces(s) {
+			centerSlot(f, seatValRow, slot, "aces: 1 card", stDim)
+		}
 		if rm.phase == phResults && s.result != "" {
 			centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
 		} else {
@@ -232,7 +238,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 		}
 		drawCardsAnim(f, seatCardRow, col, h.cards, -1, rm.seatResolver(s.p, hi, h))
 		col += w + 1
-		vals = append(vals, valueLabel(h.cards)+dblTag(h))
+		vals = append(vals, valueLabel(h.cards, h.fromSplit)+dblTag(h))
 	}
 	// During results the value line doubles as the ready indicator: a readied
 	// seat shows READY where its hand total was, so who's holding up the table
@@ -277,7 +283,10 @@ func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
 	ch := kit.CharacterCell(s.p.Character) // the placing player's face, beside their side bet
 	if rm.phase == phBetting {
 		if s.pairsBet > 0 && (s.placed || own) {
-			centerSlotChar(f, seatCardRow+2, slot, ch, fmt.Sprintf("+pairs %d", s.pairsBet), stOwn)
+			// Match the seat's bet line (stDim) rather than the bright own-seat
+			// cyan — the side stake reads as part of the same quiet bet block,
+			// not a highlight competing with the active-seat and prompt colours.
+			centerSlotChar(f, seatCardRow+2, slot, ch, fmt.Sprintf("+pairs %d", s.pairsBet), stDim)
 		}
 		return
 	}
@@ -443,6 +452,21 @@ func (rm *room) unplacedCount() int {
 		}
 	}
 	return n
+}
+
+// splitAces reports whether a seat's hands are a split pair of aces — two or more
+// hands, all formed by splitting, each led by an ace. Such hands take one card
+// each and cannot be played on, so the felt names the rule beside them.
+func splitAces(s *seat) bool {
+	if len(s.hands) < 2 {
+		return false
+	}
+	for _, h := range s.hands {
+		if !h.fromSplit || len(h.cards) == 0 || h.cards[0].r != rankAce {
+			return false
+		}
+	}
+	return true
 }
 
 // legalActions lists the action prompts available for hand h.
@@ -816,7 +840,7 @@ func compactHandLine(h *phand, active bool) (string, kit.Style) {
 		cards.WriteString(c.r.boxLabel())
 		cards.WriteRune(c.s.pip())
 	}
-	total := valueLabel(h.cards) + dblTag(h)
+	total := valueLabel(h.cards, h.fromSplit) + dblTag(h)
 	marker, st := " ", stCard
 	if h.cards.isBust() {
 		st = stLose
@@ -844,18 +868,24 @@ func dblTag(h *phand) string {
 	return ""
 }
 
-func valueLabel(h hand) string {
-	if h.isBlackjack() {
-		return "BJ"
-	}
+// valueLabel formats a hand's total for the felt. Only a NATURAL two-card 21
+// (not one formed by splitting) reads as "BJ"; a split two-card 21 — the kind a
+// split ace hitting a ten makes — reads as a plain "21", since it is a plain 21
+// (even money, not a 3:2 blackjack) and labelling it "BJ" would mislead.
+func valueLabel(h hand, fromSplit bool) string {
 	total, soft := h.value()
-	if total > 21 {
+	switch {
+	case total > 21:
 		return "BUST"
-	}
-	if soft {
+	case total == 21 && len(h) == 2 && !fromSplit:
+		return "BJ"
+	case total == 21:
+		return "21" // any other 21 (split-ace 21, multi-card 21) reads plainly
+	case soft:
 		return fmt.Sprintf("s%d", total)
+	default:
+		return fmt.Sprintf("%d", total)
 	}
-	return fmt.Sprintf("%d", total)
 }
 
 func valueStyle(s *seat) kit.Style {
