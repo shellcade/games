@@ -88,6 +88,7 @@ type seat struct {
 	focus            string              // betting UI: "" edits own bet, else the account id whose backs are being edited
 	backs            map[string]*backBet // wagers on other seats, keyed by target account id (iterate via rm.order)
 	insurance        int
+	insuranceWin     int // chips credited on the insurance side bet this round (0 = lost/none)
 	insuranceDecided bool
 	hands            []*phand
 	joinOrder        int
@@ -333,6 +334,7 @@ func (rm *room) enterBetting(r kit.Room) {
 		s.hands = nil
 		s.placed = false
 		s.insurance = 0
+		s.insuranceWin = 0
 		s.insuranceDecided = false
 		s.result = ""
 		s.pairsKind = ""
@@ -866,7 +868,8 @@ func (rm *room) resolveInsurance(r kit.Room) {
 		if s == nil || s.insurance <= 0 {
 			continue
 		}
-		s.chips += insuranceCredit(dbj, s.insurance)
+		s.insuranceWin = insuranceCredit(dbj, s.insurance)
+		s.chips += s.insuranceWin
 	}
 	if dbj {
 		rm.revealAndSettle(r)
@@ -1111,6 +1114,11 @@ func (rm *room) settle(r kit.Room) {
 		// credited there); fold its delta into the round net so the seat's
 		// WIN/LOSE summary reconciles with the chips that actually changed hands.
 		net += s.pairsWin - s.pairsBet
+		// The insurance side bet resolved when the offer closed (stake deducted at
+		// takeInsurance, any 2:1 payout credited in resolveInsurance). Fold its
+		// delta in too, so a hand fully covered by insurance against a dealer
+		// blackjack reads as the PUSH it actually is rather than a phantom loss.
+		net += s.insuranceWin - s.insurance
 		net += rm.settleBacks(s, dbj)
 		s.result = resultText(net)
 		// A seat that can no longer cover the minimum stake is staked back to the

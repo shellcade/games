@@ -44,7 +44,7 @@ func TestPairsSideBetLoopsOnP(t *testing.T) {
 	if s.pairsBet != 0 {
 		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
 	}
-	s.chips = 100000 // deep enough to afford every tier, so the loop wraps only at the top
+	s.chips = 100000                  // deep enough to afford every tier, so the loop wraps only at the top
 	rm.OnInput(tr, a, runeInput('p')) // P advances one tier
 	if s.pairsBet != pairsTiers[1] {
 		t.Fatalf("after P, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
@@ -275,7 +275,7 @@ func TestSettleBehindRefundsWhenTargetLeft(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 	sa := rm.seats[a.AccountID]
-	sa.placed, sa.bet, sa.chips = true, 25, 900 // behind 50 already deducted at deal
+	sa.placed, sa.bet, sa.chips = true, 25, 900                                  // behind 50 already deducted at deal
 	sa.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 25}} // 19, pushes
 	sa.backs = map[string]*backBet{b.AccountID: {behind: 50}}
 	delete(rm.seats, b.AccountID) // b left mid-round
@@ -302,7 +302,7 @@ func TestSettleFoldsPairsResultIntoNet(t *testing.T) {
 	s.bet = 50
 	s.chips = 1000
 	s.pairsBet = 10
-	s.pairsWin = 70 // a mixed pair already paid at deal
+	s.pairsWin = 70                                                             // a mixed pair already paid at deal
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}} // 19
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}                          // 19 -> hand pushes
 	rm.settle(tr)
@@ -1268,5 +1268,99 @@ func TestReadyUpWaitsOnOtherPlayers(t *testing.T) {
 	rm.OnInput(tr, b, runeInput(' ')) // now both ready -> next hand
 	if rm.phase != phBetting {
 		t.Fatalf("phase = %q, want betting once everyone is ready", rm.phase)
+	}
+}
+
+// TestPairsVerdictHeldUntilCardsLand is the regression guard for the reported
+// bug: the Perfect Pairs result must not appear while the seat's second card is
+// still animating in. The outcome is fixed at the deal, but revealing it early
+// spoils the reveal — so "pairs lost" (or a win) waits for both first cards to
+// land face up.
+func TestPairsVerdictHeldUntilCardsLand(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.bet = 50
+	s.chips = 1000
+	s.pairsBet = 25
+	// A non-pair hand: the side bet loses, and that must stay hidden mid-deal.
+	s.hands = []*phand{{cards: hand{{9, suitSpade}, {4, suitHeart}}, bet: 50}}
+	s.pairsKind = "" // resolved at the deal: no pair
+	rm.dealer = hand{{10, suitClub}, {7, suitDiamond}}
+	rm.phase = phTurns
+	rm.recordDeal(tr) // stagger the initial deal's slide + flip
+	rm.render(tr)
+
+	if row := kittest.String(tr.LastFrame(a), seatPairRow); strings.Contains(row, "pairs lost") {
+		t.Fatalf("pairs verdict shown before the second card landed: %q", row)
+	}
+
+	pump(rm, tr, 5*time.Second) // let the whole deal settle
+	rm.render(tr)
+	if row := kittest.String(tr.LastFrame(a), seatPairRow); !strings.Contains(row, "pairs lost") {
+		t.Fatalf("pairs verdict not shown after the cards landed: %q", row)
+	}
+}
+
+// TestInsuranceFoldsIntoResultNet asserts an insured loss to a dealer blackjack
+// reconciles in the results summary: the 2:1 insurance payout exactly offsets
+// the main-bet loss, so the seat reads PUSH (net 0) and its chips are unchanged,
+// rather than a phantom LOSE that the chip stack never reflected.
+func TestInsuranceFoldsIntoResultNet(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.bet = 100
+	s.chips = 900                                                                // the main bet was already deducted at the deal
+	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 100}} // 19, loses to BJ
+	rm.dealer = hand{{rankAce, suitSpade}, {rankKing, suitHeart}}                // dealer blackjack
+	rm.dealerHole = true
+
+	rm.takeInsurance(s, true) // stake 50 -> chips 850
+	rm.resolveInsurance(tr)   // dealer BJ pays 2:1 (+150) -> chips 1000, defers settle
+	pump(rm, tr, 5*time.Second)
+
+	if s.chips != 1000 {
+		t.Fatalf("chips = %d, want 1000 (insured loss breaks even)", s.chips)
+	}
+	if s.result != "PUSH" {
+		t.Fatalf("result = %q, want PUSH (insurance offsets the main-bet loss in the net)", s.result)
+	}
+}
+
+// TestManyCardHandStaysInItsSlot is the regression guard for the reported bug: a
+// hit-heavy hand of five or more cards has a card box wider than the 15-col seat
+// slot, so it used to spill past the slot's right edge into the neighbouring
+// seat. It must fall back to the compact one-line rendering and stay in its slot.
+func TestManyCardHandStaysInItsSlot(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.chips = 800
+	s.hands = []*phand{{cards: hand{{2, suitSpade}, {2, suitHeart}, {3, suitClub}, {4, suitDiamond}, {5, suitSpade}}, bet: 50}}
+	rm.dealer = hand{{10, suitClub}, {7, suitDiamond}}
+	rm.phase = phTurns
+	rm.render(tr)
+
+	// One centred seat: anything drawn at or past its right edge is an overflow
+	// into where the neighbouring seat's slot would sit.
+	slot := (kit.Cols - slotW) / 2
+	f := tr.LastFrame(a)
+	for _, row := range []int{seatCardRow, seatCardRow + 1, seatCardRow + 2} {
+		line := []rune(kittest.String(f, row))
+		for c := slot + slotW; c < kit.Cols-1; c++ {
+			if c < len(line) && line[c] != ' ' && line[c] != 0 {
+				t.Fatalf("seat card row %d spills past its slot at col %d: %q", row, c, string(line))
+			}
+		}
 	}
 }

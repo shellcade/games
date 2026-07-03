@@ -202,8 +202,11 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 	// seat rows, so every hand's cards stay visible and the hand on turn is
 	// marked — the 15-col slot cannot fit multiple card boxes side by side, which
 	// is why the old layout collapsed later hands to a bare "+". A single hand
-	// keeps the full card box below.
-	if len(s.hands) >= 2 {
+	// keeps the full card box below — UNLESS a hit-heavy hand has grown too wide
+	// to fit (a 5+ card box is 16+ cols but the slot is 15), in which case it also
+	// falls back to the compact line so its cards never spill into the next seat.
+	tooWide := len(s.hands) == 1 && cardsWidth(len(s.hands[0].cards)) > slotW-1
+	if len(s.hands) >= 2 || tooWide {
 		_, ah := rm.firstUnresolved()
 		for hi, h := range s.hands {
 			line, st := compactHandLine(h, active && ah == h)
@@ -272,16 +275,27 @@ func pairsMult(kind string) int {
 // or a quiet "pairs lost".
 func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
 	ch := kit.CharacterCell(s.p.Character) // the placing player's face, beside their side bet
-	switch {
-	case rm.phase == phBetting:
+	if rm.phase == phBetting {
 		if s.pairsBet > 0 && (s.placed || own) {
 			centerSlotChar(f, seatCardRow+2, slot, ch, fmt.Sprintf("+pairs %d", s.pairsBet), stOwn)
 		}
-	case s.pairsKind != "":
-		centerSlotChar(f, seatPairRow, slot, ch, fmt.Sprintf("%s %d:1", strings.ToUpper(s.pairsKind), pairsMult(s.pairsKind)), stWin)
-	case s.pairsBet > 0:
-		centerSlotChar(f, seatPairRow, slot, ch, "pairs lost", stDim)
+		return
 	}
+	if s.pairsBet <= 0 {
+		return
+	}
+	// Hold the Perfect Pairs verdict until BOTH of the seat's first two cards are
+	// face up. The result is fixed at the deal, but revealing "pairs lost" (or a
+	// win) while the second card is still sliding/flipping in would spoil it — the
+	// side bet reads off exactly those two cards, so wait for them to land.
+	if len(s.hands) == 0 || !rm.seatCardFaceUp(s.p, 0, 0) || !rm.seatCardFaceUp(s.p, 0, 1) {
+		return
+	}
+	if s.pairsKind != "" {
+		centerSlotChar(f, seatPairRow, slot, ch, fmt.Sprintf("%s %d:1", strings.ToUpper(s.pairsKind), pairsMult(s.pairsKind)), stWin)
+		return
+	}
+	centerSlotChar(f, seatPairRow, slot, ch, "pairs lost", stDim)
 }
 
 // drawBackersLine renders, on a seat's dedicated backers row, a token per player
@@ -369,7 +383,10 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 	case phInsurance:
 		switch n := rm.insuranceUndecidedCount(); {
 		case s.placed && !s.insuranceDecided:
-			msg = "Dealer shows an Ace - Insurance?   [Y]es   [N]o"
+			// Spell out the side bet rather than just naming it: a stake of half the
+			// main bet that the dealer's hole card completes a blackjack, paying 2:1
+			// (so it exactly offsets the main-bet loss if the dealer does have it).
+			msg = fmt.Sprintf("Insurance? Stake %d that dealer has blackjack - pays 2:1   [Y]es   [N]o", s.bet/2)
 		case n > 0:
 			noun := "player"
 			if n != 1 {
@@ -500,6 +517,22 @@ func (rm *room) seatResolver(p kit.Player, handIdx int, h *phand) func(i int) ca
 		}
 		return face
 	}
+}
+
+// seatCardFaceUp reports whether a seat's card currently shows its face at the
+// latest composed instant: a settled (or unscheduled) card always does, and an
+// animating card only once its slide has landed and its reveal flip has turned
+// far enough to expose the face. It mirrors dealerCardFaceUp for seat hands.
+func (rm *room) seatCardFaceUp(p kit.Player, handIdx, cardIdx int) bool {
+	a, ok := rm.animFor(animSeat, p, handIdx, cardIdx)
+	if !ok {
+		return true // settled or no animation -> face up
+	}
+	if a.slideProgress(rm.lastNow) < 1 {
+		return false // still gliding in
+	}
+	frame, _ := a.flipFrame(rm.lastNow)
+	return frame == 2 // face exposed only on the final flip frame
 }
 
 // dealerCardFaceUp reports whether dealer card i currently shows its face at the
