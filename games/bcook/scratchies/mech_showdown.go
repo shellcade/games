@@ -27,11 +27,11 @@ import (
 type sdCard struct {
 	ticket      *Ticket
 	out         Outcome
-	grid        *Grid   // Cols × 2; row 0 = house (pre-revealed), row 1 = you (hidden)
-	houseValues []int   // per-column house value [2..99]
-	yourValues  []int   // per-column your value  [2..99]
-	prizes      []int   // per-column prize (credits); 0 for non-winning columns
-	winCol      int     // index of the single winning column; -1 on a loss
+	grid        *Grid // Cols × 2; row 0 = house (pre-revealed), row 1 = you (hidden)
+	houseValues []int // per-column house value [2..99]
+	yourValues  []int // per-column your value  [2..99]
+	prizes      []int // per-column prize (credits); 0 for non-winning columns
+	winCol      int   // index of the single winning column; -1 on a loss
 }
 
 func init() {

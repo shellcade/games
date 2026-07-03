@@ -132,8 +132,8 @@ func newGenericGridCard(t *Ticket, out Outcome, rng *rand.Rand) *genericGridCard
 	}
 }
 
-func (c *genericGridCard) Title() string  { return c.title }
-func (c *genericGridCard) Prompt() string { return c.prompt }
+func (c *genericGridCard) Title() string   { return c.title }
+func (c *genericGridCard) Prompt() string  { return c.prompt }
 func (c *genericGridCard) Move(dx, dy int) { c.grid.Move(dx, dy) }
 func (c *genericGridCard) Scratch() bool   { return c.grid.Scratch() }
 func (c *genericGridCard) ScratchAll()     { c.grid.ScratchAll() }

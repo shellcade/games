@@ -194,8 +194,8 @@ func linesBuild(t *Ticket, out Outcome, rng *rand.Rand) *linesCard {
 		decoyPool = linesDecoyPool(out.Win)
 	}
 
-	var winLineIdx int     // index into allLines of the planted winning run
-	var winLabel string    // formatted winning amount
+	var winLineIdx int  // index into allLines of the planted winning run
+	var winLabel string // formatted winning amount
 
 	if out.Win > 0 {
 		winLabel = linesFmt(out.Win)

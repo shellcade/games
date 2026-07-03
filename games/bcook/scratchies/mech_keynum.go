@@ -23,8 +23,8 @@ func init() {
 type keynumCard struct {
 	t       *Ticket
 	out     Outcome
-	winNums []int  // the winning numbers (length == t.WinNumbers), always visible
-	prizes  []int  // per-cell prize, parallel to grid.Panels
+	winNums []int // the winning numbers (length == t.WinNumbers), always visible
+	prizes  []int // per-cell prize, parallel to grid.Panels
 	grid    *Grid
 	view    int
 }
