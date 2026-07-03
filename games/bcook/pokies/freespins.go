@@ -28,15 +28,17 @@ func (rm *room) scatterCount(m *machine) int {
 }
 
 // triggerFreeSpins awards free spins from the just-settled window under variant v
-// (the spin's pinned variant), returning the spins awarded (0 if none). On a
-// fresh feature it locks the bet and variant; a trigger during free spins
-// retriggers, adding to the running count.
-func (rm *room) triggerFreeSpins(m *machine, v *variant, bet int) int {
+// (the spin's pinned variant), returning the spins awarded (0 if none). When
+// fresh (a base-game trigger) it locks the bet and variant and zeroes the win
+// accumulator; a retrigger (fresh=false, called from inside the feature) only
+// adds spins and MUST keep the accumulator — the caller owns the fresh/retrigger
+// distinction so a retrigger on the last spin never wipes the pending settle.
+func (rm *room) triggerFreeSpins(m *machine, v *variant, bet int, fresh bool) int {
 	award := v.scatterAward(scatterWindow(m.lastStrip, m.lastIdx))
 	if award == 0 {
 		return 0
 	}
-	if m.freeSpins == 0 { // fresh feature
+	if fresh {
 		m.freeBet = bet
 		m.freeVar = v
 		m.freeWin = 0
@@ -50,18 +52,23 @@ func (rm *room) scheduleNextFree(r kit.Room, m *machine) {
 	m.nextFree = r.Now().Add(freeSpinGap)
 }
 
-// endFreeSpins finalizes a feature: flash the accumulated total and release the
-// pinned variant.
+// endFreeSpins finalizes a feature: it is the SINGLE Settle for the whole
+// feature, closing the one open stake with the accumulated (stake-clamped)
+// win — the triggering line win folded in plus every free-spin win. Flashes
+// the total and releases the pinned variant.
 func (rm *room) endFreeSpins(r kit.Room, id string) {
 	m := rm.machines[id]
 	if m == nil {
 		return
 	}
-	if m.freeWin > 0 {
-		m.flash = fmt.Sprintf("FEATURE +%d", m.freeWin)
+	gross := capGross(m.freeWin, m.stake)
+	if gross > 0 {
+		m.flash = fmt.Sprintf("FEATURE +%d", gross)
 		m.flashUntil = r.Now().Add(flashDur)
 	}
 	m.freeVar = nil
+	rm.settle(r, id, gross)
+	m.freeWin = 0
 }
 
 // autoFreeSpin rolls one free spin (no bet charged) under the pinned free-spin

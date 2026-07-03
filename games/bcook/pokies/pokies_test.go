@@ -18,13 +18,32 @@ func keyUp() kit.Input    { return kit.Input{Kind: kit.InputKey, Key: kit.KeyUp}
 func keyDown() kit.Input  { return kit.Input{Kind: kit.InputKey, Key: kit.KeyDown} }
 func keyRight() kit.Input { return kit.Input{Kind: kit.InputKey, Key: kit.KeyRight} }
 
-// newGame builds a started room handler plus its driving kittest.Room.
+// seedCredits is the per-account starting balance the credits double seeds on
+// first touch (kittest default). Tests reason about balances relative to it.
+const seedCredits = 1000
+
+// newGame builds a started room handler plus its driving kittest.Room. The
+// credits double is seeded and its per-hand payout clamp is set to the game's
+// declared MaxPayoutMultiplier so tests exercise the same ceiling as the host.
 func newGame(t *testing.T, players ...kit.Player) (*room, *kittest.Room) {
 	t.Helper()
 	r := kittest.NewRoom(players...)
+	r.CreditsSeed = seedCredits
+	r.CreditsMaxPayoutMultiplier = maxPayoutMult
 	h := Game{}.NewRoom(r.Config(), r.Services()).(*room)
 	h.OnStart(r)
 	return h, r
+}
+
+// openStake wagers the machine's current bet through the credits double and
+// records the open stake, exactly as startSpin does — so a test that drives
+// settleSpin/enterGamble directly (bypassing the animation) still has the one
+// open stake that Settle requires. Refreshes the cached balance afterwards.
+func openStake(rm *room, r *kittest.Room, p kit.Player) {
+	m := rm.machines[p.AccountID]
+	_ = r.Services().Credits.Wager(p, int64(m.bet))
+	m.stake = m.bet
+	rm.refreshBalance(r, p.AccountID)
 }
 
 // seatAt0 seats player p at machine 0 so the cabinet renders and the machine
@@ -96,6 +115,7 @@ func forceWin5(t *testing.T, rm *room, r *kittest.Room, p kit.Player, s symbol) 
 	v := rm.variant
 	idx := pureIdx(t, v, s) // all-s window: max ways, scatter-free
 	win := m.bet * v.waysPayout(scatterWindow(v.strip, allReels(idx))) / wayScale
+	openStake(rm, r, p) // wager the bet as startSpin would (opens the one stake)
 	m.spin = &spinState{startedAt: r.Now(), variant: v, stopIdx: allReels(idx), final: faceRow(s)}
 	rm.settleSpin(r, p.AccountID)
 	return win
@@ -111,6 +131,7 @@ func forceLoss5(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
 	i7, iD, iS := pureIdx(t, v, sym7), pureIdx(t, v, symDollar), pureIdx(t, v, symStar)
 	idx := [numReels]int{i7, iD, iS, i7, iD}
 	fin := [numReels]symbol{sym7, symDollar, symStar, sym7, symDollar}
+	openStake(rm, r, p) // wager the bet as startSpin would (opens the one stake)
 	m.spin = &spinState{startedAt: r.Now(), variant: v, stopIdx: idx, final: fin}
 	rm.settleSpin(r, p.AccountID)
 }
@@ -131,7 +152,7 @@ func frameContains(r *kittest.Room, p kit.Player, s string) bool {
 
 // --- meta + context ----------------------------------------------------------
 
-func TestMetaIsResidentLounge(t *testing.T) {
+func TestMetaIsResumableCasino(t *testing.T) {
 	m := Game{}.Meta()
 	if m.Slug != "pokies" {
 		t.Errorf("slug = %q, want pokies", m.Slug)
@@ -139,8 +160,19 @@ func TestMetaIsResidentLounge(t *testing.T) {
 	if m.MinPlayers != 1 || m.MaxPlayers != 32 {
 		t.Errorf("players = %d..%d, want 1..32", m.MinPlayers, m.MaxPlayers)
 	}
-	if m.Lifecycle != kit.LifecycleResident {
-		t.Errorf("lifecycle = %v, want resident", m.Lifecycle)
+	// Casino-kind must be RESUMABLE, never resident (a resident casino room gets
+	// no wallet, so every Wager/Settle/Balance would be denied).
+	if m.Lifecycle != kit.LifecycleResumable {
+		t.Errorf("lifecycle = %v, want resumable", m.Lifecycle)
+	}
+	if m.Kind != kit.GameKindCasino {
+		t.Errorf("kind = %v, want casino", m.Kind)
+	}
+	if m.MaxPayoutMultiplier != maxPayoutMult {
+		t.Errorf("MaxPayoutMultiplier = %d, want %d", m.MaxPayoutMultiplier, maxPayoutMult)
+	}
+	if m.CtxFeatures&kit.CtxFeatCredits == 0 {
+		t.Errorf("ctx features = %d, want the credits declaration bit set", m.CtxFeatures)
 	}
 	if m.CtxFeatures&kit.CtxFeatCharacter == 0 || m.CtxFeatures&kit.CtxFeatRosterEpoch == 0 {
 		t.Errorf("ctx features = %d, want character + roster-epoch", m.CtxFeatures)
@@ -168,32 +200,31 @@ func TestJoinSeedsMachine(t *testing.T) {
 	if m == nil {
 		t.Fatal("join did not create a machine")
 	}
-	if m.balance != startBalance {
-		t.Errorf("balance = %d, want %d", m.balance, startBalance)
+	if m.credits != seedCredits {
+		t.Errorf("credits = %d, want %d", m.credits, seedCredits)
 	}
-	if m.highScore != startBalance {
-		t.Errorf("highScore = %d, want %d", m.highScore, startBalance)
+	if m.peak != seedCredits {
+		t.Errorf("peak = %d, want %d", m.peak, seedCredits)
 	}
 	if m.bet != betTiers[0] {
 		t.Errorf("bet = %d, want %d", m.bet, betTiers[0])
 	}
 }
 
-func TestJoinResumesDurableWallet(t *testing.T) {
+// Join reads the player's account-wide balance from the host (the platform owns
+// it now — there is no game-side durable wallet to resume).
+func TestJoinReadsHostBalance(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
-	// Pre-seed the durable wallet as if a prior session persisted it.
-	store := r.Services().Accounts.For(p).Store()
-	_ = store.Set(nil, keyBalance, []byte("2000"), kit.MergeSum)
-	_ = store.Set(nil, keyPeak, []byte("3000"), kit.MergeMax)
+	r.Credits = map[string]int64{p.AccountID: 2500} // host already holds a balance
 
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
-	if m.balance != 2000 {
-		t.Errorf("balance = %d, want resumed 2000", m.balance)
+	if m.credits != 2500 {
+		t.Errorf("credits = %d, want host balance 2500", m.credits)
 	}
-	if m.highScore != 3000 {
-		t.Errorf("highScore = %d, want resumed peak 3000", m.highScore)
+	if m.peak != 2500 {
+		t.Errorf("peak = %d, want 2500", m.peak)
 	}
 }
 
@@ -223,7 +254,7 @@ func TestBetClampedToBalance(t *testing.T) {
 	rm.OnJoin(r, p)
 	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
-	m.balance = 70
+	m.credits = 70 // cached balance the bet clamps against
 
 	rm.OnInput(r, p, keyUp()) // 50, ok
 	rm.OnInput(r, p, keyUp()) // 100 > 70, clamp back to 50
@@ -243,15 +274,18 @@ func TestSpinDeductsBetAndIgnoresReentry(t *testing.T) {
 	m.bet = 50
 
 	rm.OnInput(r, p, space())
-	if m.balance != startBalance-50 {
-		t.Fatalf("balance after spin = %d, want %d", m.balance, startBalance-50)
+	if m.credits != seedCredits-50 {
+		t.Fatalf("balance after spin = %d, want %d", m.credits, seedCredits-50)
+	}
+	if m.stake != 50 {
+		t.Fatalf("open stake = %d, want the wagered 50", m.stake)
 	}
 	if m.spin == nil {
 		t.Fatal("expected machine to be spinning")
 	}
-	rm.OnInput(r, p, space()) // must be ignored mid-spin
-	if m.balance != startBalance-50 {
-		t.Fatalf("re-entry deducted again: balance = %d", m.balance)
+	rm.OnInput(r, p, space()) // must be ignored mid-spin (no second wager)
+	if m.credits != seedCredits-50 {
+		t.Fatalf("re-entry wagered again: balance = %d", m.credits)
 	}
 }
 
@@ -279,9 +313,9 @@ func TestSpinSettlesToPayoutOverWake(t *testing.T) {
 	if m.freeSpins > 0 {
 		t.Skip("seeded first spin triggered free spins; payout path covered elsewhere")
 	}
-	want := (startBalance - 10) + 10*rm.variant.waysPayout(scatterWindow(rm.variant.strip, m.lastIdx))/wayScale
-	if m.balance != want {
-		t.Fatalf("balance = %d, want %d (ways over %v)", m.balance, want, m.lastIdx)
+	want := int64((seedCredits - 10) + 10*rm.variant.waysPayout(scatterWindow(rm.variant.strip, m.lastIdx))/wayScale)
+	if m.credits != want {
+		t.Fatalf("balance = %d, want %d (ways over %v)", m.credits, want, m.lastIdx)
 	}
 }
 
@@ -320,19 +354,18 @@ func TestSettleCreditsJackpot(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 50
-	m.balance = startBalance - 50 // bet already deducted at spin start
 
-	win := forceWin5(t, rm, r, p, symStar)
+	win := forceWin5(t, rm, r, p, symStar) // wagers 50, then lands the 5-of-a-kind
 	takeIfGambling(rm, r, p.AccountID)
 
 	if win <= 0 {
 		t.Fatalf("expected a paying 5-of-a-kind, got %d", win)
 	}
-	if m.balance != startBalance-50+win {
-		t.Errorf("balance = %d, want %d", m.balance, startBalance-50+win)
+	if m.credits != int64(seedCredits-50+win) {
+		t.Errorf("balance = %d, want %d", m.credits, seedCredits-50+win)
 	}
-	if m.highScore != m.balance {
-		t.Errorf("highScore = %d, want %d", m.highScore, m.balance)
+	if m.peak != m.credits {
+		t.Errorf("peak = %d, want %d", m.peak, m.credits)
 	}
 	if m.reels != faceRow(symStar) {
 		t.Errorf("reels = %v, want all stars", m.reels)
@@ -351,15 +384,17 @@ func TestBustRebuysPreservingHighScore(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 10
-	m.highScore = 2500
-	m.balance = 0 // bet already deducted; this spin loses
-	forceLoss5(t, rm, r, p)
+	m.peak, m.postedPeak = 2500, 2500  // a prior high-water; a bust must not lower it
+	r.Credits[p.AccountID] = 10        // exactly one min bet left, then bust to zero
+	r.CreditsBuybackAmount = 1000      // broke-relief tops a busted seat up to this
 
-	if m.balance != rebuyAmount {
-		t.Errorf("balance = %d, want re-buy to %d", m.balance, rebuyAmount)
+	forceLoss5(t, rm, r, p) // wagers 10 (host -> 0), settles the loss, then rebuys
+
+	if m.credits != 1000 {
+		t.Errorf("balance = %d, want re-buy amount 1000", m.credits)
 	}
-	if m.highScore != 2500 {
-		t.Errorf("highScore = %d, want 2500 (bust must not lower it)", m.highScore)
+	if m.peak != 2500 {
+		t.Errorf("peak = %d, want 2500 (bust/rebuy must not lower it)", m.peak)
 	}
 	if !strings.Contains(m.flash, "RE-BUY") {
 		t.Errorf("flash = %q, want RE-BUY", m.flash)
@@ -374,7 +409,6 @@ func TestBigWinPushesTicker(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 100
-	m.balance = startBalance - 100
 	forceWin5(t, rm, r, p, symStar) // a big 5-of-a-kind at bet 100
 	takeIfGambling(rm, r, p.AccountID)
 
@@ -393,7 +427,8 @@ func TestSmallWinDoesNotPushTicker(t *testing.T) {
 	m := rm.machines[p.AccountID]
 	m.bet = 50
 	// A win below bet*tickerMult (600) must not announce. Bank a held 100 via the
-	// gamble path (the credit/announce path) and check the ticker stays quiet.
+	// gamble path (the settle/announce path) and check the ticker stays quiet.
+	openStake(rm, r, p) // one open stake for the take to settle
 	rm.enterGamble(r, m, 100)
 	m.gamble.sel = selTake
 	rm.gambleConfirm(r, p.AccountID)
@@ -409,7 +444,6 @@ func TestTickerExpiresOnWake(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 100
-	m.balance = startBalance - 100
 	forceWin5(t, rm, r, p, symStar)
 	takeIfGambling(rm, r, p.AccountID)
 	if !rm.tickerActive(r.Now()) {
@@ -429,16 +463,15 @@ func TestNewPeakPostsToLeaderboard(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 50
-	m.balance = startBalance - 50
-	forceWin5(t, rm, r, p, symStar) // a win → new peak
+	forceWin5(t, rm, r, p, symStar) // a win → new credits peak
 	takeIfGambling(rm, r, p.AccountID)
 
 	if len(r.Posted) != 1 {
 		t.Fatalf("posts = %d, want exactly 1 on a new peak", len(r.Posted))
 	}
 	got := r.Posted[0].Rankings[0]
-	if got.Metric != m.highScore || got.Status != kit.StatusFinished {
-		t.Errorf("posted = %+v, want metric %d finished", got, m.highScore)
+	if got.Metric != int(m.peak) || got.Status != kit.StatusFinished {
+		t.Errorf("posted = %+v, want metric %d finished", got, m.peak)
 	}
 }
 
@@ -448,7 +481,6 @@ func TestNoPeakDoesNotPost(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 10
-	m.balance = startBalance - 10
 	forceLoss5(t, rm, r, p) // no win → no new peak
 
 	if len(r.Posted) != 0 {
@@ -475,19 +507,28 @@ func TestLeaveRemovesAndKeepsJoinOrder(t *testing.T) {
 	}
 }
 
-func TestLeavePersistsWallet(t *testing.T) {
+// Leaving mid-spin (after the wager, before the settle) MUST settle the open
+// stake so escrow never leaks and a losing bet is not silently cancelled.
+func TestLeaveSettlesOpenStake(t *testing.T) {
 	p := kittest.Player("alice")
 	rm, r := newGame(t, p)
 	rm.OnJoin(r, p)
+	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
-	m.balance = 2500
-	m.highScore = 2500
+	m.bet = 50
 
-	rm.OnLeave(r, p)
+	rm.OnInput(r, p, space()) // wager 50, reels spinning, one stake open
+	if m.stake != 50 {
+		t.Fatalf("open stake = %d, want the wagered 50", m.stake)
+	}
 
-	store := r.Services().Accounts.For(p).Store()
-	if v, ok, _ := store.Get(nil, keyPeak); !ok || strings.TrimSpace(string(v)) != "2500" {
-		t.Errorf("persisted peak = %q (ok=%v), want 2500", v, ok)
+	rm.OnLeave(r, p) // leave mid-spin: the committed bet books as a loss
+
+	if got := r.CreditsStakes[p.AccountID]; got != 0 {
+		t.Errorf("open stake after leave = %d, want 0 (escrow must not leak)", got)
+	}
+	if got := r.Credits[p.AccountID]; got != seedCredits-50 {
+		t.Errorf("balance = %d, want %d (the committed bet is lost, not refunded)", got, seedCredits-50)
 	}
 }
 
@@ -527,7 +568,6 @@ func TestGridCenterRowIsThePayline(t *testing.T) {
 	rm.OnJoin(r, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 10
-	m.balance = startBalance - 10
 	strip := rm.variant.strip
 	var idx [numReels]int
 	var fin [numReels]symbol
@@ -535,9 +575,11 @@ func TestGridCenterRowIsThePayline(t *testing.T) {
 		idx[i] = i
 		fin[i] = strip[i]
 	}
+	openStake(rm, r, p)
 	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: idx, final: fin}
 
 	rm.settleSpin(r, p.AccountID)
+	takeIfGambling(rm, r, p.AccountID)
 
 	g := rm.grid(m)
 	for reel := 0; reel < numReels; reel++ {
@@ -592,12 +634,12 @@ func settleKnownFaces(t *testing.T, rm *room, r *kittest.Room, p kit.Player) {
 	seatAt0(t, rm, p)
 	m := rm.machines[p.AccountID]
 	m.bet = 10
-	m.balance = startBalance - 10
 	strip := rm.variant.strip
 	var idx [numReels]int
 	for i, s := range knownFaces {
 		idx[i] = firstIdx(t, strip, s)
 	}
+	openStake(rm, r, p)
 	m.spin = &spinState{startedAt: r.Now(), variant: rm.variant, stopIdx: idx, final: knownFaces}
 	rm.settleSpin(r, p.AccountID)
 	takeIfGambling(rm, r, p.AccountID)
@@ -739,7 +781,7 @@ func TestGambleOwnerSeesSelectorOthersSeeIndicator(t *testing.T) {
 	rm.OnJoin(r, b)
 	seatAt0(t, rm, a)
 	ma := rm.machines[a.AccountID]
-	ma.balance = 1000
+	openStake(rm, r, a)
 	rm.enterGamble(r, ma, 150)
 	rm.render(r)
 	if !frameContains(r, a, "TAKE") || !frameContains(r, a, "RED") {
@@ -966,9 +1008,9 @@ func TestMidSpinVariantStability(t *testing.T) {
 	h.settleSpin(r, p.AccountID)
 	takeIfGambling(h, r, p.AccountID)
 
-	if m.balance != (startBalance-50)+wantWin {
+	if m.credits != int64((seedCredits-50)+wantWin) {
 		t.Fatalf("balance = %d, want %d (settled under the starting variant)",
-			m.balance, (startBalance-50)+wantWin)
+			m.credits, (seedCredits-50)+wantWin)
 	}
 }
 
@@ -1011,6 +1053,47 @@ func TestSeededDeterminismPerVariant(t *testing.T) {
 		if a[i] != b[i] {
 			t.Fatalf("seeded run diverged at %d: %d vs %d", i, a[i], b[i])
 		}
+	}
+}
+
+// --- payout ceiling ----------------------------------------------------------
+
+// A gross exactly at the ceiling (stake x MaxPayoutMultiplier) settles in full —
+// neither the game's own clamp nor the host's shaves the top prize.
+func TestTopPrizeSettlesWithoutClamp(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	m := rm.machines[p.AccountID]
+	m.bet = 10
+	openStake(rm, r, p) // wager 10, one open stake
+
+	top := 10 * maxPayoutMult // the exact ceiling for this stake
+	rm.settle(r, p.AccountID, top)
+
+	if got := r.Credits[p.AccountID]; got != int64(seedCredits-10+top) {
+		t.Fatalf("balance = %d, want %d (top prize must settle unclamped)", got, seedCredits-10+top)
+	}
+	if m.credits != int64(seedCredits-10+top) {
+		t.Fatalf("cached balance = %d, want %d", m.credits, seedCredits-10+top)
+	}
+}
+
+// A gross above the ceiling is clamped to stake x MaxPayoutMultiplier BEFORE the
+// settle, so the credited amount (and the UI) never exceed what the host pays.
+func TestOverCeilingClampsToMax(t *testing.T) {
+	p := kittest.Player("alice")
+	rm, r := newGame(t, p)
+	rm.OnJoin(r, p)
+	m := rm.machines[p.AccountID]
+	m.bet = 10
+	openStake(rm, r, p)
+
+	ceiling := 10 * maxPayoutMult
+	rm.settle(r, p.AccountID, ceiling+5000) // ask for more than the ceiling
+
+	if got := r.Credits[p.AccountID]; got != int64(seedCredits-10+ceiling) {
+		t.Fatalf("balance = %d, want %d (clamped to the ceiling)", got, seedCredits-10+ceiling)
 	}
 }
 
