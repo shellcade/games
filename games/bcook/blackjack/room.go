@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	kit "github.com/shellcade/kit/v2"
@@ -21,9 +19,7 @@ const (
 )
 
 const (
-	startChips = 1000
-	rebuyChips = 1000
-	maxHands   = 4 // a seat may split up to four hands
+	maxHands = 4 // a seat may split up to four hands
 
 	bettingDur   = 15 * time.Second
 	insuranceDur = 10 * time.Second
@@ -34,11 +30,12 @@ const (
 	// and dealing, so an all-bets-in table deals early without feeling abrupt.
 	gracePeriod = time.Second
 
-	// wallet KV keys + the first-ever stack, mirroring the native casino package
-	// (balance: merge sum, the carryable bankroll; peak: merge max, the
-	// high-water mark and the leaderboard metric).
-	keyBalance = "balance"
-	keyPeak    = "peak"
+	// maxPayoutMult mirrors Meta().MaxPayoutMultiplier: the host clamps every
+	// Settle to the seat's open stake × this multiplier, so the game clamps its
+	// own displayed/settled gross to the same ceiling before Settle. 26 covers a
+	// Perfect Pairs "perfect" pair (25:1 -> stake×26); the mandatory main bet
+	// only dilutes the per-seat aggregate, so it is never reached in practice.
+	maxPayoutMult = 26
 )
 
 // betTiers are the selectable stakes, lowest first. The ×2.5/×2/×2 climb repeats
@@ -76,10 +73,22 @@ type backBet struct {
 // seat is one player's place at the table. Keyed by account id in the room map
 // so it survives a hibernation freeze/thaw (connections change; accounts don't).
 type seat struct {
-	p                kit.Player
-	chips            int
-	highScore        int
-	postedPeak       int // last peak Posted to the board (post only on increase)
+	p kit.Player
+	// bal is the cached account-wide credits balance (svc.Credits.Balance),
+	// refreshed at join, after each Wager (decremented), and after each Settle /
+	// Buyback (re-read). It drives the HUD and every betting-affordability check;
+	// the platform owns the authoritative balance — this is only a per-tick cache
+	// so the render/clamp paths never call Balance in a hot loop.
+	bal        int
+	highScore  int // peak balance observed this session (the leaderboard metric)
+	postedPeak int // last peak Posted to the board (post only on increase)
+	// grossThisRound accumulates the seat's single open stake's GROSS payout
+	// (stake-inclusive): side-bet wins fold in as they resolve, hand credits at
+	// settle, and the whole thing Settles exactly once. roundStake is the total
+	// escrowed onto that open stake (sum of every Wager this round); >0 marks an
+	// open, unsettled stake and bounds the payout ceiling (roundStake×maxPayoutMult).
+	grossThisRound   int64
+	roundStake       int64
 	bet              int // currently selected/placed stake
 	placed           bool
 	pairsBet         int                 // Perfect Pairs side stake (0 = off), carried between rounds like bet
@@ -143,84 +152,122 @@ type room struct {
 	schedEnd time.Time
 
 	frame *kit.Frame // reused render scratch (allocation-light steady state)
-
-	// sk standardises the durable-wallet KV writes (PersistWallet), replacing
-	// the duplicated persistWallet helper. The leaderboard Post stays
-	// hand-rolled in postPeak because postedPeak is seeded from the durable peak
-	// at join — so a returning seat only posts on a NEW personal best, which
-	// ScoreKeeper.Record (always posts the first observed value) would not
-	// preserve.
-	sk *kit.ScoreKeeper
 }
 
 func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
-	return &room{cfg: cfg, svc: svc, seats: map[string]*seat{}, frame: kit.NewFrame(), sk: kit.NewScoreKeeper(kit.OnImprove)}
+	return &room{cfg: cfg, svc: svc, seats: map[string]*seat{}, frame: kit.NewFrame()}
 }
+
+// economyOff reports whether the host has no credits economy (svc.Credits is
+// nil). A casino game must render out-of-service rather than trap when the
+// economy is disabled — every money path checks this first.
+func (rm *room) economyOff() bool { return rm.svc.Credits == nil }
 
 func (rm *room) OnStart(r kit.Room) {
 	rm.sh = newShoe(r.Rand())
+	if rm.economyOff() {
+		rm.render(r) // out-of-service: no economy, no betting
+		return
+	}
 	rm.enterBetting(r)
 	rm.render(r)
 }
 
 func (rm *room) OnClose(r kit.Room) {
-	// Persist every seat's durable wallet on the way out. Synchronous: the wasm
-	// sandbox has no goroutines, and the host bounds the KV call.
+	// Book every seat's open stake on the way out so no escrow leaks: a seat with
+	// an unsettled stake at close Settles its accumulated gross (forfeiting any
+	// still-unresolved hand as a loss). Synchronous — the wasm sandbox has no
+	// goroutines and the host bounds the call.
 	for _, id := range rm.order {
 		if s := rm.seats[id]; s != nil {
-			rm.persistWallet(r, s)
+			rm.settleOpenStake(s)
 		}
 	}
 }
 
-// --- durable wallet (the casino pattern over kv) ---------------------------
+// --- platform credits (the account-wide casino bankroll) -------------------
 
-func kvInt(store kit.KVStore, key string) (int, bool) {
-	v, ok, err := store.Get(context.Background(), key)
-	if err != nil || !ok {
-		return 0, false
+// wager escrows amt onto the seat's SINGLE open stake via svc.Credits, updating
+// the cached balance and the round's total stake. A non-positive amt is a no-op
+// success (nothing to escrow). Returns false — the caller MUST reject the action
+// and never proceed — when the economy is off or the balance can't cover it
+// (mirrors the old `chips < bet` guards). Wager accumulates: repeated calls
+// before one Settle all land on the same open stake.
+func (rm *room) wager(s *seat, amt int) bool {
+	if amt <= 0 {
+		return true
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(v)))
+	if rm.economyOff() {
+		return false
+	}
+	if err := rm.svc.Credits.Wager(s.p, int64(amt)); err != nil {
+		return false // ErrInsufficientCredits (or disabled): reject cleanly
+	}
+	s.roundStake += int64(amt)
+	s.bal -= amt
+	return true
+}
+
+// refreshBal re-reads the seat's authoritative account-wide balance into the
+// cache (after a Settle or Buyback changes it). A disabled/erroring economy
+// leaves the cache untouched.
+func (rm *room) refreshBal(s *seat) {
+	if rm.economyOff() {
+		return
+	}
+	if b, err := rm.svc.Credits.Balance(s.p); err == nil {
+		s.bal = int(b)
+	}
+}
+
+// settleOpenStake closes the seat's single open stake EXACTLY ONCE: it clamps
+// the accumulated gross to the payout ceiling (roundStake×maxPayoutMult) and
+// Settles it, then clears the round's stake/gross and re-reads the balance.
+// Returns the round's net chip change (gross-stake) for the results summary. A
+// no-op with no open stake (roundStake==0), so it is safe on the mid-round exit
+// paths (OnLeave/OnClose) — a committed-but-unresolved bet Settles its resolved
+// gross (0 for a bare main bet), never leaking escrow and never double-settling.
+func (rm *room) settleOpenStake(s *seat) int {
+	if s.roundStake <= 0 {
+		s.grossThisRound = 0
+		return 0
+	}
+	gross := s.grossThisRound
+	if lim := s.roundStake * maxPayoutMult; gross > lim {
+		gross = lim // never settle (or show) more than the host will pay
+	}
+	net := int(gross - s.roundStake)
+	if !rm.economyOff() {
+		_ = rm.svc.Credits.Settle(s.p, gross)
+	}
+	s.grossThisRound = 0
+	s.roundStake = 0
+	rm.refreshBal(s)
+	return net
+}
+
+// buyback triggers the platform broke-relief rebuy for a busted seat, updating
+// the cached balance on success. Returns false when the host refuses (solvent or
+// the daily rebuy limit reached — render it, do not retry) or the economy is off.
+func (rm *room) buyback(s *seat) bool {
+	if rm.economyOff() {
+		return false
+	}
+	nb, err := rm.svc.Credits.Buyback(s.p)
 	if err != nil {
-		return 0, false
+		return false
 	}
-	return n, true
-}
-
-// seedWallet returns the joining player's durable (balance, peak): balance
-// defaults to startChips for a first-ever player, and peak is raised to at least
-// the balance. A nil account (no durable storage) returns the defaults.
-func (rm *room) seedWallet(r kit.Room, p kit.Player) (balance, peak int) {
-	acct := r.Services().Accounts.For(p)
-	if acct == nil {
-		return startChips, startChips
+	s.bal = int(nb)
+	if s.bal > s.highScore {
+		s.highScore = s.bal
 	}
-	store := acct.Store()
-	bal, ok := kvInt(store, keyBalance)
-	if !ok {
-		bal = startChips
-		_ = store.Set(context.Background(), keyBalance, []byte(strconv.Itoa(bal)), kit.MergeSum)
-	}
-	pk, _ := kvInt(store, keyPeak)
-	if pk < bal {
-		pk = bal
-		_ = store.Set(context.Background(), keyPeak, []byte(strconv.Itoa(pk)), kit.MergeMax)
-	}
-	return bal, pk
-}
-
-// persistWallet writes the seat's balance and raises peak to >= balance, with
-// the same keys/merge rules the native casino package used (sum for balance, max
-// for peak — out-of-order or concurrent writes can never regress the metric).
-// Delegates to the kit's ScoreKeeper.PersistWallet, which writes the identical
-// keys + merge rules, replacing the duplicated casino-wallet helper.
-func (rm *room) persistWallet(r kit.Room, s *seat) {
-	rm.sk.PersistWallet(r, s.p, keyBalance, s.chips, keyPeak, s.highScore)
+	return true
 }
 
 // postPeak feeds the declared leaderboard with a new personal peak (the board
-// keeps each account's best). KV is durable state; Post is what reaches the
-// board. The native game surfaced the same peak via a custom KV provider.
+// keeps each account's best). highScore tracks the peak account-wide credits
+// balance observed this session (sourced from svc.Credits.Balance after each
+// Settle); Post is what reaches the board, only on a new personal best.
 func (rm *room) postPeak(r kit.Room, s *seat) {
 	if s.highScore <= s.postedPeak {
 		return
@@ -241,21 +288,24 @@ func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 		rm.render(r)
 		return
 	}
-	bal, peak := rm.seedWallet(r, p)
-	rm.seats[p.AccountID] = &seat{p: p, chips: bal, highScore: peak, postedPeak: peak, bet: betTiers[1], joinOrder: rm.joinSeq}
+	s := &seat{p: p, bet: betTiers[1], joinOrder: rm.joinSeq}
+	rm.refreshBal(s) // seed the cached balance from the platform bankroll
+	s.highScore = s.bal
+	s.postedPeak = s.bal
+	rm.seats[p.AccountID] = s
 	rm.joinSeq++
 	rm.order = append(rm.order, p.AccountID)
 	rm.render(r)
 }
 
-// OnLeave persists the leaver's wallet and frees the seat. Leaving with a live
-// hand forfeits the stake (it was deducted at deal and settle only credits
-// seats still in rm.order) — abandoning a dealt hand is a loss, as at a real
-// table. Chips are conserved; nothing is credited elsewhere.
+// OnLeave books any open stake and frees the seat. Leaving mid-round Settles the
+// seat's single open stake exactly once with its accumulated gross (0 for a bare,
+// still-unresolved main bet) — abandoning a dealt hand forfeits it as a loss, as
+// at a real table, and the escrow is released rather than leaked.
 func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	active, _ := rm.firstUnresolved()
 	if s := rm.seats[p.AccountID]; s != nil {
-		rm.persistWallet(r, s)
+		rm.settleOpenStake(s)
 	}
 	delete(rm.seats, p.AccountID)
 	for i, id := range rm.order {
@@ -339,10 +389,13 @@ func (rm *room) enterBetting(r kit.Room) {
 		s.result = ""
 		s.pairsKind = ""
 		s.pairsWin = 0
-		s.focus = ""     // re-open editing on the seat's own bet
-		rm.carryBacks(s) // behind/their-pairs stakes are sticky between rounds
-		if s.bet > s.chips {
-			s.bet = clampBet(s.chips)
+		s.focus = ""         // re-open editing on the seat's own bet
+		s.grossThisRound = 0 // no open stake carries into a fresh betting window
+		s.roundStake = 0     //
+		rm.refreshBal(s)     // re-sync the cached balance before affordability clamps
+		rm.carryBacks(s)     // behind/their-pairs stakes are sticky between rounds
+		if s.bet > s.bal {
+			s.bet = clampBet(s.bal)
 		}
 		rm.clampPairs(s) // a thinned stack may no longer afford the carried side bet
 		rm.clampBacks(s) // nor its carried backs
@@ -416,8 +469,8 @@ func (rm *room) adjustBet(s *seat, dir int) {
 		i = len(betTiers) - 1
 	}
 	s.bet = betTiers[i]
-	if s.bet > s.chips {
-		s.bet = clampBet(s.chips)
+	if s.bet > s.bal {
+		s.bet = clampBet(s.bal)
 	}
 }
 
@@ -433,14 +486,14 @@ func tierIndex(bet int) int {
 // cycleOwnPairs advances the seat's own Perfect Pairs stake one tier, wrapping
 // back to 0 past the top (and resetting to 0 if the next tier is unaffordable).
 func (rm *room) cycleOwnPairs(s *seat) {
-	s.pairsBet = loopTier(pairsTiers, s.pairsBet, s.chips-(s.committed()-s.pairsBet))
+	s.pairsBet = loopTier(pairsTiers, s.pairsBet, s.bal-(s.committed()-s.pairsBet))
 }
 
 // clampPairs lowers the side bet to the highest tier the seat can still afford
 // alongside its main bet (down to off), so a raised main bet or a thin stack can
 // never leave an unaffordable side bet placed.
 func (rm *room) clampPairs(s *seat) {
-	for s.pairsBet > 0 && s.bet+s.pairsBet > s.chips {
+	for s.pairsBet > 0 && s.bet+s.pairsBet > s.bal {
 		s.pairsBet = pairsTiers[pairsTierIndex(s.pairsBet)-1]
 	}
 }
@@ -466,8 +519,8 @@ func (rm *room) carryBacks(s *seat) {
 func (rm *room) clampBacks(s *seat) {
 	for _, tid := range sortedBackIDs(s) {
 		b := s.backs[tid]
-		b.pairs = affordTier(pairsTiers, b.pairs, s.chips-(s.committed()-b.pairs))
-		b.behind = affordTier(pairsTiers, b.behind, s.chips-(s.committed()-b.behind))
+		b.pairs = affordTier(pairsTiers, b.pairs, s.bal-(s.committed()-b.pairs))
+		b.behind = affordTier(pairsTiers, b.behind, s.bal-(s.committed()-b.behind))
 	}
 }
 
@@ -556,12 +609,12 @@ func (s *seat) backOn(target string) *backBet {
 // other commitments (an unaffordable next tier also resets to 0).
 func (rm *room) cycleBackPairs(s *seat) {
 	b := s.backOn(s.focus)
-	b.pairs = loopTier(pairsTiers, b.pairs, s.chips-(s.committed()-b.pairs))
+	b.pairs = loopTier(pairsTiers, b.pairs, s.bal-(s.committed()-b.pairs))
 }
 
 func (rm *room) cycleBackBehind(s *seat) {
 	b := s.backOn(s.focus)
-	b.behind = loopTier(pairsTiers, b.behind, s.chips-(s.committed()-b.behind))
+	b.behind = loopTier(pairsTiers, b.behind, s.bal-(s.committed()-b.behind))
 }
 
 // loopTier returns the tier one step above cur, wrapping back to 0 (the "off"
@@ -592,7 +645,13 @@ func (rm *room) deal(r kit.Room) {
 		if s == nil || !s.placed {
 			continue
 		}
-		s.chips -= s.bet
+		// Open the seat's single stake with the main bet. A failed Wager
+		// (balance can't cover it — should not happen after the betting clamps)
+		// sits the seat out this round rather than dealing an unbacked hand.
+		if !rm.wager(s, s.bet) {
+			s.placed = false
+			continue
+		}
 		h := &phand{cards: hand{rm.sh.draw(rng), rm.sh.draw(rng)}, bet: s.bet}
 		if h.cards.isBlackjack() {
 			h.resolved = true
@@ -621,21 +680,22 @@ func (rm *room) deal(r kit.Room) {
 }
 
 // resolvePairs settles a seat's Perfect Pairs side bet against its dealt cards:
-// the stake is deducted (the main bet was already taken above) and any winning
-// pair is credited immediately — the casino way, where the side bet stands apart
-// from how the hand goes on to play out.
+// the stake is Wagered onto the seat's open stake and any winning pair folds its
+// gross into grossThisRound immediately — the casino way, where the side bet
+// stands apart from how the hand goes on to play out. A stake the balance can't
+// cover is dropped (no side bet this round) rather than proceeding unpaid.
 func (rm *room) resolvePairs(s *seat, dealt hand) {
 	if s.pairsBet <= 0 || len(dealt) < 2 {
 		return
 	}
-	if s.pairsBet > s.chips {
-		s.pairsBet = s.chips // defensive: never deduct more than the seat has left
+	if !rm.wager(s, s.pairsBet) {
+		s.pairsBet = 0
+		return
 	}
-	s.chips -= s.pairsBet
 	kind, mult := perfectPairsOutcome(dealt[0], dealt[1])
 	s.pairsKind = kind
 	s.pairsWin = pairsCreditFor(mult, s.pairsBet)
-	s.chips += s.pairsWin
+	s.grossThisRound += int64(s.pairsWin)
 }
 
 // sortedBackIDs returns a seat's back target ids in a deterministic (sorted)
@@ -657,9 +717,11 @@ func sortedBackIDs(s *seat) []string {
 
 // resolveBackPairs settles the their-Perfect-Pairs side of every seat's backs,
 // once all hands are dealt: a back on a seat that didn't get dealt in is voided
-// (never charged); otherwise the stake is deducted and any winning pair on the
-// target's first two cards is credited to the backer immediately. The behind bet
-// is committed here too (deducted, held) and settled later against the dealer.
+// (never charged); otherwise each stake is Wagered onto the backer's open stake
+// and any winning pair on the target's first two cards folds its gross into the
+// backer's grossThisRound immediately. The behind bet is Wagered here too
+// (committed, held) and settled later against the dealer. A stake the balance
+// can't cover is dropped (voided) rather than proceeding unpaid.
 func (rm *room) resolveBackPairs() {
 	for _, id := range rm.order {
 		s := rm.seats[id]
@@ -673,20 +735,19 @@ func (rm *room) resolveBackPairs() {
 				b.behind, b.pairs = 0, 0 // target sat out / gone -> void the back
 				continue
 			}
-			if b.pairs > s.chips {
-				b.pairs = s.chips // defensive
-			}
 			if b.pairs > 0 {
-				s.chips -= b.pairs
-				kind, mult := perfectPairsOutcome(t.hands[0].cards[0], t.hands[0].cards[1])
-				b.pairsKind = kind
-				b.pairsWin = pairsCreditFor(mult, b.pairs)
-				s.chips += b.pairsWin
+				if rm.wager(s, b.pairs) {
+					kind, mult := perfectPairsOutcome(t.hands[0].cards[0], t.hands[0].cards[1])
+					b.pairsKind = kind
+					b.pairsWin = pairsCreditFor(mult, b.pairs)
+					s.grossThisRound += int64(b.pairsWin)
+				} else {
+					b.pairs = 0
+				}
 			}
-			if b.behind > s.chips {
-				b.behind = s.chips // defensive
+			if b.behind > 0 && !rm.wager(s, b.behind) {
+				b.behind = 0 // committed now; the dealer comparison happens at settle
 			}
-			s.chips -= b.behind // committed now; the dealer comparison happens at settle
 		}
 	}
 }
@@ -818,10 +879,12 @@ func (rm *room) takeInsurance(s *seat, yes bool) {
 	s.insuranceDecided = true
 	if yes {
 		ins := s.bet / 2
-		if ins > s.chips {
-			ins = s.chips
+		if ins <= 0 {
+			return
 		}
-		s.chips -= ins
+		if !rm.wager(s, ins) {
+			return // can't cover the insurance stake: decline it
+		}
 		s.insurance = ins
 	}
 }
@@ -869,7 +932,7 @@ func (rm *room) resolveInsurance(r kit.Room) {
 			continue
 		}
 		s.insuranceWin = insuranceCredit(dbj, s.insurance)
-		s.chips += s.insuranceWin
+		s.grossThisRound += int64(s.insuranceWin)
 	}
 	if dbj {
 		rm.revealAndSettle(r)
@@ -944,10 +1007,15 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 		h.resolved = true
 		rm.beginTurn(r)
 	case 'd':
-		if !first || s.chips < h.bet {
+		// The double's extra stake Wagers onto the seat's open stake; a failed
+		// Wager (can't cover it) rejects the action, exactly as the old
+		// `chips < bet` guard did — never proceed on a failed Wager.
+		if !first {
 			return
 		}
-		s.chips -= h.bet
+		if !rm.wager(s, h.bet) {
+			return
+		}
 		h.bet *= 2
 		h.doubled = true
 		h.cards = append(h.cards, rm.sh.draw(r.Rand()))
@@ -965,10 +1033,10 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 		}
 		h.surrendered = true
 		h.resolved = true
-		// Return half; the bet was deducted at deal. An odd bet's half-chip
-		// rounds UP to the player (halfUp owns the policy, shared with the
-		// 3:2 payout in creditFor and the net accounting in settle).
-		s.chips += halfUp(h.bet)
+		// Half the stake is returned at settle: settle() folds halfUp(h.bet) into
+		// the seat's gross for a surrendered hand (the full bet is already escrowed
+		// on the open stake). An odd bet's half-chip rounds UP to the player
+		// (halfUp owns the policy, shared with the 3:2 payout in creditFor).
 		rm.beginTurn(r)
 	}
 }
@@ -976,11 +1044,15 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 // split turns a two-card equal-rank pair into two hands, each taking a new card,
 // reporting whether the split happened. Split aces take one card and stand.
 func (rm *room) split(r kit.Room, s *seat, h *phand) bool {
-	if len(h.cards) != 2 || h.cards[0].r != h.cards[1].r || s.chips < h.bet || len(s.hands) >= maxHands {
+	if len(h.cards) != 2 || h.cards[0].r != h.cards[1].r || len(s.hands) >= maxHands {
+		return false
+	}
+	// The new hand's stake Wagers onto the seat's open stake; a failed Wager
+	// (can't cover it) rejects the split, as the old `chips < bet` guard did.
+	if !rm.wager(s, h.bet) {
 		return false
 	}
 	c0, c1 := h.cards[0], h.cards[1]
-	s.chips -= h.bet
 	rng := r.Rand()
 	nh := &phand{cards: hand{c1, rm.sh.draw(rng)}, bet: h.bet, fromSplit: true}
 	h.cards = hand{c0, rm.sh.draw(rng)}
@@ -1096,63 +1168,49 @@ func (rm *room) settle(r kit.Room) {
 	for _, id := range rm.order {
 		s := rm.seats[id]
 		if s == nil || !s.placed {
-			continue
+			continue // skip seats that never opened a stake this round
 		}
-		net := 0
+		// Fold every resolved credit into the seat's single open-stake gross.
 		for _, h := range s.hands {
 			if h.surrendered {
-				net -= h.bet - halfUp(h.bet) // lost half (the same halfUp act credited)
+				s.grossThisRound += int64(halfUp(h.bet)) // half the stake returned
 				continue
 			}
 			pbj := h.cards.isBlackjack() && !h.fromSplit
 			o := settleHandEx(h.cards, pbj, rm.dealer, dbj)
-			credit := creditFor(o, h.bet)
-			s.chips += credit
-			net += credit - h.bet
+			s.grossThisRound += int64(creditFor(o, h.bet))
 		}
-		// The Perfect Pairs side bet was settled at deal (stake deducted, any win
-		// credited there); fold its delta into the round net so the seat's
-		// WIN/LOSE summary reconciles with the chips that actually changed hands.
-		net += s.pairsWin - s.pairsBet
-		// The insurance side bet resolved when the offer closed (stake deducted at
-		// takeInsurance, any 2:1 payout credited in resolveInsurance). Fold its
-		// delta in too, so a hand fully covered by insurance against a dealer
-		// blackjack reads as the PUSH it actually is rather than a phantom loss.
-		net += s.insuranceWin - s.insurance
-		net += rm.settleBacks(s, dbj)
+		// The Perfect Pairs and insurance side-bet wins already folded into gross
+		// as they resolved (deal / offer-close); settle the behind bets now.
+		rm.settleBacks(s, dbj)
+		// Close the seat's open stake with ONE Settle of the accumulated gross
+		// (clamped to the payout ceiling), then feed the board on a new peak.
+		net := rm.settleOpenStake(s)
 		s.result = resultText(net)
-		// A seat that can no longer cover the minimum stake is staked back to the
-		// re-buy stack — otherwise it would be soft-locked in betting, unable to
-		// place any bet (Confirm requires chips >= betTiers[0]) and never reaching
-		// this re-buy path again.
-		if s.chips < betTiers[0] {
-			s.chips = rebuyChips
+		if s.bal > s.highScore {
+			s.highScore = s.bal
+		}
+		rm.postPeak(r, s)
+		// A seat that can no longer cover the minimum stake would be soft-locked in
+		// betting (Confirm requires bal >= betTiers[0]); trigger the platform
+		// broke-relief rebuy. A refusal (solvent/daily limit) leaves the LOSE
+		// summary and lets the seat sit out until it recovers.
+		if s.bal < betTiers[0] && rm.buyback(s) {
 			s.result = "BUST - re-buy"
 		}
-		if s.chips > s.highScore {
-			s.highScore = s.chips
-		}
-		// Persist the durable wallet after each settled round, then feed the
-		// board on a new peak. Synchronous (no goroutines in wasm; KV is
-		// host-bounded).
-		rm.persistWallet(r, s)
-		rm.postPeak(r, s)
 		s.placed = false
 	}
 	rm.enterResults(r)
 }
 
-// settleBacks settles seat s's behind bets and folds every back's delta into the
-// round, returning the net chip change to add to s's summary. Their-pairs were
-// settled at the deal (only their delta folds here); each behind bet is judged
-// now against the target's first hand vs the dealer — even money on a win, 3:2 on
-// a natural blackjack, push returned — and is refunded if the target has left
-// (their hand can't be judged) or loses if that hand surrendered.
-func (rm *room) settleBacks(s *seat, dealerBJ bool) int {
-	net := 0
+// settleBacks settles seat s's behind bets, folding each behind win into the
+// seat's open-stake gross. Their-pairs already folded in at the deal; each behind
+// bet is judged now against the target's first hand vs the dealer — even money on
+// a win, 3:2 on a natural blackjack, push returned — refunded if the target has
+// left (their hand can't be judged) or lost if that hand surrendered.
+func (rm *room) settleBacks(s *seat, dealerBJ bool) {
 	for _, tid := range sortedBackIDs(s) {
 		b := s.backs[tid]
-		net += b.pairsWin - b.pairs // their-pairs delta (settled at the deal)
 		if b.behind <= 0 {
 			continue
 		}
@@ -1167,10 +1225,8 @@ func (rm *room) settleBacks(s *seat, dealerBJ bool) int {
 			o := settleHandEx(h0.cards, h0.cards.isBlackjack() && !h0.fromSplit, rm.dealer, dealerBJ)
 			b.behindWin = creditFor(o, b.behind)
 		}
-		s.chips += b.behindWin
-		net += b.behindWin - b.behind
+		s.grossThisRound += int64(b.behindWin)
 	}
-	return net
 }
 
 func (rm *room) enterResults(r kit.Room) {
@@ -1232,9 +1288,9 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 		case kit.ActRight:
 			rm.cycleFocus(s, +1)
 		case kit.ActConfirm:
-			if s.chips >= betTiers[0] {
-				if s.bet > s.chips {
-					s.bet = clampBet(s.chips)
+			if s.bal >= betTiers[0] {
+				if s.bet > s.bal {
+					s.bet = clampBet(s.bal)
 				}
 				rm.clampPairs(s)
 				s.placed = true

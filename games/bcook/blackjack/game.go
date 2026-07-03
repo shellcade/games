@@ -21,22 +21,32 @@ func (Game) Meta() kit.GameMeta {
 		// no hibernation snapshot, no Resume-menu entry (kit v2.7.0).
 		Lifecycle: kit.LifecycleEphemeral,
 
+		// A casino-kind game (kit v2.16.0): players gamble their account-wide
+		// platform Credits through the room's svc.Credits service — the host
+		// owns every balance. MaxPayoutMultiplier is the settlement ceiling:
+		// the top single-stake outcome is a Perfect Pairs "perfect" pair at
+		// 25:1, which returns stake×(25+1) = 26× on that side stake; the
+		// mandatory main bet only dilutes the per-seat aggregate, so 26 covers
+		// the largest honest payout. CtxFeatCredits is declared alongside so a
+		// credits-capable front end negotiates the encoding.
+		Kind:                kit.GameKindCasino,
+		MaxPayoutMultiplier: 26,
+
 		// Per-member arcade characters (kit v2.9.0): every roster member
 		// arrives with Player.Character populated, rendered as a one-cell
 		// tile right before the player's name (seat rail + turn waits).
-		CtxFeatures: kit.CtxFeatCharacter,
+		CtxFeatures: kit.CtxFeatCharacter | kit.CtxFeatCredits,
 
 		QuickModeLabel:    "Join a table",
 		SoloModeLabel:     "Heads-up vs dealer",
 		PrivateInviteLine: "Friends take a seat when they enter the code.",
 
-		// The native game is no-winner (it never End/Posts) and surfaced its
-		// board via a custom KV-backed peak provider. The lean ABI has no custom
-		// provider, so the board is declared here and fed with Post on a new
-		// personal peak — the same high-water-mark metric (Chips), keyed off the
-		// durable wallet's `peak` (see room.go persistWallet / postPeak).
+		// The board is a peak account-wide-credits metric: after each settle the
+		// seat's fresh platform balance (svc.Credits.Balance) is compared to its
+		// high-water mark and Posted on a new personal best (see room.go
+		// postPeak). BestResult keeps each account's highest observed balance.
 		Leaderboard: &kit.LeaderboardSpec{
-			MetricLabel: "Chips",
+			MetricLabel: "Credits",
 			Direction:   kit.HigherBetter,
 			Aggregation: kit.BestResult,
 			Format:      kit.Integer,

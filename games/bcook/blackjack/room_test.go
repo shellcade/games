@@ -13,13 +13,44 @@ func mkPlayer(h string) kit.Player {
 	return kit.Player{AccountID: h, Handle: h, Kind: kit.KindMember, Conn: "conn-" + h}
 }
 
-// newGame returns a started room driven by an in-memory kittest.Room.
+// newGame returns a started room driven by an in-memory kittest.Room. The
+// credits double is set to clamp at the game's declared MaxPayoutMultiplier so
+// the settlement ceiling is exercised exactly as the host would apply it.
 func newGame(t *testing.T, players ...kit.Player) (*room, *kittest.Room) {
 	t.Helper()
 	tr := kittest.NewRoom(players...)
+	tr.CreditsMaxPayoutMultiplier = maxPayoutMult
 	rm := newRoom(tr.Config(), tr.Services())
 	rm.OnStart(tr)
 	return rm, tr
+}
+
+// fund sets the seat's account-wide credits balance in the double AND the seat's
+// cached balance to n, so a subsequent Wager (deal/double/split/insurance) draws
+// against a known bankroll.
+func fund(tr *kittest.Room, s *seat, n int) {
+	if tr.Credits == nil {
+		tr.Credits = map[string]int64{}
+	}
+	tr.Credits[s.p.AccountID] = int64(n)
+	s.bal = n
+}
+
+// staked models a seat that has already opened its stake this round: `bal` is the
+// bankroll left after `stake` credits were escrowed. It seeds both the double
+// (balance + open stake) and the seat's cache (bal + roundStake) so a direct
+// settle() call reproduces a post-deal position without replaying the deal.
+func staked(tr *kittest.Room, s *seat, bal, stake int) {
+	if tr.Credits == nil {
+		tr.Credits = map[string]int64{}
+	}
+	if tr.CreditsStakes == nil {
+		tr.CreditsStakes = map[string]int64{}
+	}
+	tr.Credits[s.p.AccountID] = int64(bal)
+	tr.CreditsStakes[s.p.AccountID] = int64(stake)
+	s.bal = bal
+	s.roundStake = int64(stake)
 }
 
 // pump advances the virtual clock by d in heartbeat-sized steps, waking on each,
@@ -44,7 +75,7 @@ func TestPairsSideBetLoopsOnP(t *testing.T) {
 	if s.pairsBet != 0 {
 		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
 	}
-	s.chips = 100000                  // deep enough to afford every tier, so the loop wraps only at the top
+	s.bal = 100000                  // deep enough to afford every tier, so the loop wraps only at the top
 	rm.OnInput(tr, a, runeInput('p')) // P advances one tier
 	if s.pairsBet != pairsTiers[1] {
 		t.Fatalf("after P, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
@@ -69,12 +100,12 @@ func TestPairsSideBetClampedToChips(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.bet = 100
-	s.chips = 105 // can afford the 100 main bet + at most a 5-chip side bet, so only "off"
+	s.bal = 105 // can afford the 100 main bet + at most a 5-chip side bet, so only "off"
 	for i := 0; i < len(pairsTiers); i++ {
 		rm.OnInput(tr, a, runeInput('p'))
 	}
-	if s.bet+s.pairsBet > s.chips {
-		t.Fatalf("main %d + pairs %d exceeds chips %d (clamp failed)", s.bet, s.pairsBet, s.chips)
+	if s.bet+s.pairsBet > s.bal {
+		t.Fatalf("main %d + pairs %d exceeds chips %d (clamp failed)", s.bet, s.pairsBet, s.bal)
 	}
 }
 
@@ -124,7 +155,7 @@ func TestBackBetAdjustsWhenFocused(t *testing.T) {
 	rm.OnJoin(tr, b)
 	sa := rm.seats[a.AccountID]
 	sa.bet = 25
-	sa.chips = 1000
+	sa.bal = 1000
 	rm.OnInput(tr, a, keyInput(kit.KeyRight)) // focus seat b
 	rm.OnInput(tr, a, runeInput('b'))         // behind loops 0 -> 10
 	rm.OnInput(tr, a, runeInput('p'))         // their-pairs loops 0 -> 10
@@ -145,7 +176,7 @@ func TestBackBetBudgetClamped(t *testing.T) {
 	rm.OnJoin(tr, b)
 	sa := rm.seats[a.AccountID]
 	sa.bet = 100
-	sa.chips = 105 // only 5 chips beyond the main bet — no back tier fits
+	sa.bal = 105 // only 5 chips beyond the main bet — no back tier fits
 	rm.OnInput(tr, a, keyInput(kit.KeyRight))
 	for i := 0; i < len(pairsTiers); i++ {
 		rm.OnInput(tr, a, runeInput('b')) // try to raise the behind stake
@@ -155,8 +186,8 @@ func TestBackBetBudgetClamped(t *testing.T) {
 	if bb := sa.backs[b.AccountID]; bb != nil {
 		committed += bb.behind + bb.pairs
 	}
-	if committed > sa.chips {
-		t.Fatalf("total commitment %d exceeds chips %d (budget clamp failed)", committed, sa.chips)
+	if committed > sa.bal {
+		t.Fatalf("total commitment %d exceeds chips %d (budget clamp failed)", committed, sa.bal)
 	}
 }
 
@@ -169,7 +200,7 @@ func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
 	s.bet = 50
 	s.placed = true
 	s.pairsBet = 10
-	s.chips = 1000
+	fund(tr, s, 1000)
 	// Stack the shoe: dealer up + hole, then the seat's two cards — a mixed pair.
 	rm.sh.cards = hand{
 		{10, suitClub}, {9, suitDiamond}, // dealer 19
@@ -186,9 +217,17 @@ func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
 	if s.pairsWin != 70 { // mixed 6:1 on 10 -> 10 + 60
 		t.Fatalf("pairsWin = %d, want 70", s.pairsWin)
 	}
-	// 1000 - 50 (bet) - 10 (pairs stake) + 70 (mixed payout) = 1010.
-	if s.chips != 1010 {
-		t.Fatalf("chips = %d, want 1010 (bet + pairs deducted at deal, mixed pair paid 70)", s.chips)
+	// The deal Wagers the main bet (50) + the pairs stake (10) onto the seat's
+	// open stake: bankroll 1000 -> 940, roundStake 60. The mixed pair's 70 gross
+	// folds into grossThisRound (paid only at the single settle), NOT the balance.
+	if s.bal != 940 {
+		t.Fatalf("bal = %d, want 940 (bet + pairs Wagered at deal)", s.bal)
+	}
+	if s.roundStake != 60 {
+		t.Fatalf("roundStake = %d, want 60 (main 50 + pairs 10)", s.roundStake)
+	}
+	if s.grossThisRound != 70 {
+		t.Fatalf("grossThisRound = %d, want 70 (mixed pair folded into the open stake)", s.grossThisRound)
 	}
 }
 
@@ -199,8 +238,10 @@ func TestDealResolvesBackPairs(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
-	sa.bet, sa.placed, sa.chips = 25, true, 1000
-	sb.bet, sb.placed, sb.chips = 25, true, 1000
+	sa.bet, sa.placed = 25, true
+	sb.bet, sb.placed = 25, true
+	fund(tr, sa, 1000)
+	fund(tr, sb, 1000)
 	sa.backs = map[string]*backBet{b.AccountID: {pairs: 10}} // a backs b's pairs
 	// dealer up+hole, then seat a's two cards, then seat b's two cards (a mixed pair).
 	rm.sh.cards = hand{
@@ -216,9 +257,13 @@ func TestDealResolvesBackPairs(t *testing.T) {
 	if bb.pairsKind != "mixed" || bb.pairsWin != 70 {
 		t.Fatalf("back-pairs on b = kind %q win %d, want mixed/70", bb.pairsKind, bb.pairsWin)
 	}
-	// a paid main 25 + back-pairs 10 and won 70: 1000 - 25 - 10 + 70 = 1035.
-	if sa.chips != 1035 {
-		t.Fatalf("a chips = %d, want 1035", sa.chips)
+	// a Wagered main 25 + back-pairs 10 (bal 1000 -> 965, roundStake 35); the 70
+	// back-pairs gross folds into a's open stake, paid at settle not now.
+	if sa.bal != 965 {
+		t.Fatalf("a bal = %d, want 965 (main 25 + back-pairs 10 Wagered)", sa.bal)
+	}
+	if sa.grossThisRound != 70 {
+		t.Fatalf("a grossThisRound = %d, want 70 (back-pairs win folded in)", sa.grossThisRound)
 	}
 }
 
@@ -229,15 +274,19 @@ func TestDealVoidsBackOnSatOutTarget(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
-	sa.bet, sa.placed, sa.chips = 25, true, 1000
+	sa.bet, sa.placed = 25, true
+	fund(tr, sa, 1000)
 	sb.placed = false // b sits this round out
 	sa.backs = map[string]*backBet{b.AccountID: {behind: 50, pairs: 10}}
 	rm.sh.cards = hand{{10, suitClub}, {9, suitDiamond}, {2, suitSpade}, {7, suitHeart}, {3, suitClub}, {4, suitClub}}
 	rm.sh.pos, rm.sh.roundStart = 0, 0
 	rm.deal(tr)
 
-	if sa.chips != 975 { // only a's own 25 bet deducted; the back on a sat-out seat is voided
-		t.Fatalf("a chips = %d, want 975 (back on sat-out target voided, not deducted)", sa.chips)
+	if sa.bal != 975 { // only a's own 25 bet Wagered; the back on a sat-out seat is voided
+		t.Fatalf("a bal = %d, want 975 (back on sat-out target voided, not Wagered)", sa.bal)
+	}
+	if sa.roundStake != 25 {
+		t.Fatalf("a roundStake = %d, want 25 (only the main bet opened)", sa.roundStake)
 	}
 	if bb := sa.backs[b.AccountID]; bb != nil && (bb.behind != 0 || bb.pairs != 0) {
 		t.Fatalf("back on sat-out target not voided: %+v", bb)
@@ -250,7 +299,8 @@ func TestSettleBehindBetWinFolds(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
-	sa.placed, sa.bet, sa.chips = true, 25, 1000
+	sa.placed, sa.bet = true, 25
+	staked(tr, sa, 925, 75) // a's open stake: main 25 + behind 50 escrowed
 	sa.hands = []*phand{{cards: hand{{2, suitSpade}, {3, suitHeart}}, bet: 25}} // a: 5, loses
 	sb.placed, sb.bet = true, 25
 	sb.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 25}} // b: 19, beats dealer
@@ -263,7 +313,7 @@ func TestSettleBehindBetWinFolds(t *testing.T) {
 	if bb.behindWin != 100 { // even money: 50 stake + 50
 		t.Fatalf("behindWin = %d, want 100 (behind paid even money on b's win)", bb.behindWin)
 	}
-	// a's own hand loses 25; the behind nets +50: round net = +25.
+	// a's own hand loses (gross 0); the behind grosses 100 on a 75 stake: net +25.
 	if sa.result != "WIN +25" {
 		t.Fatalf("a result = %q, want WIN +25 (behind win folded into net)", sa.result)
 	}
@@ -275,7 +325,8 @@ func TestSettleBehindRefundsWhenTargetLeft(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 	sa := rm.seats[a.AccountID]
-	sa.placed, sa.bet, sa.chips = true, 25, 900                                  // behind 50 already deducted at deal
+	sa.placed, sa.bet = true, 25
+	staked(tr, sa, 900, 75) // main 25 + behind 50 escrowed; 900 bankroll left
 	sa.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 25}} // 19, pushes
 	sa.backs = map[string]*backBet{b.AccountID: {behind: 50}}
 	delete(rm.seats, b.AccountID) // b left mid-round
@@ -287,9 +338,10 @@ func TestSettleBehindRefundsWhenTargetLeft(t *testing.T) {
 	if bb := sa.backs[b.AccountID]; bb.behindWin != 50 {
 		t.Fatalf("behindWin = %d, want 50 (behind refunded when target left)", bb.behindWin)
 	}
-	// own hand pushes (+25 returned), behind refunded (+50): 900 + 25 + 50 = 975.
-	if sa.chips != 975 {
-		t.Fatalf("a chips = %d, want 975 (push + behind refund)", sa.chips)
+	// own hand pushes (gross 25), behind refunded (gross 50): Settle(75) on a 75
+	// stake tops the 900 bankroll back to 975.
+	if sa.bal != 975 {
+		t.Fatalf("a bal = %d, want 975 (push + behind refund settled once)", sa.bal)
 	}
 }
 
@@ -300,13 +352,14 @@ func TestSettleFoldsPairsResultIntoNet(t *testing.T) {
 	s := rm.seats[a.AccountID]
 	s.placed = true
 	s.bet = 50
-	s.chips = 1000
 	s.pairsBet = 10
-	s.pairsWin = 70                                                             // a mixed pair already paid at deal
+	staked(tr, s, 940, 60)   // main 50 + pairs 10 escrowed
+	s.pairsWin = 70          // a mixed pair already resolved at deal...
+	s.grossThisRound = 70    // ...and folded into the open stake's gross
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}} // 19
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}                          // 19 -> hand pushes
 	rm.settle(tr)
-	// Hand pushes (net 0); the pairs win folds in: net = (70 - 10) = +60.
+	// Hand pushes (gross 50) atop the pairs gross 70 = 120 on a 60 stake: net +60.
 	if s.result != "WIN +60" {
 		t.Fatalf("result = %q, want WIN +60 (pairs win folded into the round net)", s.result)
 	}
@@ -317,7 +370,9 @@ func TestJoinSeatsPlayer(t *testing.T) {
 	rm, tr := newGame(t, p)
 	rm.OnJoin(tr, p)
 	s := rm.seats[p.AccountID]
-	if s == nil || s.chips != startChips || s.highScore != startChips || s.bet != betTiers[1] {
+	// A fresh account seeds the credits double's default balance (1000); the seat
+	// caches it and seeds its peak from it.
+	if s == nil || s.bal != 1000 || s.highScore != 1000 || s.bet != betTiers[1] {
 		t.Fatalf("bad seat after join: %+v", s)
 	}
 }
@@ -335,8 +390,8 @@ func TestBettingDeductsAndSitsOut(t *testing.T) {
 	if len(rm.seats[a.AccountID].hands) == 0 {
 		t.Fatal("a placed a bet but was not dealt a hand")
 	}
-	if rm.seats[a.AccountID].chips != startChips-50 {
-		t.Errorf("a chips = %d, want %d (bet deducted at deal)", rm.seats[a.AccountID].chips, startChips-50)
+	if rm.seats[a.AccountID].bal != 1000-50 {
+		t.Errorf("a bal = %d, want %d (bet Wagered at deal)", rm.seats[a.AccountID].bal, 1000-50)
 	}
 	if len(rm.seats[b.AccountID].hands) != 0 {
 		t.Error("b placed no bet but was dealt in")
@@ -416,12 +471,12 @@ func TestOnlyActiveSeatActs(t *testing.T) {
 
 func TestDoubleDrawsOneCardAndResolves(t *testing.T) {
 	rm, tr, a, _ := turnsSetup(t, hand{{5, suitSpade}, {6, suitHeart}}, hand{{10, suitClub}, {6, suitDiamond}})
-	rm.seats[a.AccountID].chips = 950
+	fund(tr, rm.seats[a.AccountID], 950)
 	rm.OnInput(tr, a, runeInput('d'))
 
 	h := rm.seats[a.AccountID].hands[0]
-	if rm.seats[a.AccountID].chips != 900 {
-		t.Errorf("chips = %d, want 900 (second bet deducted)", rm.seats[a.AccountID].chips)
+	if rm.seats[a.AccountID].bal != 900 {
+		t.Errorf("bal = %d, want 900 (double Wagered the second bet)", rm.seats[a.AccountID].bal)
 	}
 	if h.bet != 100 || len(h.cards) != 3 || !h.resolved {
 		t.Errorf("after double: bet=%d cards=%d resolved=%v, want 100/3/true", h.bet, len(h.cards), h.resolved)
@@ -430,15 +485,15 @@ func TestDoubleDrawsOneCardAndResolves(t *testing.T) {
 
 func TestSplitFormsTwoHands(t *testing.T) {
 	rm, tr, a, _ := turnsSetup(t, hand{{8, suitSpade}, {8, suitHeart}}, hand{{10, suitClub}, {6, suitDiamond}})
-	rm.seats[a.AccountID].chips = 950
+	fund(tr, rm.seats[a.AccountID], 950)
 	rm.OnInput(tr, a, runeInput('p'))
 
 	s := rm.seats[a.AccountID]
 	if len(s.hands) != 2 {
 		t.Fatalf("after split: %d hands, want 2", len(s.hands))
 	}
-	if s.chips != 900 {
-		t.Errorf("chips = %d, want 900 (second bet)", s.chips)
+	if s.bal != 900 {
+		t.Errorf("bal = %d, want 900 (split Wagered the second bet)", s.bal)
 	}
 	for i, h := range s.hands {
 		if len(h.cards) != 2 {
@@ -449,7 +504,7 @@ func TestSplitFormsTwoHands(t *testing.T) {
 
 func TestSplitAcesTakeOneCardEach(t *testing.T) {
 	rm, tr, a, _ := turnsSetup(t, hand{{rankAce, suitSpade}, {rankAce, suitHeart}}, hand{{10, suitClub}, {6, suitDiamond}})
-	rm.seats[a.AccountID].chips = 950
+	fund(tr, rm.seats[a.AccountID], 950)
 	rm.OnInput(tr, a, runeInput('p'))
 
 	s := rm.seats[a.AccountID]
@@ -480,15 +535,17 @@ func TestBustRebuysAndKeepsHighScore(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 0 // bet already deducted; this hand loses
+	staked(tr, s, 0, 50) // bet 50 already escrowed; broke bankroll; this hand loses
 	s.highScore = 2500
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {10, suitHeart}, {5, suitClub}}, bet: 50}} // 25, bust
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
 
 	rm.settle(tr)
 
-	if s.chips != rebuyChips {
-		t.Errorf("chips = %d, want re-buy to %d", s.chips, rebuyChips)
+	// The losing stake Settles for 0, leaving the seat broke, so the platform
+	// broke-relief Buyback tops the balance up to the double's rebuy amount (1000).
+	if s.bal != 1000 {
+		t.Errorf("bal = %d, want re-buy to 1000", s.bal)
 	}
 	if s.highScore != 2500 {
 		t.Errorf("highScore = %d, want 2500 (a bust must not lower it)", s.highScore)
@@ -501,14 +558,16 @@ func TestRebuyWhenBelowMinimumBet(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 5 // above zero but can't cover the 10-chip minimum -> soft-lock without a re-buy
+	staked(tr, s, 5, 5) // 5 left, above zero but under the 10-credit minimum bet
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {8, suitHeart}}, bet: 5}}
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}} // dealer 19 beats 18
 
 	rm.settle(tr)
 
-	if s.chips != rebuyChips {
-		t.Errorf("chips = %d, want re-buy to %d (a stack under the minimum bet must re-buy)", s.chips, rebuyChips)
+	// After the loss settles, 5 credits is under the minimum bet, so Buyback tops
+	// the balance up to the double's rebuy amount (1000) rather than soft-locking.
+	if s.bal != 1000 {
+		t.Errorf("bal = %d, want re-buy to 1000 (a stack under the minimum bet must re-buy)", s.bal)
 	}
 }
 
@@ -518,7 +577,7 @@ func TestBehindBetsAreStickyAcrossRounds(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 	sa := rm.seats[a.AccountID]
-	sa.chips = 1000
+	sa.bal = 1000
 	sa.backs = map[string]*backBet{b.AccountID: {behind: 50, pairs: 10}}
 
 	rm.enterBetting(tr) // a fresh betting window must carry a's back on b
@@ -538,7 +597,7 @@ func TestStickyBackPrunedWhenTargetLeaves(t *testing.T) {
 	rm.OnJoin(tr, a)
 	rm.OnJoin(tr, b)
 	sa := rm.seats[a.AccountID]
-	sa.chips = 1000
+	sa.bal = 1000
 	sa.backs = map[string]*backBet{b.AccountID: {behind: 50}}
 
 	rm.OnLeave(tr, b)   // b leaves the table
@@ -566,15 +625,15 @@ func TestBlackjackPays3to2(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 950 // 100 already staked at deal
+	staked(tr, s, 950, 100) // 100 escrowed at deal, 950 bankroll left
 	s.hands = []*phand{{cards: hand{{rankAce, suitSpade}, {rankKing, suitHeart}}, bet: 100}}
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}} // dealer 19, no blackjack
 
 	rm.settle(tr)
 
-	// 3:2 blackjack credits stake (100) + 150 = 250, on top of the 950 left.
-	if s.chips != 1200 {
-		t.Errorf("chips = %d, want 1200 (blackjack pays 3:2)", s.chips)
+	// 3:2 blackjack grosses stake (100) + 150 = 250; Settle(250) tops 950 -> 1200.
+	if s.bal != 1200 {
+		t.Errorf("bal = %d, want 1200 (blackjack pays 3:2)", s.bal)
 	}
 }
 
@@ -585,18 +644,21 @@ func TestInsurancePaysOnDealerBlackjack(t *testing.T) {
 	s := rm.seats[a.AccountID]
 	s.placed = true
 	s.bet = 50
-	s.chips = 950
+	fund(tr, s, 950)
 	rm.dealer = hand{{rankAce, suitSpade}, {rankKing, suitHeart}} // dealer blackjack
+	rm.dealerHole = true
 
-	rm.takeInsurance(s, true) // insurance = 25, chips 925
-	if s.insurance != 25 || s.chips != 925 {
-		t.Fatalf("after taking insurance: ins=%d chips=%d, want 25/925", s.insurance, s.chips)
+	rm.takeInsurance(s, true) // insurance = 25 Wagered onto the open stake -> bal 925
+	if s.insurance != 25 || s.bal != 925 {
+		t.Fatalf("after taking insurance: ins=%d bal=%d, want 25/925", s.insurance, s.bal)
 	}
 
-	rm.resolveInsurance(tr) // 2:1 -> +75, dealer BJ settles the round
+	rm.resolveInsurance(tr)     // 2:1 -> +75 folds into gross, dealer BJ defers settle
+	pump(rm, tr, 5*time.Second) // let the reveal + settle play out
 
-	if s.chips != 1000 {
-		t.Errorf("chips = %d, want 1000 (insurance paid 2:1)", s.chips)
+	// The insurance 2:1 (75 gross) settles the 25 stake: 925 -> 1000.
+	if s.bal != 1000 {
+		t.Errorf("bal = %d, want 1000 (insurance paid 2:1)", s.bal)
 	}
 	if rm.dealerHole {
 		t.Error("dealer hole card should be revealed after a dealer blackjack")
@@ -635,37 +697,32 @@ func TestDealingOrderIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestWalletSeedsPersistsAndPostsPeak covers the durable wallet (balance sum /
-// peak max) and the leaderboard Post on a new personal peak.
-func TestWalletSeedsPersistsAndPostsPeak(t *testing.T) {
+// TestBalanceSeedsAndPostsPeak covers the account-wide credits path: a fresh
+// seat caches the default balance, and a winning settle raises the peak
+// (sourced from the post-Settle balance) and Posts it to the leaderboard.
+func TestBalanceSeedsAndPostsPeak(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
 
-	// First seat seeds the default stack into KV.
-	if got := string(tr.KV[a.AccountID][keyBalance]); got != "1000" {
-		t.Fatalf("seeded balance KV = %q, want 1000", got)
-	}
-	if got := tr.KVRules[a.AccountID][keyBalance]; got != kit.MergeSum {
-		t.Errorf("balance merge rule = %v, want MergeSum", got)
-	}
-	if got := tr.KVRules[a.AccountID][keyPeak]; got != kit.MergeMax {
-		t.Errorf("peak merge rule = %v, want MergeMax", got)
+	// A fresh seat seeds the credits double's default balance into the cache.
+	s := rm.seats[a.AccountID]
+	if s.bal != 1000 || s.highScore != 1000 {
+		t.Fatalf("seeded seat: bal=%d high=%d, want 1000/1000", s.bal, s.highScore)
 	}
 
-	// A winning settle raises the peak, persists it, and posts it to the board.
-	s := rm.seats[a.AccountID]
+	// A winning settle raises the peak from the fresh balance and posts it.
 	s.placed = true
-	s.chips = 1900 // 100 staked at deal, hand will win 200
+	staked(tr, s, 1900, 100) // 100 escrowed, hand will gross 200
 	s.hands = []*phand{{cards: hand{{rankKing, suitSpade}, {rankQueen, suitHeart}}, bet: 100}}
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}} // dealer 19, player 20 wins
 	rm.settle(tr)
 
-	if s.chips != 2100 || s.highScore != 2100 {
-		t.Fatalf("after win: chips=%d high=%d, want 2100/2100", s.chips, s.highScore)
+	if s.bal != 2100 || s.highScore != 2100 {
+		t.Fatalf("after win: bal=%d high=%d, want 2100/2100", s.bal, s.highScore)
 	}
-	if got := string(tr.KV[a.AccountID][keyPeak]); got != "2100" {
-		t.Errorf("persisted peak KV = %q, want 2100", got)
+	if got := tr.Credits[a.AccountID]; got != 2100 {
+		t.Errorf("settled account balance = %d, want 2100", got)
 	}
 	if len(tr.Posted) == 0 {
 		t.Fatal("a new peak should Post to the leaderboard")
@@ -673,6 +730,27 @@ func TestWalletSeedsPersistsAndPostsPeak(t *testing.T) {
 	last := tr.Posted[len(tr.Posted)-1]
 	if len(last.Rankings) != 1 || last.Rankings[0].Metric != 2100 {
 		t.Errorf("posted ranking = %+v, want metric 2100", last.Rankings)
+	}
+}
+
+// TestTopPrizeDoesNotClamp asserts the declared MaxPayoutMultiplier (26) covers
+// the game's largest single-stake outcome: a Perfect Pairs "perfect" pair pays
+// 25:1, grossing stake×(25+1) = stake×26 — exactly the ceiling, so it settles in
+// full and is never clamped.
+func TestTopPrizeDoesNotClamp(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	// A lone 100 Perfect Pairs stake hitting a "perfect" pair: gross 2600.
+	staked(tr, s, 0, 100)
+	s.grossThisRound = 100 * (25 + 1) // 2600, the top pairs payout
+	net := rm.settleOpenStake(s)
+	if net != 2500 {
+		t.Fatalf("net = %d, want 2500 (top pairs prize settles unclamped)", net)
+	}
+	if got := tr.Credits[a.AccountID]; got != 2600 {
+		t.Fatalf("settled balance = %d, want 2600 (full 26x top prize paid)", got)
 	}
 }
 
@@ -980,7 +1058,7 @@ func TestInsuranceSkipsTimerOnceAllDecided(t *testing.T) {
 		s := rm.seats[p.AccountID]
 		s.placed = true
 		s.bet = 50
-		s.chips = 950
+		s.bal = 950
 		s.hands = []*phand{{cards: hand{{10, suitSpade}, {7, suitHeart}}, bet: 50}}
 	}
 	rm.dealer = hand{{rankAce, suitSpade}, {6, suitHeart}} // shows an Ace, no blackjack
@@ -1006,7 +1084,7 @@ func TestResultLabelDoesNotLeakChips(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 1000 // "$1000" is wider than "PUSH"
+	s.bal = 1000 // "$1000" is wider than "PUSH"
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}}
 	s.result = "PUSH"
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
@@ -1029,7 +1107,7 @@ func TestReadyUpSkipsTheResultsWait(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 950
+	staked(tr, s, 950, 50)
 	s.hands = []*phand{{cards: hand{{rankKing, suitSpade}, {rankQueen, suitHeart}}, bet: 50}} // 20
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}                                        // 19, player wins
 	rm.settle(tr)
@@ -1163,10 +1241,11 @@ func TestResultsShowsPerfectPairsWin(t *testing.T) {
 	s := rm.seats[a.AccountID]
 	s.placed = true
 	s.bet = 50
-	s.chips = 1000
+	staked(tr, s, 1000, 75) // main 50 + pairs 25 escrowed
 	s.pairsBet = 25
 	s.pairsKind = "colored"
 	s.pairsWin = 325
+	s.grossThisRound = 325 // the colored pair already folded into the open stake
 	s.hands = []*phand{{cards: hand{{8, suitHeart}, {8, suitDiamond}}, bet: 50}}
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
 	rm.settle(tr) // -> results phase
@@ -1215,7 +1294,7 @@ func TestSplitSeatShowsEveryHandsCards(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 800
+	s.bal = 800
 	s.hands = []*phand{
 		{cards: hand{{8, suitSpade}, {3, suitHeart}}, bet: 50, fromSplit: true},
 		{cards: hand{{8, suitClub}, {10, suitDiamond}}, bet: 50, fromSplit: true},
@@ -1251,7 +1330,7 @@ func TestReadyUpWaitsOnOtherPlayers(t *testing.T) {
 	for _, p := range []kit.Player{a, b} {
 		s := rm.seats[p.AccountID]
 		s.placed = true
-		s.chips = 950
+		staked(tr, s, 950, 50)
 		s.hands = []*phand{{cards: hand{{rankKing, suitSpade}, {rankQueen, suitHeart}}, bet: 50}}
 	}
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
@@ -1295,7 +1374,7 @@ func TestSplitAcesShowOneCardNote(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 900
+	s.bal = 900
 	s.hands = []*phand{
 		{cards: hand{{rankAce, suitSpade}, {rankKing, suitHeart}}, bet: 50, fromSplit: true, resolved: true}, // 21
 		{cards: hand{{rankAce, suitClub}, {6, suitDiamond}}, bet: 50, fromSplit: true, resolved: true},       // soft 17
@@ -1331,7 +1410,7 @@ func TestPairsVerdictHeldUntilCardsLand(t *testing.T) {
 	s := rm.seats[a.AccountID]
 	s.placed = true
 	s.bet = 50
-	s.chips = 1000
+	s.bal = 1000
 	s.pairsBet = 25
 	// A non-pair hand: the side bet loses, and that must stay hidden mid-deal.
 	s.hands = []*phand{{cards: hand{{9, suitSpade}, {4, suitHeart}}, bet: 50}}
@@ -1364,17 +1443,18 @@ func TestInsuranceFoldsIntoResultNet(t *testing.T) {
 	s := rm.seats[a.AccountID]
 	s.placed = true
 	s.bet = 100
-	s.chips = 900                                                                // the main bet was already deducted at the deal
+	staked(tr, s, 900, 100)                                                      // main 100 escrowed at the deal
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 100}} // 19, loses to BJ
 	rm.dealer = hand{{rankAce, suitSpade}, {rankKing, suitHeart}}                // dealer blackjack
 	rm.dealerHole = true
 
-	rm.takeInsurance(s, true) // stake 50 -> chips 850
-	rm.resolveInsurance(tr)   // dealer BJ pays 2:1 (+150) -> chips 1000, defers settle
-	pump(rm, tr, 5*time.Second)
+	rm.takeInsurance(s, true)   // stake 50 Wagered -> bal 850, roundStake 150
+	rm.resolveInsurance(tr)     // dealer BJ pays 2:1 (+150 gross), defers settle
+	pump(rm, tr, 5*time.Second) // reveal + single Settle plays out
 
-	if s.chips != 1000 {
-		t.Fatalf("chips = %d, want 1000 (insured loss breaks even)", s.chips)
+	// Insurance gross 150 exactly offsets the lost main bet on a 150 stake: net 0.
+	if s.bal != 1000 {
+		t.Fatalf("bal = %d, want 1000 (insured loss breaks even)", s.bal)
 	}
 	if s.result != "PUSH" {
 		t.Fatalf("result = %q, want PUSH (insurance offsets the main-bet loss in the net)", s.result)
@@ -1392,7 +1472,7 @@ func TestManyCardHandStaysInItsSlot(t *testing.T) {
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.chips = 800
+	s.bal = 800
 	s.hands = []*phand{{cards: hand{{2, suitSpade}, {2, suitHeart}, {3, suitClub}, {4, suitDiamond}, {5, suitSpade}}, bet: 50}}
 	rm.dealer = hand{{10, suitClub}, {7, suitDiamond}}
 	rm.phase = phTurns
