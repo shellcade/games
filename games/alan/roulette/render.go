@@ -612,6 +612,11 @@ func (rm *room) roundNet(pl *player) (won, staked int) {
 		won += settleReturn(masterBets[b.master], b.stake, rm.result)
 		staked += b.stake
 	}
+	// Mirror the settlement clamp so the results panel never shows a gross bigger
+	// than the host will actually pay (stake*maxPayoutMult).
+	if cap := staked * maxPayoutMult; won > cap {
+		won = cap
+	}
 	return won, staked
 }
 
@@ -710,7 +715,7 @@ func (rm *room) drawSeats(f *kit.Frame, v kit.Player) {
 			nameSt.Attr |= kit.AttrBold
 		}
 		f.Text(seatsRow, x+3, name, nameSt)                       // name
-		f.Text(seatsRow+1, x+1, strconv.Itoa(pl.balance), stHead) // chips, underneath
+		f.Text(seatsRow+1, x+1, strconv.FormatInt(pl.bal, 10), stHead) // credits, underneath
 		rm.drawSeatStatus(f, seatsRow+2, x+1, pl)                 // status, under that
 	}
 }
@@ -814,7 +819,11 @@ func (rm *room) drawHelp(f *kit.Frame, pl *player) {
 		f.Text(helpRow, 2, help, stDim)
 	}
 	if pl != nil {
-		f.TextRight(helpRow, kit.Cols-2, "BAL "+strconv.Itoa(pl.balance), stTitle)
+		bal := "BAL " + strconv.FormatInt(pl.bal, 10)
+		if rm.econOff {
+			bal = "CREDITS OFFLINE"
+		}
+		f.TextRight(helpRow, kit.Cols-2, bal, stTitle)
 	}
 }
 

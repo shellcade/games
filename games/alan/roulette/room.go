@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"strconv"
-	"strings"
 	"time"
 
 	kit "github.com/shellcade/kit/v2"
@@ -19,8 +16,16 @@ const (
 )
 
 const (
-	startBalance = 1000 // chips a first-ever player sits down with
-	rebuyAmount  = 1000  // balance restored on a bust
+	// maxPayoutMult is the declared per-seat gross ceiling (Meta.MaxPayoutMultiplier).
+	// The richest single wager is a straight-up (35:1): a winning stake returns
+	// stake*(35+1) = stake*36, and no combination of chips on the board can return
+	// more than 36x the seat's total stake — so a whole-board gross is a
+	// stake-weighted blend that is always <= 36x. This is the true top prize.
+	maxPayoutMult = 36
+
+	// minBet is the table minimum (the lowest chip tier); a seat whose account-wide
+	// balance falls below it after a Settle is offered the platform Buyback.
+	minBet = 5
 
 	bettingDur  = 20 * time.Second // the open betting window
 	spinAnimDur = 5 * time.Second  // wheel deceleration
@@ -35,21 +40,6 @@ const (
 	flashPeriod = 300 * time.Millisecond // half a blink cycle
 
 	historyLen = 12 // recent winning numbers kept for the marquee
-
-	// peakFlushInterval throttles the periodic leaderboard flush. roulette is a
-	// continuous table whose rounds loop forever; a player can be seated while
-	// the table is abandoned mid-spin and never hit a NEW peak (so postPeak never
-	// fires). To keep the board "constantly saved" with seated players' current
-	// peaks, OnWake re-posts every tracked player on this game-time cadence —
-	// cheap, deterministic, gated on r.Now() (no wall clock, no timer). 10s is
-	// well inside the betting window so the flush never collides with a round
-	// one-shot, yet frequent enough that an idle table stays fresh on the board.
-	peakFlushInterval = 10 * time.Second
-
-	// wallet KV keys + merge rules, the casino pattern (balance: sum, the
-	// carryable bankroll; peak: max, the high-water mark + leaderboard metric).
-	keyBalance = "balance"
-	keyPeak    = "peak"
 )
 
 // stakeTiers are the selectable chip denominations, lowest first. The 5 chip is
@@ -71,12 +61,12 @@ type placedBet struct {
 // hibernation freeze/thaw (connections change; accounts don't).
 type player struct {
 	p          kit.Player
-	balance    int
-	peak       int
-	postedPeak int // last peak Posted to the board (post only on increase)
-	stakeIdx   int // index into stakeTiers
+	bal        int64 // cached account-wide Credits balance (refreshed at money events)
+	postedPeak int64 // highest balance Posted to the board (post only on increase)
+	stakeIdx   int   // index into stakeTiers
 	sel        selection
 	bets       []placedBet
+	wagered    bool // an escrow is open for this seat (Wagered this spin, not yet Settled)
 	ready      bool
 	joinOrder  int
 	colorIdx   int // index into the chip-colour palette (stable while seated)
@@ -93,6 +83,11 @@ func (pl *player) staked() int {
 	}
 	return t
 }
+
+// avail is what this seat can still put on the felt: the cached account-wide
+// balance less the chips already down (bets are LOCAL until the spin locks, so
+// nothing is escrowed yet — affordability is purely bal minus staked).
+func (pl *player) avail() int64 { return pl.bal - int64(pl.staked()) }
 
 // pending names the deferred one-shot the room is waiting on — each a deadline
 // held in guest memory and landed in OnWake when r.Now() passes it (the wake
@@ -133,11 +128,10 @@ type room struct {
 	spunOnce  bool
 	history   []int // recent winning numbers, newest last
 
-	// sk mirrors every posted peak so the periodic flush can re-post all seated
-	// players in deterministic order; lastFlush is the game-time instant of the
-	// last FlushAll, throttling it to peakFlushInterval.
-	sk        *kit.ScoreKeeper
-	lastFlush time.Time
+	// econOff is set when the host has no Credits economy (svc.Credits nil, or a
+	// Balance call reports the economy disabled/unavailable). The table then
+	// renders "credits offline" instead of a bankroll rather than trapping.
+	econOff bool
 
 	lastNow  time.Time
 	frame    *kit.Frame
@@ -155,7 +149,6 @@ func newRoom(cfg kit.RoomConfig, svc kit.Services) *room {
 		cfg:      cfg,
 		svc:      svc,
 		players:  map[string]*player{},
-		sk:       kit.NewScoreKeeper(kit.OnImprove),
 		frame:    kit.NewFrame(),
 		chipBits: make([]uint8, len(masterBets)),
 	}
@@ -182,78 +175,71 @@ func (rm *room) freeColorIdx() int {
 
 func (rm *room) OnStart(r kit.Room) {
 	rm.lastNow = r.Now()
-	rm.lastFlush = r.Now()
 	rm.enterBetting(r)
 	rm.render(r)
 }
 
+// OnClose closes any still-open escrow before the room disappears. The balances
+// themselves are the platform's — nothing local to persist — but a seat that
+// was mid-spin (Wagered, not yet Settled) when the room tears down must be
+// Settled or its escrow leaks. The result is already rolled, so book the fair
+// gross.
 func (rm *room) OnClose(r kit.Room) {
+	if rm.svc.Credits == nil {
+		return
+	}
 	for _, id := range rm.order {
-		if pl := rm.players[id]; pl != nil {
-			rm.persistWallet(r, pl)
+		if pl := rm.players[id]; pl != nil && pl.wagered {
+			_ = rm.svc.Credits.Settle(pl.p, rm.grossFor(pl))
+			pl.wagered = false
 		}
 	}
 }
 
-// --- durable wallet (the casino pattern over kv) ---------------------------
+// --- account-wide Credits (the platform economy) ---------------------------
 
-func kvInt(store kit.KVStore, key string) (int, bool) {
-	v, ok, err := store.Get(context.Background(), key)
-	if err != nil || !ok {
-		return 0, false
+// refreshBal caches the seat's authoritative account-wide balance. Called only
+// at money events (join, post-Wager, post-Settle, Buyback) — never per frame —
+// so the hot render path reads the cached pl.bal. A nil economy or a
+// disabled/unavailable host flips econOff and leaves the last cached value.
+func (rm *room) refreshBal(pl *player) {
+	if rm.svc.Credits == nil {
+		rm.econOff = true
+		return
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(v)))
+	b, err := rm.svc.Credits.Balance(pl.p)
 	if err != nil {
-		return 0, false
-	}
-	return n, true
-}
-
-// seedWallet returns the joining player's durable (balance, peak): balance
-// defaults to startBalance for a first-ever player (or a non-positive stored
-// balance), and peak is raised to at least the balance. A nil/guest account
-// returns the defaults.
-func (rm *room) seedWallet(r kit.Room, p kit.Player) (balance, peak int) {
-	acct := r.Services().Accounts.For(p)
-	if acct == nil {
-		return startBalance, startBalance
-	}
-	store := acct.Store()
-	bal, ok := kvInt(store, keyBalance)
-	if !ok || bal <= 0 {
-		bal = startBalance
-	}
-	pk, ok := kvInt(store, keyPeak)
-	if !ok || pk < bal {
-		pk = bal
-	}
-	return bal, pk
-}
-
-// persistWallet writes the current balance (summed) and raises peak (max). The
-// monotonic max-on-write means out-of-order or concurrent same-account writes
-// can never regress the leaderboard metric.
-func (rm *room) persistWallet(r kit.Room, pl *player) {
-	acct := r.Services().Accounts.For(pl.p)
-	if acct == nil {
+		rm.econOff = true
 		return
 	}
-	store := acct.Store()
-	_ = store.Set(context.Background(), keyBalance, []byte(strconv.Itoa(pl.balance)), kit.MergeSum)
-	_ = store.Set(context.Background(), keyPeak, []byte(strconv.Itoa(pl.peak)), kit.MergeMax)
+	rm.econOff = false
+	pl.bal = b
 }
 
-// postPeak feeds the declared leaderboard with a new personal peak (the board
-// keeps each account's best). KV is durable state; Post is what reaches the
-// board.
+// grossFor is the seat's clamped gross return for the current result: the stake
+// back plus winnings on every covered bet, capped at stake*maxPayoutMult so the
+// game never books (or shows) more than the host will actually pay.
+func (rm *room) grossFor(pl *player) int64 {
+	var ret int64
+	for _, b := range pl.bets {
+		ret += int64(settleReturn(masterBets[b.master], b.stake, rm.result))
+	}
+	if cap := int64(pl.staked()) * maxPayoutMult; ret > cap {
+		ret = cap
+	}
+	return ret
+}
+
+// postPeak feeds the declared leaderboard with the seat's account-wide balance
+// whenever it sets a new personal high (the board keeps each account's best).
 func (rm *room) postPeak(r kit.Room, pl *player) {
-	if pl.peak <= pl.postedPeak {
+	if pl.bal <= pl.postedPeak {
 		return
 	}
-	pl.postedPeak = pl.peak
-	// Record (cadence OnImprove) posts the new high AND registers the player with
-	// the keeper so the periodic FlushAll re-posts them while seated.
-	rm.sk.Record(r, pl.p, pl.peak)
+	pl.postedPeak = pl.bal
+	r.Post(kit.Result{Rankings: []kit.PlayerResult{{
+		Player: pl.p, Metric: int(pl.bal), Status: kit.StatusFinished,
+	}}})
 }
 
 // --- roster ----------------------------------------------------------------
@@ -261,32 +247,41 @@ func (rm *room) postPeak(r kit.Room, pl *player) {
 func (rm *room) OnJoin(r kit.Room, p kit.Player) {
 	if pl := rm.players[p.AccountID]; pl != nil {
 		pl.p = p // refresh the token (handle/conn may have changed on rejoin)
+		rm.refreshBal(pl)
 		rm.render(r)
 		return
 	}
-	bal, peak := rm.seedWallet(r, p)
-	rm.players[p.AccountID] = &player{
-		p: p, balance: bal, peak: peak, postedPeak: peak,
+	pl := &player{
+		p:        p,
 		stakeIdx: defaultStakeIdx,
 		sel:      newSelection(), joinOrder: rm.joinSeq, colorIdx: rm.freeColorIdx(),
 	}
+	rm.refreshBal(pl)   // read the account-wide balance the platform owns
+	pl.postedPeak = pl.bal
+	rm.clampStake(pl) // arm the highest chip this balance can cover
+	rm.players[p.AccountID] = pl
 	rm.joinSeq++
 	rm.order = append(rm.order, p.AccountID)
 	rm.render(r)
 }
 
-// OnLeave persists the leaver's wallet and frees the seat. Bets still on the
-// felt during the open betting window are refunded (the round hasn't resolved);
-// bets locked in once the wheel is spinning are forfeit, as at a real table.
+// OnLeave frees the seat. A seat that has an OPEN escrow (Wagered at spin lock,
+// not yet Settled) must be Settled or the stake leaks: the result is already
+// rolled, so book the fair gross. Chips merely resting on the felt during the
+// open betting window are pre-Wager — a purely local refund, no escrow to close.
 func (rm *room) OnLeave(r kit.Room, p kit.Player) {
 	pl := rm.players[p.AccountID]
 	if pl == nil {
 		return
 	}
-	if rm.phase == phBetting {
+	if pl.wagered {
+		if rm.svc.Credits != nil {
+			_ = rm.svc.Credits.Settle(pl.p, rm.grossFor(pl))
+		}
+		pl.wagered = false
+	} else if rm.phase == phBetting {
 		rm.refundAll(pl)
 	}
-	rm.persistWallet(r, pl)
 	delete(rm.players, p.AccountID)
 	for i, id := range rm.order {
 		if id == p.AccountID {
@@ -319,14 +314,6 @@ func (rm *room) OnWake(r kit.Room) {
 			rm.what = pendNone
 			rm.enterBetting(r)
 		}
-	}
-	// Periodic peak flush: on a throttled game-time cadence, re-post every
-	// tracked (seated) player's current peak so an abandoned, still-ticking
-	// table keeps the board "constantly saved". Gated purely on r.Now() — no
-	// wall clock, no RNG — so it stays deterministic under freeze/thaw.
-	if rm.lastNow.Sub(rm.lastFlush) >= peakFlushInterval {
-		rm.lastFlush = rm.lastNow
-		rm.sk.FlushAll(r, kit.StatusFinished)
 	}
 	rm.render(r)
 }
@@ -422,8 +409,9 @@ func (rm *room) cancelEarlyClose() {
 // --- stakes & chips --------------------------------------------------------
 
 func (rm *room) clampStake(pl *player) {
-	// Drop to the highest tier the balance can cover (at least the lowest index).
-	for pl.stakeIdx > 0 && stakeTiers[pl.stakeIdx] > pl.balance {
+	// Drop to the highest tier the still-available balance can cover (at least the
+	// lowest index). Bets are local until spin lock, so "available" is bal - staked.
+	for pl.stakeIdx > 0 && int64(stakeTiers[pl.stakeIdx]) > pl.avail() {
 		pl.stakeIdx--
 	}
 }
@@ -440,17 +428,19 @@ func (rm *room) adjustStake(pl *player, dir int) {
 	rm.clampStake(pl)
 }
 
-// placeBet puts the current stake on the armed bet, deducting immediately.
+// placeBet puts the current stake on the armed bet. This is LOCAL bookkeeping
+// only — nothing is escrowed until the spin locks (the ABI has no un-wager, so
+// chips a player might still undo/clear cannot be Wagered yet); affordability
+// gates on the cached balance less what is already down.
 func (rm *room) placeBet(pl *player) {
 	mi := pl.sel.betIndex()
 	if mi < 0 {
 		return
 	}
 	stake := stakeTiers[pl.stakeIdx]
-	if stake > pl.balance {
+	if int64(stake) > pl.avail() {
 		return // can't cover it
 	}
-	pl.balance -= stake
 	pl.bets = append(pl.bets, placedBet{master: mi, stake: stake})
 	// Placing a chip un-readies you — and if the table was already in the grace
 	// beat, backs out of the early close too (same as un-readying with r), so a
@@ -459,32 +449,57 @@ func (rm *room) placeBet(pl *player) {
 	rm.cancelEarlyClose()
 }
 
-// undoBet removes and refunds the last chip placed.
+// undoBet removes the last chip placed (local only — pre-Wager).
 func (rm *room) undoBet(pl *player) {
 	n := len(pl.bets)
 	if n == 0 {
 		return
 	}
-	pl.balance += pl.bets[n-1].stake
 	pl.bets = pl.bets[:n-1]
 }
 
-// clearBets refunds every chip on the felt.
+// clearBets drops every chip on the felt (local only — pre-Wager).
 func (rm *room) clearBets(pl *player) { rm.refundAll(pl) }
 
-func (rm *room) refundAll(pl *player) {
-	pl.balance += pl.staked()
-	pl.bets = nil
-}
+func (rm *room) refundAll(pl *player) { pl.bets = nil }
 
 // --- spinning & settlement -------------------------------------------------
 
 func (rm *room) startSpin(r kit.Room) {
+	// The outcome is rolled once, up front, from the seeded RNG so a seeded room
+	// reproduces every result and a later render never re-rolls it.
+	rm.result = r.Rand().Intn(pockets)
+	rm.spunOnce = true
+
+	// Lock in ONE escrow per seat: the whole board is a single Wager, taken now.
+	// A seat is only in the spin if its Wager succeeds; the ABI has no un-wager,
+	// so this is the first and only escrow of the round.
+	n := 0
+	for _, id := range rm.order {
+		pl := rm.players[id]
+		if pl == nil || len(pl.bets) == 0 {
+			continue
+		}
+		amt := int64(pl.staked())
+		if rm.svc.Credits == nil {
+			pl.bets = nil // economy off: cannot take the bet, drop the chips
+			continue
+		}
+		if err := rm.svc.Credits.Wager(pl.p, amt); err != nil {
+			pl.bets = nil // couldn't escrow (insufficient/disabled) — sit them out
+			continue
+		}
+		pl.wagered = true
+		pl.bal -= amt // reflect the escrow in the cached HUD balance
+		n++
+	}
+	if n == 0 {
+		rm.enterBetting(r) // nobody's stake could be taken — reopen the window
+		return
+	}
 	rm.phase = phSpinning
 	rm.closing = false
 	rm.spinStart = r.Now()
-	rm.result = r.Rand().Intn(pockets) // the outcome, fixed up front
-	rm.spunOnce = true
 	rm.deadline = rm.spinStart.Add(spinDur)
 	rm.arm(pendSettle, rm.deadline)
 }
@@ -495,24 +510,31 @@ func (rm *room) settle(r kit.Room) {
 		if pl == nil {
 			continue
 		}
-		staked := pl.staked()
-		ret := 0
-		for _, b := range pl.bets {
-			ret += settleReturn(masterBets[b.master], b.stake, rm.result)
+		if !pl.wagered { // no escrow this round (sat out or Wager was refused)
+			pl.lastPlayed = false
+			continue
 		}
-		pl.balance += ret
-		pl.lastPlayed = len(pl.bets) > 0
-		pl.lastNet = ret - staked
+		staked := pl.staked()
+		ret := rm.grossFor(pl) // clamped gross (0 on a total loss)
+		// Close the ONE open stake with its gross exactly once.
+		if rm.svc.Credits != nil {
+			_ = rm.svc.Credits.Settle(pl.p, ret)
+		}
+		pl.wagered = false
+		pl.lastPlayed = staked > 0
+		pl.lastNet = int(ret) - staked
 		// The chips stay on the felt through the results screen so players can
 		// see them against the winning number; enterBetting clears them when the
 		// next window opens.
-		if pl.balance <= 0 {
-			pl.balance = rebuyAmount
+		rm.refreshBal(pl) // authoritative post-settle account-wide balance
+		// Broke-relief: a seat wiped below the table minimum tops up from the
+		// platform Buyback (solvent/limit-reached returns ErrInsufficientCredits,
+		// which we surface by simply leaving the balance as-is — no retry).
+		if pl.bal < minBet && rm.svc.Credits != nil {
+			if nb, err := rm.svc.Credits.Buyback(pl.p); err == nil {
+				pl.bal = nb
+			}
 		}
-		if pl.balance > pl.peak {
-			pl.peak = pl.balance
-		}
-		rm.persistWallet(r, pl)
 		rm.postPeak(r, pl)
 	}
 	// Record the winning number for the marquee.

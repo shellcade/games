@@ -9,8 +9,9 @@
 // deceleration, and the results hold are deadlines held in guest memory and
 // landed in OnWake against CallContext time (no host timer survives a thaw);
 // the spin outcome is rolled up front from the room's seeded RNG so a seeded
-// room reproduces every result; and the durable bankroll uses the casino kv
-// pattern (balance summed, peak max-merged) feeding a peak-ranked leaderboard.
+// room reproduces every result; and bankrolls are the platform's account-wide
+// Credits (the host owns every balance) — the board is wagered as one escrow per
+// seat at spin lock and Settled once at payout, feeding a peak-Credits leaderboard.
 //
 // This is the dual-target entrypoint: `go run .` plays it in your terminal with
 // normal Go tooling (and `go run . -smoke smoke.yaml -smoke-out shots/` writes
