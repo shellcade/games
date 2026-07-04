@@ -237,7 +237,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 		}
 		drawCardsAnim(f, seatCardRow, col, h.cards, -1, rm.seatResolver(s.p, hi, h))
 		col += w + 1
-		vals = append(vals, valueLabel(h.cards, h.autoWon)+dblTag(h))
+		vals = append(vals, valueLabel(h.cards, h.autoWon, h.bjMult)+dblTag(h))
 	}
 	// During results the value line doubles as the ready indicator: a readied
 	// seat shows READY where its hand total was, so who's holding up the table
@@ -813,7 +813,7 @@ func compactHandLine(h *phand, active bool) (string, kit.Style) {
 		cards.WriteString(c.r.boxLabel())
 		cards.WriteRune(c.s.pip())
 	}
-	total := valueLabel(h.cards, h.autoWon) + dblTag(h)
+	total := valueLabel(h.cards, h.autoWon, h.bjMult) + dblTag(h)
 	marker, st := " ", stCard
 	if h.cards.isBust() {
 		st = stLose
@@ -842,14 +842,19 @@ func dblTag(h *phand) string {
 }
 
 // valueLabel formats a hand's total for the felt. Any two-card 21 reads as
-// "BJ" — split hands included, they ARE blackjacks on this table. An
-// auto-won hand names its win: "21!" for a Player 21, "5-CARD" for a Five
-// Card Trick.
-func valueLabel(h hand, autoWon bool) string {
+// "BJ" — split hands included, they ARE blackjacks on this table. Once
+// settle has fixed bjMult (the ranked X:1 this blackjack paid), the tier
+// appends: "BJ 5:1", mirroring how the Star Pairs line names its own tier
+// (e.g. "MIXED 5:1"). bjMult is 0 before settlement, so mid-round the label
+// stays a bare "BJ". An auto-won hand names its win: "21!" for a Player 21,
+// "5-CARD" for a Five Card Trick.
+func valueLabel(h hand, autoWon bool, bjMult int) string {
 	total, soft := h.value()
 	switch {
 	case total > 21:
 		return "BUST"
+	case len(h) == 2 && total == 21 && bjMult > 0:
+		return fmt.Sprintf("BJ %d:1", bjMult)
 	case len(h) == 2 && total == 21:
 		return "BJ"
 	case autoWon && len(h) >= 5:

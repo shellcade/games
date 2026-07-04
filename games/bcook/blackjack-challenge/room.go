@@ -53,6 +53,11 @@ type phand struct {
 	resolved bool // stood / busted / blackjack / doubled / auto-won
 	doubled  bool
 	autoWon  bool // Player 21 or Five Card Trick: instant even-money win
+	// bjMult is the X in this blackjack's X:1 ranked payout (blackjackMult),
+	// 0 until settle fixes it. It does not change the payout math — grossMult
+	// computes that independently — it only lets the felt name the paid tier
+	// (valueLabel appends " X:1" to "BJ" once this is set).
+	bjMult int
 }
 
 // backBet is one seat's wager ON ANOTHER seat: a "behind" bet that rides the
@@ -1051,6 +1056,9 @@ func (rm *room) settle(r kit.Room) {
 		// hands lost before the dealer's hand existed and stay lost.
 		lostToBJ := 0
 		for _, h := range s.hands {
+			if h.cards.isBlackjack() {
+				h.bjMult = blackjackMult(bjTen(h.cards), bjTen(rm.dealer), dbj)
+			}
 			m := grossMult(h, rm.dealer, dbj)
 			if dbj && m == 0 && !h.cards.isBust() {
 				lostToBJ += h.bet

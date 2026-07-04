@@ -792,6 +792,33 @@ func TestBlackjackRankedPayouts(t *testing.T) {
 	}
 }
 
+// TestSettleShowsRankedBlackjackTier asserts the paid tier of a ranked
+// blackjack is visible on the felt after settlement — the spec's layout-deltas
+// section requires the result to name the tier (e.g. "BLACKJACK 5:1"), and
+// before this the hand's value line only ever read "BJ" with the net shown
+// separately, leaving the ranked payout invisible. Following the Star Pairs
+// precedent (drawPairsLine renders "MIXED 5:1"), a made blackjack's value line
+// grows the tier suffix once bjMult is set at settle.
+func TestSettleShowsRankedBlackjackTier(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	s.bet = 100
+	staked(tr, s, 900, 100)
+	// Player blackjack (A,K) outranks the dealer's blackjack ten (J): 5:1.
+	s.hands = []*phand{{cards: hand{{rankAce, suitSpade}, {rankKing, suitHeart}}, bet: 100}}
+	rm.dealer = hand{{rankAce, suitClub}, {rankJack, suitDiamond}}
+	rm.settle(tr)
+	rm.render(tr)
+
+	row := kittest.String(tr.LastFrame(a), seatValRow)
+	if !strings.Contains(row, "BJ 5:1") {
+		t.Fatalf("seat value row %q does not show the ranked blackjack tier BJ 5:1", row)
+	}
+}
+
 func TestTiesLose(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
@@ -1601,5 +1628,38 @@ func TestBrokeSeatRebuysOnRInBetting(t *testing.T) {
 	rm.OnInput(tr, a, keyInput(kit.KeyEnter))
 	if !s.placed {
 		t.Fatal("re-bought seat still cannot place a bet")
+	}
+}
+
+// TestMetaMaxPayoutMultiplierMatchesConst pins the declared
+// Meta().MaxPayoutMultiplier (the host-enforced settlement ceiling) against
+// the package's own maxPayoutMult constant (settleOpenStake's clamp,
+// roundStake*maxPayoutMult). The two are required to stay in sync — a drift
+// would either let a payout slip past what the host actually honors, or
+// clamp the game's own math below what it declares it can pay.
+func TestMetaMaxPayoutMultiplierMatchesConst(t *testing.T) {
+	if got := (Game{}).Meta().MaxPayoutMultiplier; got != maxPayoutMult {
+		t.Fatalf("Meta().MaxPayoutMultiplier = %d, want maxPayoutMult (%d)", got, maxPayoutMult)
+	}
+}
+
+// TestPairsMult is a table test for pairsMult (layout.go), which mirrors
+// starPairsOutcome's payout table for the results-row label ("MIXED 5:1"
+// etc.). Covers all four Star Pairs kinds plus the no-pair default.
+func TestPairsMult(t *testing.T) {
+	cases := []struct {
+		kind string
+		want int
+	}{
+		{"aces", 30},
+		{"perfect", 20},
+		{"colored", 8},
+		{"mixed", 5},
+		{"", 0},
+	}
+	for _, c := range cases {
+		if got := pairsMult(c.kind); got != c.want {
+			t.Errorf("pairsMult(%q) = %d, want %d", c.kind, got, c.want)
+		}
 	}
 }
