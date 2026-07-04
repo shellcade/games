@@ -1,0 +1,13 @@
+frames:
+  - file: 01-aim.frame
+    ms: 1100
+  - file: 02-fire.frame
+    ms: 450
+  - file: 03-arc1.frame
+    ms: 450
+  - file: 04-arc2.frame
+    ms: 450
+  - file: 05-arc3.frame
+    ms: 450
+  - file: 06-impact.frame
+    ms: 1300
