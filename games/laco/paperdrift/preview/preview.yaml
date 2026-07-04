@@ -1,0 +1,13 @@
+frames:
+  - file: 01-cruise.frame
+    ms: 900
+  - file: 02-dive.frame
+    ms: 500
+  - file: 03-thread.frame
+    ms: 700
+  - file: 04-climb.frame
+    ms: 500
+  - file: 05-thermal.frame
+    ms: 600
+  - file: 06-escape.frame
+    ms: 1500

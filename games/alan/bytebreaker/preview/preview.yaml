@@ -1,0 +1,11 @@
+frames:
+  - file: 01-ready.frame
+    ms: 1300
+  - file: 02-climb.frame
+    ms: 450
+  - file: 03-smash.frame
+    ms: 550
+  - file: 04-drop.frame
+    ms: 650
+  - file: 05-wide.frame
+    ms: 1600

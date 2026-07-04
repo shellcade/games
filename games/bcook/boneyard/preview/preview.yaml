@@ -1,0 +1,13 @@
+frames:
+  - file: 01-rattle.frame
+    ms: 1000
+  - file: 02-closer.frame
+    ms: 550
+  - file: 03-claw.frame
+    ms: 800
+  - file: 04-smash.frame
+    ms: 650
+  - file: 05-crumble.frame
+    ms: 900
+  - file: 06-descend.frame
+    ms: 1500

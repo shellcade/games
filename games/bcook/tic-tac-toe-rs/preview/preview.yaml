@@ -1,0 +1,17 @@
+frames:
+  - file: 01-open.frame
+    ms: 1000
+  - file: 02-x1.frame
+    ms: 500
+  - file: 03-o5.frame
+    ms: 500
+  - file: 04-x9.frame
+    ms: 500
+  - file: 05-o3.frame
+    ms: 550
+  - file: 06-x7.frame
+    ms: 700
+  - file: 07-o4.frame
+    ms: 700
+  - file: 08-win.frame
+    ms: 2400

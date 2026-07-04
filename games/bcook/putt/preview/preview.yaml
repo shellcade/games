@@ -1,0 +1,11 @@
+frames:
+  - file: 01-aim.frame
+    ms: 1200
+  - file: 02-putt.frame
+    ms: 420
+  - file: 03-gap.frame
+    ms: 420
+  - file: 04-close.frame
+    ms: 420
+  - file: 05-eagle.frame
+    ms: 1800

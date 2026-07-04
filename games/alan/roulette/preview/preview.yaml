@@ -1,0 +1,13 @@
+frames:
+  - file: 01-bet.frame
+    ms: 1500
+  - file: 02-spin1.frame
+    ms: 320
+  - file: 03-spin2.frame
+    ms: 320
+  - file: 04-spin3.frame
+    ms: 480
+  - file: 05-rest.frame
+    ms: 1100
+  - file: 06-payout.frame
+    ms: 2000

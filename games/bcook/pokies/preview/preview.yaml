@@ -1,0 +1,17 @@
+frames:
+  - file: 01-idle.frame
+    ms: 1200
+  - file: 02-spin1.frame
+    ms: 300
+  - file: 03-spin2.frame
+    ms: 300
+  - file: 04-land3.frame
+    ms: 350
+  - file: 05-land4.frame
+    ms: 350
+  - file: 06-allstop.frame
+    ms: 450
+  - file: 07-gamble.frame
+    ms: 900
+  - file: 08-takewin.frame
+    ms: 1700
