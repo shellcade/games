@@ -502,19 +502,144 @@ func TestSplitFormsTwoHands(t *testing.T) {
 	}
 }
 
-func TestSplitAcesTakeOneCardEach(t *testing.T) {
-	rm, tr, a, _ := turnsSetup(t, hand{{rankAce, suitSpade}, {rankAce, suitHeart}}, hand{{10, suitClub}, {6, suitDiamond}})
-	fund(tr, rm.seats[a.AccountID], 950)
-	rm.OnInput(tr, a, runeInput('p'))
-
+func TestHitTo21AutoWins(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
-	if len(s.hands) != 2 {
-		t.Fatalf("split aces: %d hands, want 2", len(s.hands))
+	s.placed = true
+	fund(tr, s, 900)
+	rm.phase = phTurns
+	s.hands = []*phand{{cards: hand{{10, suitSpade}, {6, suitHeart}}, bet: 100}}
+	rm.sh.cards[rm.sh.pos] = card{5, suitClub} // next draw: 16 + 5 = 21
+	rm.act(tr, a, 'h')
+	h := s.hands[0]
+	if !h.autoWon || !h.resolved {
+		t.Errorf("hit to 21: autoWon=%v resolved=%v, want true/true (Player 21)", h.autoWon, h.resolved)
 	}
+}
+
+func TestFiveCardTrickAutoWins(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 900)
+	rm.phase = phTurns
+	s.hands = []*phand{{cards: hand{{2, suitSpade}, {3, suitHeart}, {4, suitClub}, {5, suitDiamond}}, bet: 100}}
+	rm.sh.cards[rm.sh.pos] = card{2, suitClub} // fifth card, total 16 <= 21
+	rm.act(tr, a, 'h')
+	h := s.hands[0]
+	if !h.autoWon || !h.resolved {
+		t.Errorf("five cards under 21: autoWon=%v resolved=%v, want true/true", h.autoWon, h.resolved)
+	}
+}
+
+func TestDoubleAllowedOnThreeCards(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 900)
+	rm.phase = phTurns
+	s.hands = []*phand{{cards: hand{{2, suitSpade}, {3, suitHeart}, {4, suitClub}}, bet: 100}}
+	rm.sh.cards[rm.sh.pos] = card{10, suitClub} // doubled draw: 9 + 10 = 19
+	rm.act(tr, a, 'd')
+	h := s.hands[0]
+	if !h.doubled || h.bet != 200 || len(h.cards) != 4 || !h.resolved {
+		t.Errorf("3-card double: doubled=%v bet=%d cards=%d resolved=%v", h.doubled, h.bet, len(h.cards), h.resolved)
+	}
+}
+
+func TestSplitOnEqualPointValue(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 900)
+	rm.phase = phTurns
+	s.hands = []*phand{{cards: hand{{rankKing, suitSpade}, {10, suitHeart}}, bet: 100}} // K+10: same points, different rank
+	rm.act(tr, a, 'p')
+	if len(s.hands) != 2 {
+		t.Fatalf("K+10 should split on this table: hands = %d, want 2", len(s.hands))
+	}
+}
+
+func TestResplitCapsAtThreeHands(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 10000)
+	rm.phase = phTurns
+	s.hands = []*phand{
+		{cards: hand{{8, suitSpade}, {8, suitHeart}}, bet: 100},
+		{cards: hand{{9, suitSpade}, {9, suitHeart}}, bet: 100},
+		{cards: hand{{7, suitSpade}, {7, suitHeart}}, bet: 100},
+	}
+	if rm.split(tr, s, s.hands[0]) {
+		t.Error("fourth hand formed: split must cap at 3 hands per seat")
+	}
+}
+
+func TestSplitAcesPlayOn(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 900)
+	rm.phase = phTurns
+	s.hands = []*phand{{cards: hand{{rankAce, suitSpade}, {rankAce, suitHeart}}, bet: 100}}
+	rm.sh.cards[rm.sh.pos] = card{5, suitClub}   // first split hand's draw: A+5, playable
+	rm.sh.cards[rm.sh.pos+1] = card{7, suitClub} // second: A+7, playable
+	rm.act(tr, a, 'p')
 	for i, h := range s.hands {
-		if !h.resolved || len(h.cards) != 2 {
-			t.Errorf("split-ace hand %d: resolved=%v cards=%d, want resolved/2", i, h.resolved, len(h.cards))
+		if h.resolved {
+			t.Errorf("split-ace hand %d frozen; Challenge split hands play on", i)
 		}
+	}
+}
+
+func TestSplitHandBlackjackResolves(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 900)
+	rm.phase = phTurns
+	s.hands = []*phand{{cards: hand{{rankAce, suitSpade}, {rankAce, suitHeart}}, bet: 100}}
+	// Split draw order: the NEW hand (inserted after the original, at hands[1])
+	// draws first; the original hand (hands[0]) draws second. Stuff accordingly
+	// so hands[0] becomes the A+K blackjack and hands[1] the playable A+5.
+	rm.sh.cards[rm.sh.pos] = card{5, suitClub}          // first draw -> new hand (hands[1]): A+5
+	rm.sh.cards[rm.sh.pos+1] = card{rankKing, suitClub} // second draw -> original hand (hands[0]): A+K IS blackjack here
+	rm.act(tr, a, 'p')
+	if !s.hands[0].resolved || !s.hands[0].cards.isBlackjack() {
+		t.Errorf("split A+K should resolve as blackjack: resolved=%v", s.hands[0].resolved)
+	}
+	if s.hands[1].resolved {
+		t.Error("A+5 split hand should still be playable")
+	}
+}
+
+func TestSurrenderKeyIgnored(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 900)
+	rm.phase = phTurns
+	s.hands = []*phand{{cards: hand{{10, suitSpade}, {6, suitHeart}}, bet: 100}}
+	rm.OnInput(tr, a, runeInput('r'))
+	if s.hands[0].resolved {
+		t.Error("no surrender on this table: R must be a no-op on a turn")
 	}
 }
 
@@ -1243,53 +1368,6 @@ func TestReadyUpWaitsOnOtherPlayers(t *testing.T) {
 	rm.OnInput(tr, b, runeInput(' ')) // now both ready -> next hand
 	if rm.phase != phBetting {
 		t.Fatalf("phase = %q, want betting once everyone is ready", rm.phase)
-	}
-}
-
-// TestValueLabelSplit21NotBlackjack asserts a two-card 21 formed by splitting
-// reads as a plain "21", while a natural two-card 21 still reads "BJ" — a split
-// 21 pays even money, not 3:2, so labelling it "BJ" would mislead.
-func TestValueLabelSplit21NotBlackjack(t *testing.T) {
-	twentyOne := hand{{rankAce, suitSpade}, {rankKing, suitHeart}}
-	if got := valueLabel(twentyOne, false); got != "BJ" {
-		t.Errorf("natural two-card 21 label = %q, want BJ", got)
-	}
-	if got := valueLabel(twentyOne, true); got != "21" {
-		t.Errorf("split two-card 21 label = %q, want 21 (not BJ)", got)
-	}
-}
-
-// TestSplitAcesShowOneCardNote asserts a split pair of aces — which take one card
-// each and lock, passing the turn on immediately — names that rule on the felt,
-// so the player understands why the hands can't be played rather than reading it
-// as a bug.
-func TestSplitAcesShowOneCardNote(t *testing.T) {
-	a := mkPlayer("alice")
-	rm, tr := newGame(t, a)
-	rm.what = pendNone
-	rm.OnJoin(tr, a)
-	s := rm.seats[a.AccountID]
-	s.placed = true
-	s.bal = 900
-	s.hands = []*phand{
-		{cards: hand{{rankAce, suitSpade}, {rankKing, suitHeart}}, bet: 50, fromSplit: true, resolved: true}, // 21
-		{cards: hand{{rankAce, suitClub}, {6, suitDiamond}}, bet: 50, fromSplit: true, resolved: true},       // soft 17
-	}
-	rm.dealer = hand{{10, suitSpade}, {7, suitHeart}}
-	rm.phase = phTurns
-	rm.render(tr)
-
-	f := tr.LastFrame(a)
-	if row := kittest.String(f, seatValRow); !strings.Contains(row, "aces") {
-		t.Fatalf("split-aces seat missing the one-card note on row %d: %q", seatValRow, row)
-	}
-	// And the split 21 must not read as a blackjack on the compact hand line.
-	var hands string
-	for _, row := range []int{seatCardRow, seatCardRow + 1} {
-		hands += kittest.String(f, row) + "\n"
-	}
-	if strings.Contains(hands, "BJ") {
-		t.Fatalf("split-ace 21 mislabeled BJ on the felt:\n%s", hands)
 	}
 }
 

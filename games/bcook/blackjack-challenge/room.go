@@ -18,7 +18,7 @@ const (
 )
 
 const (
-	maxHands = 4 // a seat may split up to four hands
+	maxHands = 3 // split up to twice per seat, forming three hands (table rule)
 
 	bettingDur = 15 * time.Second
 	turnDur    = 20 * time.Second
@@ -864,20 +864,35 @@ func (rm *room) autoStand(r kit.Room) {
 	rm.beginTurn(r)
 }
 
+// autoWin marks h an automatic even-money winner — Player 21 (any
+// non-blackjack 21) or Five Card Trick (five cards without busting) — and
+// reports whether it fired. A blackjack is NOT an auto-win: it settles at
+// its own ranked odds once the dealer's hand is known.
+func autoWin(h *phand) bool {
+	if h.cards.isBust() || h.cards.isBlackjack() {
+		return false
+	}
+	if h.cards.total() == 21 || len(h.cards) == 5 {
+		h.autoWon = true
+		h.resolved = true
+		return true
+	}
+	return false
+}
+
 func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 	s, h := rm.firstUnresolved()
 	if s == nil || s.p.AccountID != p.AccountID {
 		return // not this player's turn
 	}
 	hi := rm.handIndex(s, h)
-	first := len(h.cards) == 2 && !h.doubled // first decision on this hand
 	// A REJECTED action returns without beginTurn: re-arming there would reset
 	// the turn deadline, letting a player stall their own clock with no-ops.
 	switch a {
 	case 'h':
 		h.cards = append(h.cards, rm.sh.draw(r.Rand()))
 		rm.recordDraw(r, p, hi, len(h.cards)-1)
-		if h.cards.isBust() || h.cards.total() == 21 {
+		if !autoWin(h) && h.cards.isBust() {
 			h.resolved = true
 		}
 		rm.beginTurn(r)
@@ -885,10 +900,9 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 		h.resolved = true
 		rm.beginTurn(r)
 	case 'd':
-		// The double's extra stake Wagers onto the seat's open stake; a failed
-		// Wager (can't cover it) rejects the action, exactly as the old
-		// `chips < bet` guard did — never proceed on a failed Wager.
-		if !first {
+		// Doubling is open on a two- OR three-card hand (original or split) that
+		// hasn't already doubled — the Challenge extension of the usual gate.
+		if h.doubled || len(h.cards) > 3 {
 			return
 		}
 		if !rm.wager(s, h.bet) {
@@ -898,6 +912,7 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 		h.doubled = true
 		h.cards = append(h.cards, rm.sh.draw(r.Rand()))
 		rm.recordDraw(r, p, hi, len(h.cards)-1)
+		autoWin(h) // a doubled 21 is a Player 21: instant even money
 		h.resolved = true
 		rm.beginTurn(r)
 	case 'p':
@@ -905,24 +920,15 @@ func (rm *room) act(r kit.Room, p kit.Player, a rune) {
 			return
 		}
 		rm.beginTurn(r)
-	case 'r':
-		if !first || len(s.hands) != 1 {
-			return
-		}
-		h.surrendered = true
-		h.resolved = true
-		// Half the stake is returned at settle: settle() folds halfUp(h.bet) into
-		// the seat's gross for a surrendered hand (the full bet is already escrowed
-		// on the open stake). An odd bet's half-chip rounds UP to the player
-		// (halfUp owns the policy, shared with the 3:2 payout in creditFor).
-		rm.beginTurn(r)
 	}
 }
 
-// split turns a two-card equal-rank pair into two hands, each taking a new card,
-// reporting whether the split happened. Split aces take one card and stand.
+// split turns a two-card pair of equal POINT VALUE (a K and a ten split on
+// this table) into two hands, each taking a new card, reporting whether the
+// split happened. Split hands play on in full — and an Ace + ten-card drawn
+// to one IS a Challenge blackjack, resolved on the spot at its ranked odds.
 func (rm *room) split(r kit.Room, s *seat, h *phand) bool {
-	if len(h.cards) != 2 || h.cards[0].r != h.cards[1].r || len(s.hands) >= maxHands {
+	if len(h.cards) != 2 || h.cards[0].r.points() != h.cards[1].r.points() || len(s.hands) >= maxHands {
 		return false
 	}
 	// The new hand's stake Wagers onto the seat's open stake; a failed Wager
@@ -932,12 +938,12 @@ func (rm *room) split(r kit.Room, s *seat, h *phand) bool {
 	}
 	c0, c1 := h.cards[0], h.cards[1]
 	rng := r.Rand()
-	nh := &phand{cards: hand{c1, rm.sh.draw(rng)}, bet: h.bet, fromSplit: true}
+	nh := &phand{cards: hand{c1, rm.sh.draw(rng)}, bet: h.bet}
 	h.cards = hand{c0, rm.sh.draw(rng)}
-	h.fromSplit = true
-	if c0.r == rankAce {
-		h.resolved = true
-		nh.resolved = true
+	for _, sp := range []*phand{h, nh} {
+		if sp.cards.isBlackjack() {
+			sp.resolved = true
+		}
 	}
 	// insert nh directly after h
 	idx := 0
@@ -1209,8 +1215,6 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 				rm.act(r, p, 'd')
 			case 'p', 'P':
 				rm.act(r, p, 'p')
-			case 'r', 'R':
-				rm.act(r, p, 'r')
 			}
 		}
 	}
