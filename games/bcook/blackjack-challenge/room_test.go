@@ -913,8 +913,9 @@ func TestDealerBustWaitsForTheCardToLand(t *testing.T) {
 }
 
 // TestDealerRevealIsPaced asserts the draw-out is unhurried: settlement is
-// deferred well past the dealer's lead-in beat, so the drawn card and the
-// dealer's total have time to read.
+// deferred by the full per-card cadence, not just the lead-in beat. This
+// scenario stages exactly one draw, so the settle deadline must cover the
+// lead-in, that card's slide and flip, and the done-hold on the made hand.
 func TestDealerRevealIsPaced(t *testing.T) {
 	rm, tr, _ := dealerReady(t, hand{{10, suitClub}}, card{8, suitDiamond}) // draws to 18, stands
 
@@ -924,8 +925,12 @@ func TestDealerRevealIsPaced(t *testing.T) {
 	if rm.what != pendSettle {
 		t.Fatalf("dealer draw-out should defer settlement, what = %v", rm.what)
 	}
-	if delay := rm.pendAt.Sub(start); delay < dealerLeadIn {
-		t.Fatalf("settle deferred only %v, want at least the lead-in %v", delay, dealerLeadIn)
+	// One drawn card at minimum: the lead-in beat, then the card slides in and
+	// flips face up, then the final hold before results (dealerDrawGap only
+	// separates consecutive draws, so it does not appear on a single draw).
+	minDelay := dealerLeadIn + slideDur + flipDur + dealerDoneHold
+	if delay := rm.pendAt.Sub(start); delay < minDelay {
+		t.Fatalf("settle deferred only %v, want at least the one-draw cadence %v", delay, minDelay)
 	}
 }
 

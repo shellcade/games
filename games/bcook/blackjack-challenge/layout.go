@@ -415,8 +415,8 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 			return
 		default:
 			// No hand left on turn: every player has resolved and the dealer is
-			// turning its hole card and drawing. Name the moment so the slow
-			// reveal reads as the dealer acting rather than a frozen table.
+			// drawing out from its one face-up card. Name the moment so the slow
+			// draw-out reads as the dealer acting rather than a frozen table.
 			msg, st = "dealer plays...", stDim
 		}
 	case phResults:
@@ -663,7 +663,8 @@ type cardFace struct {
 
 // drawCardsAnim renders the joined card group, consulting resolve(i) for each
 // card's animation aspect. resolve may be nil (the static layout). hideIdx
-// conceals a card as "??" (the dealer hole card).
+// conceals a card as "??" — a concealment hook currently unused on this table
+// (every caller passes -1; no card is ever dealt face down).
 func drawCardsAnim(f *kit.Frame, row, col int, cards hand, hideIdx int, resolve func(i int) cardFace) {
 	if len(cards) == 0 {
 		f.Text(row+1, col, "( )", stDim)

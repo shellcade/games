@@ -1,7 +1,8 @@
 // Blackjack Challenge — a no-winner, social multiplayer blackjack table on
 // the 80x24 shellcade canvas: one shared auto-dealer, up to five seats, and
-// rounds that loop while anyone is seated. The dealer's up card is face-up
-// and stands on all 17 (S17); a tie hand loses instead of pushing, and a
+// rounds that loop while anyone is seated. The dealer takes a single face-up
+// card at the deal — no hole card — draws out at the dealer's turn, and
+// stands on all 17 (S17); a tie hand loses instead of pushing, and a
 // player blackjack is ranked, paying 2:1 up to 5:1 depending on its suits.
 // Bet, hit, stand, double, and split; the round also auto-wins/auto-loses a
 // hand outright without a turn where the outcome is already decided, and a

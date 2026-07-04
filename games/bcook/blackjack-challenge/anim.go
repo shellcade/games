@@ -84,7 +84,7 @@ func (a cardAnim) slideProgress(now time.Time) float64 {
 // reports whether a flip is still in progress (a settled card returns 2,false).
 func (a cardAnim) flipFrame(now time.Time) (frame int, flipping bool) {
 	if a.flipStart.IsZero() {
-		return 2, false // no reveal scheduled (e.g. concealed hole card)
+		return 2, false // no reveal flip scheduled
 	}
 	d := now.Sub(a.flipStart)
 	switch {
