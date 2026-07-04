@@ -81,15 +81,6 @@ func TestCreditFor(t *testing.T) {
 	}
 }
 
-func TestInsuranceCredit(t *testing.T) {
-	if got := insuranceCredit(true, 50); got != 150 { // stake 50 + 2:1 (100)
-		t.Errorf("insurance on dealer blackjack = %d, want 150", got)
-	}
-	if got := insuranceCredit(false, 50); got != 0 {
-		t.Errorf("insurance with no dealer blackjack = %d, want 0", got)
-	}
-}
-
 func TestPerfectPairsOutcome(t *testing.T) {
 	cases := []struct {
 		name     string

@@ -26,8 +26,8 @@ func newGame(t *testing.T, players ...kit.Player) (*room, *kittest.Room) {
 }
 
 // fund sets the seat's account-wide credits balance in the double AND the seat's
-// cached balance to n, so a subsequent Wager (deal/double/split/insurance) draws
-// against a known bankroll.
+// cached balance to n, so a subsequent Wager (deal/double/split) draws against a
+// known bankroll.
 func fund(tr *kittest.Room, s *seat, n int) {
 	if tr.Credits == nil {
 		tr.Credits = map[string]int64{}
@@ -75,7 +75,7 @@ func TestPairsSideBetLoopsOnP(t *testing.T) {
 	if s.pairsBet != 0 {
 		t.Fatalf("pairs side bet defaults to %d, want 0 (off)", s.pairsBet)
 	}
-	s.bal = 100000                  // deep enough to afford every tier, so the loop wraps only at the top
+	s.bal = 100000                    // deep enough to afford every tier, so the loop wraps only at the top
 	rm.OnInput(tr, a, runeInput('p')) // P advances one tier
 	if s.pairsBet != pairsTiers[1] {
 		t.Fatalf("after P, pairsBet = %d, want %d", s.pairsBet, pairsTiers[1])
@@ -201,9 +201,9 @@ func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
 	s.placed = true
 	s.pairsBet = 10
 	fund(tr, s, 1000)
-	// Stack the shoe: dealer up + hole, then the seat's two cards — a mixed pair.
+	// Stack the shoe: the dealer's one card, then the seat's two cards — a mixed pair.
 	rm.sh.cards = hand{
-		{10, suitClub}, {9, suitDiamond}, // dealer 19
+		{10, suitClub},                 // dealer
 		{8, suitSpade}, {8, suitHeart}, // seat: mixed pair of 8s
 		{2, suitClub}, {3, suitClub}, {4, suitClub}, // filler draws
 	}
@@ -243,9 +243,9 @@ func TestDealResolvesBackPairs(t *testing.T) {
 	fund(tr, sa, 1000)
 	fund(tr, sb, 1000)
 	sa.backs = map[string]*backBet{b.AccountID: {pairs: 10}} // a backs b's pairs
-	// dealer up+hole, then seat a's two cards, then seat b's two cards (a mixed pair).
+	// the dealer's one card, then seat a's two cards, then seat b's two cards (a mixed pair).
 	rm.sh.cards = hand{
-		{10, suitClub}, {9, suitDiamond}, // dealer
+		{10, suitClub},                 // dealer
 		{2, suitSpade}, {7, suitHeart}, // seat a (no pair)
 		{8, suitSpade}, {8, suitHeart}, // seat b: mixed pair of 8s
 		{3, suitClub}, {4, suitClub}, {5, suitClub}, // filler
@@ -278,7 +278,7 @@ func TestDealVoidsBackOnSatOutTarget(t *testing.T) {
 	fund(tr, sa, 1000)
 	sb.placed = false // b sits this round out
 	sa.backs = map[string]*backBet{b.AccountID: {behind: 50, pairs: 10}}
-	rm.sh.cards = hand{{10, suitClub}, {9, suitDiamond}, {2, suitSpade}, {7, suitHeart}, {3, suitClub}, {4, suitClub}}
+	rm.sh.cards = hand{{10, suitClub}, {2, suitSpade}, {7, suitHeart}, {3, suitClub}, {4, suitClub}}
 	rm.sh.pos, rm.sh.roundStart = 0, 0
 	rm.deal(tr)
 
@@ -300,7 +300,7 @@ func TestSettleBehindBetWinFolds(t *testing.T) {
 	rm.OnJoin(tr, b)
 	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
 	sa.placed, sa.bet = true, 25
-	staked(tr, sa, 925, 75) // a's open stake: main 25 + behind 50 escrowed
+	staked(tr, sa, 925, 75)                                                     // a's open stake: main 25 + behind 50 escrowed
 	sa.hands = []*phand{{cards: hand{{2, suitSpade}, {3, suitHeart}}, bet: 25}} // a: 5, loses
 	sb.placed, sb.bet = true, 25
 	sb.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 25}} // b: 19, beats dealer
@@ -326,7 +326,7 @@ func TestSettleBehindRefundsWhenTargetLeft(t *testing.T) {
 	rm.OnJoin(tr, b)
 	sa := rm.seats[a.AccountID]
 	sa.placed, sa.bet = true, 25
-	staked(tr, sa, 900, 75) // main 25 + behind 50 escrowed; 900 bankroll left
+	staked(tr, sa, 900, 75)                                                      // main 25 + behind 50 escrowed; 900 bankroll left
 	sa.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 25}} // 19, pushes
 	sa.backs = map[string]*backBet{b.AccountID: {behind: 50}}
 	delete(rm.seats, b.AccountID) // b left mid-round
@@ -353,9 +353,9 @@ func TestSettleFoldsPairsResultIntoNet(t *testing.T) {
 	s.placed = true
 	s.bet = 50
 	s.pairsBet = 10
-	staked(tr, s, 940, 60)   // main 50 + pairs 10 escrowed
-	s.pairsWin = 70          // a mixed pair already resolved at deal...
-	s.grossThisRound = 70    // ...and folded into the open stake's gross
+	staked(tr, s, 940, 60)                                                      // main 50 + pairs 10 escrowed
+	s.pairsWin = 70                                                             // a mixed pair already resolved at deal...
+	s.grossThisRound = 70                                                       // ...and folded into the open stake's gross
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}} // 19
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}                          // 19 -> hand pushes
 	rm.settle(tr)
@@ -637,34 +637,6 @@ func TestBlackjackPays3to2(t *testing.T) {
 	}
 }
 
-func TestInsurancePaysOnDealerBlackjack(t *testing.T) {
-	a := mkPlayer("a")
-	rm, tr := newGame(t, a)
-	rm.OnJoin(tr, a)
-	s := rm.seats[a.AccountID]
-	s.placed = true
-	s.bet = 50
-	fund(tr, s, 950)
-	rm.dealer = hand{{rankAce, suitSpade}, {rankKing, suitHeart}} // dealer blackjack
-	rm.dealerHole = true
-
-	rm.takeInsurance(s, true) // insurance = 25 Wagered onto the open stake -> bal 925
-	if s.insurance != 25 || s.bal != 925 {
-		t.Fatalf("after taking insurance: ins=%d bal=%d, want 25/925", s.insurance, s.bal)
-	}
-
-	rm.resolveInsurance(tr)     // 2:1 -> +75 folds into gross, dealer BJ defers settle
-	pump(rm, tr, 5*time.Second) // let the reveal + settle play out
-
-	// The insurance 2:1 (75 gross) settles the 25 stake: 925 -> 1000.
-	if s.bal != 1000 {
-		t.Errorf("bal = %d, want 1000 (insurance paid 2:1)", s.bal)
-	}
-	if rm.dealerHole {
-		t.Error("dealer hole card should be revealed after a dealer blackjack")
-	}
-}
-
 // TestDealingOrderIsDeterministic asserts the deal ranges the join-ordered slice,
 // never Go's map iteration order: two identically-seeded rooms deal identical
 // hands to the same seats.
@@ -888,8 +860,9 @@ func TestDoubledHandRendersDBL(t *testing.T) {
 }
 
 // dealerReady puts the table at the moment the last player has resolved, with a
-// live (non-bust) player so the dealer will reveal and draw. The dealer's hand
-// and the shoe's next draws are caller-supplied so the reveal is deterministic.
+// live (non-bust) player so the dealer will draw out. The dealer's single dealt
+// card and the shoe's next draws are caller-supplied so the draw-out is
+// deterministic.
 func dealerReady(t *testing.T, dealer hand, nextDraws ...card) (*room, *kittest.Room, kit.Player) {
 	t.Helper()
 	a := mkPlayer("a")
@@ -901,7 +874,6 @@ func dealerReady(t *testing.T, dealer hand, nextDraws ...card) (*room, *kittest.
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50, resolved: true}} // 19, live
 	rm.phase = phTurns
 	rm.dealer = dealer
-	rm.dealerHole = true
 	if len(nextDraws) > 0 {
 		rm.sh.cards = append(hand(nil), nextDraws...) // stack the shoe's top
 		rm.sh.pos = 0
@@ -915,163 +887,76 @@ func dealerReady(t *testing.T, dealer hand, nextDraws ...card) (*room, *kittest.
 // Before the fix the label keyed off the authoritative (already complete) hand,
 // so BUST flashed up the instant the dealer's turn began.
 func TestDealerBustWaitsForTheCardToLand(t *testing.T) {
-	// Dealer 16 hits a ten -> 26, a deterministic bust on the first draw.
-	rm, tr, a := dealerReady(t, hand{{10, suitClub}, {6, suitDiamond}}, card{10, suitClub})
+	// Dealer starts on 10, draws a 6 (16, keeps drawing) then a ten -> 26, a
+	// deterministic bust on the second draw.
+	rm, tr, a := dealerReady(t, hand{{10, suitClub}}, card{6, suitDiamond}, card{10, suitClub})
 
-	rm.enterDealer(tr) // schedules the slow reveal + the busting hit
+	rm.enterDealer(tr) // schedules the draw-out, including the busting hit
 	rm.render(tr)
 
 	if !rm.dealingActive() {
-		t.Fatal("dealer reveal should still be animating right after enterDealer")
+		t.Fatal("dealer draw-out should still be animating right after enterDealer")
 	}
 	if row := kittest.String(tr.LastFrame(a), dealerValRow); strings.Contains(row, "BUST") {
 		t.Fatalf("dealer BUST shown before the hit landed: %q", row)
 	}
 
-	// Once the whole reveal has played out the bust shows and the round settles
+	// Once the whole draw-out has played out the bust shows and the round settles
 	// (stay inside the results window, before the next betting round clears it).
 	pump(rm, tr, 5*time.Second)
 	if rm.phase != phResults {
-		t.Fatalf("phase = %q, want results once the reveal finished", rm.phase)
+		t.Fatalf("phase = %q, want results once the draw-out finished", rm.phase)
 	}
 	if row := kittest.String(tr.LastFrame(a), dealerValRow); !strings.Contains(row, "BUST") {
 		t.Fatalf("dealer BUST not shown after the hit landed: %q", row)
 	}
 }
 
-// TestDealerRevealIsPaced asserts the reveal is unhurried: settlement is deferred
-// well past the bare hole-card flip even when the dealer stands pat, so the
-// turned hole card and its total have time to read.
+// TestDealerRevealIsPaced asserts the draw-out is unhurried: settlement is
+// deferred well past the dealer's lead-in beat, so the drawn card and the
+// dealer's total have time to read.
 func TestDealerRevealIsPaced(t *testing.T) {
-	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {8, suitDiamond}}) // 18, no hit
+	rm, tr, _ := dealerReady(t, hand{{10, suitClub}}, card{8, suitDiamond}) // draws to 18, stands
 
 	start := tr.Now()
 	rm.enterDealer(tr)
 
 	if rm.what != pendSettle {
-		t.Fatalf("dealer reveal should defer settlement, what = %v", rm.what)
+		t.Fatalf("dealer draw-out should defer settlement, what = %v", rm.what)
 	}
-	if delay := rm.pendAt.Sub(start); delay < holeRevealHold {
-		t.Fatalf("settle deferred only %v, want at least the hole-reveal hold %v", delay, holeRevealHold)
+	if delay := rm.pendAt.Sub(start); delay < dealerLeadIn {
+		t.Fatalf("settle deferred only %v, want at least the lead-in %v", delay, dealerLeadIn)
 	}
 }
 
 // TestDealerTotalTicksUpAsCardsLand checks the displayed total reflects only the
-// face-up cards: just the up card while the hole is concealed, then the hole, in
-// step with the animation rather than the full hand up front.
+// face-up cards: just the one dealt card before the draw-out, then each drawn
+// card in step with the animation rather than the full hand up front.
 func TestDealerTotalTicksUpAsCardsLand(t *testing.T) {
-	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {7, suitDiamond}}) // 17, stands
+	rm, tr, _ := dealerReady(t, hand{{10, suitClub}}, card{7, suitDiamond}) // draws to 17, stands
 
-	// Mid-turn the hole is still hidden: only the up card counts.
+	// Before the dealer's turn, only the one dealt card counts.
 	if got := rm.dealerShownCount(); got != 1 {
-		t.Fatalf("with the hole concealed, shown count = %d, want 1", got)
+		t.Fatalf("before the draw-out, shown count = %d, want 1", got)
 	}
 
-	rm.enterDealer(tr) // turns the hole; the reveal flip is still in flight
+	rm.enterDealer(tr) // schedules the draw; still mid lead-in
 	rm.render(tr)
 	if got := rm.dealerShownCount(); got != 1 {
-		t.Fatalf("mid hole-flip, shown count = %d, want 1 (hole not yet face up)", got)
+		t.Fatalf("mid lead-in, shown count = %d, want 1 (drawn card not yet arrived)", got)
 	}
 
-	// After the reveal settles (still within the results window) both cards
+	// After the draw-out settles (still within the results window) both cards
 	// count and the total is complete.
 	pump(rm, tr, 3*time.Second)
 	if rm.phase != phResults {
-		t.Fatalf("phase = %q, want results once the reveal finished", rm.phase)
+		t.Fatalf("phase = %q, want results once the draw-out finished", rm.phase)
 	}
 	if got := rm.dealerShownCount(); got != 2 {
-		t.Fatalf("after the reveal, shown count = %d, want 2 (both cards face up)", got)
+		t.Fatalf("after the draw-out, shown count = %d, want 2 (both cards face up)", got)
 	}
 	if got := rm.dealer.total(); got != 17 {
 		t.Fatalf("dealer total = %d, want 17", got)
-	}
-}
-
-// TestDealerHoleRevealIsDelayedAndAnimated asserts the second (hole) card turns
-// over after a short lead-in beat rather than the instant the dealer's turn
-// begins, and that it is an in-place flip animation (a flip scheduled, no slide)
-// so it visibly turns rather than snapping face up.
-func TestDealerHoleRevealIsDelayedAndAnimated(t *testing.T) {
-	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {8, suitDiamond}}) // 18, stands pat
-
-	start := tr.Now()
-	rm.enterDealer(tr)
-
-	if len(rm.sched) == 0 {
-		t.Fatal("no dealer reveal animation scheduled")
-	}
-	hole := rm.sched[0]
-	if hole.kind != animDealer || hole.cardIdx != 1 {
-		t.Fatalf("first scheduled anim is not the hole card: %+v", hole)
-	}
-	if lead := hole.flipStart.Sub(start); lead < holeRevealDelay {
-		t.Fatalf("hole flip starts %v after the turn, want at least the lead-in %v", lead, holeRevealDelay)
-	}
-	if hole.flipStart.IsZero() {
-		t.Fatal("hole reveal has no flip scheduled - it would snap, not animate")
-	}
-	if !hole.slideStart.IsZero() {
-		t.Fatalf("hole reveal should turn in place, not slide: %+v", hole)
-	}
-
-	// Through the lead-in beat the hole is still concealed: only the up card counts.
-	pump(rm, tr, holeRevealDelay/2)
-	if got := rm.dealerShownCount(); got != 1 {
-		t.Fatalf("during the lead-in, shown count = %d, want 1 (hole not yet turned)", got)
-	}
-}
-
-// TestDealerHitSlotHiddenUntilHoleShown asserts the dealer's row stays two cards
-// wide — no slot reserved for the upcoming hit — until the hole card has turned
-// over and that hit actually begins to slide in.
-func TestDealerHitSlotHiddenUntilHoleShown(t *testing.T) {
-	// Dealer 16 will draw a ten; with a live player the reveal schedules the hit.
-	rm, tr, _ := dealerReady(t, hand{{10, suitClub}, {6, suitDiamond}}, card{10, suitClub})
-	rm.enterDealer(tr)
-
-	// Before the hit begins arriving (through the lead-in, flip, and read beat),
-	// only the two dealt cards occupy the row even though the full hand is known.
-	if got := len(rm.dealer); got != 3 {
-		t.Fatalf("dealer hand size = %d, want 3 (hit already computed)", got)
-	}
-	rm.render(tr)
-	if got := rm.dealerLayoutCount(); got != 2 {
-		t.Fatalf("layout count = %d right after the turn, want 2 (no slot for the pending hit)", got)
-	}
-
-	// Past the reveal + read beat the hit is sliding in, so the row now includes it.
-	pump(rm, tr, holeRevealDelay+flipDur+holeRevealHold+slideDur/2)
-	if got := rm.dealerLayoutCount(); got != 3 {
-		t.Fatalf("layout count = %d once the hit is arriving, want 3", got)
-	}
-}
-
-// TestInsuranceSkipsTimerOnceAllDecided covers the insurance early-resolve: once
-// every placed seat has answered, the window resolves without waiting out the
-// timer.
-func TestInsuranceSkipsTimerOnceAllDecided(t *testing.T) {
-	a, b := mkPlayer("a"), mkPlayer("b")
-	rm, tr := newGame(t, a, b)
-	rm.OnJoin(tr, a)
-	rm.OnJoin(tr, b)
-	for _, p := range []kit.Player{a, b} {
-		s := rm.seats[p.AccountID]
-		s.placed = true
-		s.bet = 50
-		s.bal = 950
-		s.hands = []*phand{{cards: hand{{10, suitSpade}, {7, suitHeart}}, bet: 50}}
-	}
-	rm.dealer = hand{{rankAce, suitSpade}, {6, suitHeart}} // shows an Ace, no blackjack
-	rm.dealerHole = true
-	rm.enterInsurance(tr)
-
-	rm.OnInput(tr, a, runeInput('n')) // a answers
-	if rm.phase != phInsurance {
-		t.Fatalf("phase = %q, want still insurance (b has not answered)", rm.phase)
-	}
-	rm.OnInput(tr, b, runeInput('y')) // b answers -> every placed seat decided
-	if rm.phase != phTurns {
-		t.Fatalf("phase = %q, want turns (insurance resolved early without the timer)", rm.phase)
 	}
 }
 
@@ -1434,36 +1319,6 @@ func TestPairsVerdictHeldUntilCardsLand(t *testing.T) {
 	rm.render(tr)
 	if row := kittest.String(tr.LastFrame(a), seatPairRow); !strings.Contains(row, "pairs lost") {
 		t.Fatalf("pairs verdict not shown after the cards landed: %q", row)
-	}
-}
-
-// TestInsuranceFoldsIntoResultNet asserts an insured loss to a dealer blackjack
-// reconciles in the results summary: the 2:1 insurance payout exactly offsets
-// the main-bet loss, so the seat reads PUSH (net 0) and its chips are unchanged,
-// rather than a phantom LOSE that the chip stack never reflected.
-func TestInsuranceFoldsIntoResultNet(t *testing.T) {
-	a := mkPlayer("alice")
-	rm, tr := newGame(t, a)
-	rm.what = pendNone
-	rm.OnJoin(tr, a)
-	s := rm.seats[a.AccountID]
-	s.placed = true
-	s.bet = 100
-	staked(tr, s, 900, 100)                                                      // main 100 escrowed at the deal
-	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 100}} // 19, loses to BJ
-	rm.dealer = hand{{rankAce, suitSpade}, {rankKing, suitHeart}}                // dealer blackjack
-	rm.dealerHole = true
-
-	rm.takeInsurance(s, true)   // stake 50 Wagered -> bal 850, roundStake 150
-	rm.resolveInsurance(tr)     // dealer BJ pays 2:1 (+150 gross), defers settle
-	pump(rm, tr, 5*time.Second) // reveal + single Settle plays out
-
-	// Insurance gross 150 exactly offsets the lost main bet on a 150 stake: net 0.
-	if s.bal != 1000 {
-		t.Fatalf("bal = %d, want 1000 (insured loss breaks even)", s.bal)
-	}
-	if s.result != "PUSH" {
-		t.Fatalf("result = %q, want PUSH (insurance offsets the main-bet loss in the net)", s.result)
 	}
 }
 

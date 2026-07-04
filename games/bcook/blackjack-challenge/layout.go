@@ -120,18 +120,13 @@ func (rm *room) drawDealer(f *kit.Frame) {
 		center(f, dealerRow+1, "(waiting for bets)", stDim)
 		return
 	}
-	hide := -1
-	if rm.dealerHole {
-		hide = 1
-	}
-	// Size and centre the row to the cards actually on the table (dealt cards
-	// plus any hit already arriving), and draw only those — so a pending hit's
-	// slot never appears before the hole card is turned over and that hit begins
-	// to slide in.
+	// Size and centre the row to the cards actually on the table (the one dealt
+	// card plus any hit already arriving), and draw only those — so a pending
+	// hit's slot never appears before it actually begins to slide in.
 	lc := rm.dealerLayoutCount()
 	w := cardsWidth(lc)
 	col := (kit.Cols - w) / 2
-	drawCardsAnim(f, dealerRow, col, rm.dealer[:lc], hide, rm.dealerResolver())
+	drawCardsAnim(f, dealerRow, col, rm.dealer[:lc], -1, rm.dealerResolver())
 	// The total and the verdict read off only the cards shown face up so far,
 	// never the authoritative hand — so the number ticks up and BUST/BLACKJACK
 	// appear as each card lands, not the instant the hand is dealt behind the
@@ -141,8 +136,9 @@ func (rm *room) drawDealer(f *kit.Frame) {
 	label, st := fmt.Sprintf("(%d)", shown.total()), stDim
 	switch {
 	case len(shown) < 2:
-		// Only the up card is face up — while the hole is concealed, mid lead-in,
-		// or mid-flip — so report what the dealer is showing, not a phantom total.
+		// Only the one dealt card is face up — before the dealer's turn, or mid
+		// lead-in/mid-flip on its first drawn card — so report what the dealer is
+		// showing, not a phantom total.
 		label = fmt.Sprintf("shows %d", hand{rm.dealer[0]}.total())
 	case shown.isBlackjack():
 		label, st = "BLACKJACK", stWin
@@ -405,22 +401,6 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 		} else {
 			msg, st = "all bets in - dealing...", stPhase
 		}
-	case phInsurance:
-		switch n := rm.insuranceUndecidedCount(); {
-		case s.placed && !s.insuranceDecided:
-			// Spell out the side bet rather than just naming it: a stake of half the
-			// main bet that the dealer's hole card completes a blackjack, paying 2:1
-			// (so it exactly offsets the main-bet loss if the dealer does have it).
-			msg = fmt.Sprintf("Insurance? Stake %d that dealer has blackjack - pays 2:1   [Y]es   [N]o", s.bet/2)
-		case n > 0:
-			noun := "player"
-			if n != 1 {
-				noun = "players"
-			}
-			msg, st = fmt.Sprintf("waiting on %d %s for insurance - %s", n, noun, clock(rm.remaining())), stDim
-		default:
-			msg, st = "resolving insurance...", stDim
-		}
 	case phTurns:
 		switch {
 		case active != nil && active.p.AccountID == v.AccountID:
@@ -576,14 +556,11 @@ func (rm *room) seatCardFaceUp(p kit.Player, handIdx, cardIdx int) bool {
 }
 
 // dealerCardFaceUp reports whether dealer card i currently shows its face at the
-// latest composed instant: the concealed hole card never does, a settled (or
-// unscheduled) card always does, and an animating card only once its slide has
-// landed and its reveal flip has turned far enough to expose the face. It reads
-// only the recorded schedule and the frozen clock.
+// latest composed instant: a settled (or unscheduled) card always does, and an
+// animating card only once its slide has landed and its reveal flip has turned
+// far enough to expose the face. It reads only the recorded schedule and the
+// frozen clock.
 func (rm *room) dealerCardFaceUp(i int) bool {
-	if rm.dealerHole && i == 1 {
-		return false // hole card still concealed
-	}
 	a, ok := rm.animFor(animDealer, kit.Player{}, 0, i)
 	if !ok {
 		return true // settled or no animation -> face up
@@ -595,15 +572,15 @@ func (rm *room) dealerCardFaceUp(i int) bool {
 	return frame == 2 // face exposed only on the final flip frame
 }
 
-// dealerLayoutCount is how many dealer cards occupy the table right now: the two
-// dealt cards plus any hit that has actually begun sliding in. A hit that is
+// dealerLayoutCount is how many dealer cards occupy the table right now: the
+// one dealt card plus any hit that has actually begun sliding in. A hit that is
 // scheduled but has not yet started arriving is excluded, so the row is only as
-// wide as the cards on show and the next hit's arrival is announced by its slide
-// — never by a slot reserved before the hole card has even been turned over.
+// wide as the cards on show and the next hit's arrival is announced by its
+// slide — never by a slot reserved before it begins.
 func (rm *room) dealerLayoutCount() int {
 	n := 0
 	for i := range rm.dealer {
-		if i >= 2 {
+		if i >= 1 {
 			if a, ok := rm.animFor(animDealer, kit.Player{}, 0, i); ok && rm.lastNow.Before(a.slideStart) {
 				break // this hit has not begun arriving yet, nor have any after it
 			}
@@ -614,8 +591,8 @@ func (rm *room) dealerLayoutCount() int {
 }
 
 // dealerShownCount is how many leading dealer cards are face up right now. The
-// dealer reveals strictly in order — up card, then the hole flip, then each hit
-// in turn — so the shown set is always this contiguous prefix, and the displayed
+// dealer reveals strictly in order — its one dealt card, then each hit in
+// turn — so the shown set is always this contiguous prefix, and the displayed
 // total/verdict slice off it without allocating.
 func (rm *room) dealerShownCount() int {
 	n := 0
@@ -631,7 +608,7 @@ func (rm *room) dealerShownCount() int {
 // dealerResolver returns the dealer row's per-card animation resolver.
 func (rm *room) dealerResolver() func(i int) cardFace {
 	bustIdx := -1
-	if !rm.dealerHole && rm.dealer.isBust() {
+	if rm.dealer.isBust() {
 		bustIdx = len(rm.dealer) - 1
 	}
 	return func(i int) cardFace {

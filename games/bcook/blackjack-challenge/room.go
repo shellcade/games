@@ -12,19 +12,17 @@ import (
 // memory — the lean ABI has no phase surface (SetPhase is gone; joinability is
 // host-derived), so a phase only drives this game's own logic and rendering.
 const (
-	phBetting   = "betting"
-	phInsurance = "insurance"
-	phTurns     = "player turns"
-	phResults   = "results"
+	phBetting = "betting"
+	phTurns   = "player turns"
+	phResults = "results"
 )
 
 const (
 	maxHands = 4 // a seat may split up to four hands
 
-	bettingDur   = 15 * time.Second
-	insuranceDur = 10 * time.Second
-	turnDur      = 20 * time.Second
-	resultsDur   = 6 * time.Second
+	bettingDur = 15 * time.Second
+	turnDur    = 20 * time.Second
+	resultsDur = 6 * time.Second
 
 	// gracePeriod is the short beat between the last seated player placing a bet
 	// and dealing, so an all-bets-in table deals early without feeling abrupt.
@@ -88,22 +86,19 @@ type seat struct {
 	// settle, and the whole thing Settles exactly once. roundStake is the total
 	// escrowed onto that open stake (sum of every Wager this round); >0 marks an
 	// open, unsettled stake and bounds the payout ceiling (roundStake×maxPayoutMult).
-	grossThisRound   int64
-	roundStake       int64
-	bet              int // currently selected/placed stake
-	placed           bool
-	pairsBet         int                 // Perfect Pairs side stake (0 = off), carried between rounds like bet
-	pairsKind        string              // this round's pairs result: "" | "mixed" | "colored" | "perfect"
-	pairsWin         int                 // chips credited on the pairs side bet this round (0 = lost/none)
-	focus            string              // betting UI: "" edits own bet, else the account id whose backs are being edited
-	backs            map[string]*backBet // wagers on other seats, keyed by target account id (iterate via rm.order)
-	insurance        int
-	insuranceWin     int // chips credited on the insurance side bet this round (0 = lost/none)
-	insuranceDecided bool
-	hands            []*phand
-	joinOrder        int
-	result           string // settlement summary for the results phase
-	ready            bool   // readied up during results to skip the wait
+	grossThisRound int64
+	roundStake     int64
+	bet            int // currently selected/placed stake
+	placed         bool
+	pairsBet       int                 // Perfect Pairs side stake (0 = off), carried between rounds like bet
+	pairsKind      string              // this round's pairs result: "" | "mixed" | "colored" | "perfect"
+	pairsWin       int                 // chips credited on the pairs side bet this round (0 = lost/none)
+	focus          string              // betting UI: "" edits own bet, else the account id whose backs are being edited
+	backs          map[string]*backBet // wagers on other seats, keyed by target account id (iterate via rm.order)
+	hands          []*phand
+	joinOrder      int
+	result         string // settlement summary for the results phase
+	ready          bool   // readied up during results to skip the wait
 }
 
 // pending names the deferred one-shot the room is waiting on, replacing the
@@ -114,7 +109,6 @@ type pending uint8
 const (
 	pendNone         pending = iota
 	pendBettingClose         // betting window closed (or grace beat elapsed)
-	pendInsurance            // insurance window closed -> resolve
 	pendTurn                 // active turn timed out -> auto-stand
 	pendResults              // results flash elapsed -> next round
 	pendSettle               // dealer reveal/draw animation done -> settle
@@ -125,13 +119,12 @@ type room struct {
 	cfg kit.RoomConfig
 	svc kit.Services
 
-	sh         *shoe
-	phase      string
-	seats      map[string]*seat // keyed by account id (hibernation-safe)
-	order      []string         // join order of account ids
-	dealer     hand
-	dealerHole bool // hole card concealed
-	joinSeq    int
+	sh      *shoe
+	phase   string
+	seats   map[string]*seat // keyed by account id (hibernation-safe)
+	order   []string         // join order of account ids
+	dealer  hand
+	joinSeq int
 
 	// deadline is the current phase deadline (rendered as the countdown) and
 	// what is the active pending one-shot. pendAt is the instant `what` fires;
@@ -350,9 +343,6 @@ func (rm *room) OnWake(r kit.Room) {
 		case pendBettingClose:
 			rm.what = pendNone
 			rm.onBettingClose(r)
-		case pendInsurance:
-			rm.what = pendNone
-			rm.resolveInsurance(r)
 		case pendTurn:
 			rm.what = pendNone
 			rm.autoStand(r)
@@ -378,15 +368,11 @@ func (rm *room) arm(what pending, at time.Time) {
 func (rm *room) enterBetting(r kit.Room) {
 	rm.phase = phBetting
 	rm.dealer = nil
-	rm.dealerHole = false
 	rm.bettingClosing = false
 	rm.clearSchedule()
 	for _, s := range rm.seats {
 		s.hands = nil
 		s.placed = false
-		s.insurance = 0
-		s.insuranceWin = 0
-		s.insuranceDecided = false
 		s.result = ""
 		s.pairsKind = ""
 		s.pairsWin = 0
@@ -637,8 +623,7 @@ func (rm *room) deal(r kit.Room) {
 	}
 	rm.sh.beginRound() // everything dealt before this point is recyclable discards
 	rng := r.Rand()
-	rm.dealer = hand{rm.sh.draw(rng), rm.sh.draw(rng)} // [up, hole]
-	rm.dealerHole = true
+	rm.dealer = hand{rm.sh.draw(rng)} // ONE face-up card; the rest draw at the dealer's turn
 	// Range the join-ordered slice (not the map) so dealing order is
 	// deterministic — never depends on Go's map iteration order.
 	for _, id := range rm.order {
@@ -665,19 +650,7 @@ func (rm *room) deal(r kit.Room) {
 
 	rm.recordDeal(r)
 
-	up := rm.dealer[0]
-	switch {
-	case up.r == rankAce:
-		rm.enterInsurance(r)
-	case up.r.points() == 10:
-		if rm.dealer.isBlackjack() {
-			rm.revealAndSettle(r)
-		} else {
-			rm.enterTurns(r)
-		}
-	default:
-		rm.enterTurns(r)
-	}
+	rm.enterTurns(r)
 }
 
 // resolvePairs settles a seat's Perfect Pairs side bet against its dealt cards:
@@ -788,11 +761,10 @@ func (rm *room) computeSchedEnd() {
 	}
 }
 
-// recordDeal lays out the initial two-card deal as a staggered slide-and-flip
-// sweep: each card slides from the right felt edge to its slot and then flips
-// face up, except the dealer hole card, which slides in but stays concealed
-// until the reveal turns it over. Card identities are already fixed; this only
-// records cosmetic timings.
+// recordDeal lays out the initial deal as a staggered slide-and-flip sweep:
+// each seat's two cards and the dealer's single card slide from the right felt
+// edge to their slot and then flip face up. Card identities are already fixed;
+// this only records cosmetic timings.
 func (rm *room) recordDeal(r kit.Room) {
 	now := r.Now()
 	rm.sched = nil
@@ -806,7 +778,7 @@ func (rm *room) recordDeal(r kit.Room) {
 		step++
 	}
 	// Two passes around the table mirror a real deal: first card to every seat
-	// then the dealer up card; second card to every seat then the dealer hole.
+	// then the dealer's only dealt card; second card to every seat.
 	for round := 0; round < 2; round++ {
 		for _, id := range rm.order {
 			s := rm.seats[id]
@@ -816,9 +788,7 @@ func (rm *room) recordDeal(r kit.Room) {
 			add(cardAnim{kind: animSeat, player: s.p, cardIdx: round, flipStart: now})
 		}
 		if round == 0 {
-			add(cardAnim{kind: animDealer, cardIdx: 0, flipStart: now}) // up card flips
-		} else {
-			add(cardAnim{kind: animDealer, cardIdx: 1}) // hole card stays face down
+			add(cardAnim{kind: animDealer, cardIdx: 0, flipStart: now}) // the dealer's only dealt card
 		}
 	}
 	rm.computeSchedEnd()
@@ -839,21 +809,6 @@ func (rm *room) recordDraw(r kit.Room, p kit.Player, handIdx, cardIdx int) {
 	rm.computeSchedEnd()
 }
 
-// recordHoleReveal schedules the dealer hole card flipping over in place (no
-// slide) starting at `at`, and returns the room-clock instant the flip
-// completes so dealer play can pace off it. Callers lead in with a short beat
-// before `at` so the card sits face down a moment, then turns over, rather than
-// snapping up the instant the dealer's turn begins.
-func (rm *room) recordHoleReveal(at time.Time) time.Time {
-	rm.sched = []cardAnim{{
-		kind:      animDealer,
-		cardIdx:   1,
-		flipStart: at,
-	}}
-	rm.computeSchedEnd()
-	return at.Add(flipDur)
-}
-
 // recordDealerDraw appends a dealer hit card sliding in and flipping face up.
 func (rm *room) recordDealerDraw(start time.Time, cardIdx int) {
 	rm.sched = append(rm.sched, cardAnim{
@@ -862,84 +817,6 @@ func (rm *room) recordDealerDraw(start time.Time, cardIdx int) {
 		slideStart: start,
 		flipStart:  start.Add(slideDur),
 	})
-}
-
-// --- insurance -------------------------------------------------------------
-
-func (rm *room) enterInsurance(r kit.Room) {
-	rm.phase = phInsurance
-	rm.deadline = r.Now().Add(insuranceDur)
-	r.SetInputContext(kit.CtxCommand) // y/n are domain commands
-	rm.arm(pendInsurance, rm.deadline)
-}
-
-func (rm *room) takeInsurance(s *seat, yes bool) {
-	if s == nil || !s.placed || s.insuranceDecided {
-		return
-	}
-	s.insuranceDecided = true
-	if yes {
-		ins := s.bet / 2
-		if ins <= 0 {
-			return
-		}
-		if !rm.wager(s, ins) {
-			return // can't cover the insurance stake: decline it
-		}
-		s.insurance = ins
-	}
-}
-
-// insuranceUndecidedCount is how many placed seats have not yet answered the
-// insurance offer (the seats the table is still waiting on).
-func (rm *room) insuranceUndecidedCount() int {
-	n := 0
-	for _, s := range rm.seats {
-		if s.placed && !s.insuranceDecided {
-			n++
-		}
-	}
-	return n
-}
-
-// maybeResolveInsurance resolves the insurance window early once every placed
-// seat has answered, instead of waiting out the timer (mirrors the all-bets-in
-// early deal and the all-ready results skip).
-func (rm *room) maybeResolveInsurance(r kit.Room) {
-	placed := false
-	for _, s := range rm.seats {
-		if !s.placed {
-			continue
-		}
-		placed = true
-		if !s.insuranceDecided {
-			return // still waiting on this seat
-		}
-	}
-	if !placed {
-		return
-	}
-	rm.what = pendNone // cancel the armed timer; resolving now
-	rm.resolveInsurance(r)
-}
-
-func (rm *room) resolveInsurance(r kit.Room) {
-	dbj := rm.dealer.isBlackjack()
-	// Order the credit loop by join order for determinism (chips are
-	// per-seat so order is harmless, but range-over-map is avoided on principle).
-	for _, id := range rm.order {
-		s := rm.seats[id]
-		if s == nil || s.insurance <= 0 {
-			continue
-		}
-		s.insuranceWin = insuranceCredit(dbj, s.insurance)
-		s.grossThisRound += int64(s.insuranceWin)
-	}
-	if dbj {
-		rm.revealAndSettle(r)
-		return
-	}
-	rm.enterTurns(r)
 }
 
 // --- player turns ----------------------------------------------------------
@@ -1100,35 +977,24 @@ func (rm *room) handIndex(s *seat, h *phand) int {
 
 // --- dealer & settlement ---------------------------------------------------
 
-func (rm *room) revealAndSettle(r kit.Room) {
-	rm.dealerHole = false
-	// A beat with the card still face down, then turn it over, then hold a beat
-	// on the revealed blackjack before settling — so the reveal animates and
-	// registers instead of snapping straight to results.
-	flipAt := r.Now().Add(holeRevealDelay)
-	done := rm.recordHoleReveal(flipAt)
-	rm.settleAt(r, done.Add(dealerDoneHold))
-}
-
 func (rm *room) enterDealer(r kit.Room) {
-	rm.dealerHole = false
-	// The outcome is fixed up front from the seeded shoe; the schedule only paces
-	// the reveal. Hold a beat with the hole card still face down, turn it over,
-	// hold a beat on the dealer's two-card total, then slide in each hit one
-	// unhurried card at a time, and settle a final beat after the last card
-	// lands — never the flurry the initial deal uses.
-	flipAt := r.Now().Add(holeRevealDelay)
-	done := rm.recordHoleReveal(flipAt).Add(holeRevealHold)
+	// No hole card exists on this table: the dealer's turn is a lead-in beat,
+	// then each drawn card sliding in one unhurried card at a time. Pace off
+	// any animation still in flight (a table of instant naturals arrives here
+	// straight from the deal sweep) so the draw-out never overlaps it.
+	done := r.Now().Add(dealerLeadIn)
+	if rm.schedEnd.After(done) {
+		done = rm.schedEnd
+	}
 	if rm.anyLive() {
 		before := len(rm.dealer)
 		rm.dealer = dealerPlay(rm.dealer, rm.sh, r.Rand())
 		start := done
 		for i := before; i < len(rm.dealer); i++ {
 			rm.recordDealerDraw(start, i)
-			// The next hit waits for this card to fully land, plus a read beat.
 			start = start.Add(slideDur + flipDur + dealerDrawGap)
 		}
-		rm.computeSchedEnd() // across the appended dealer cards
+		rm.computeSchedEnd()
 		if len(rm.dealer) > before {
 			done = rm.schedEnd
 		}
@@ -1181,8 +1047,8 @@ func (rm *room) settle(r kit.Room) {
 			o := settleHandEx(h.cards, pbj, rm.dealer, dbj)
 			s.grossThisRound += int64(creditFor(o, h.bet))
 		}
-		// The Perfect Pairs and insurance side-bet wins already folded into gross
-		// as they resolved (deal / offer-close); settle the behind bets now.
+		// The Perfect Pairs side-bet wins already folded into gross at the deal;
+		// settle the behind bets now.
 		rm.settleBacks(s, dbj)
 		// Close the seat's open stake with ONE Settle of the accumulated gross
 		// (clamped to the payout ceiling), then feed the board on a new peak.
@@ -1314,17 +1180,6 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 				if s.bal < betTiers[0] {
 					rm.buyback(s) // on success s.bal is topped up; the bet controls light back up next render
 				}
-			}
-		}
-	case phInsurance:
-		if in.Kind == kit.InputRune {
-			switch in.Rune {
-			case 'y', 'Y':
-				rm.takeInsurance(s, true)
-				rm.maybeResolveInsurance(r) // all answered -> resolve, skip the timer
-			case 'n', 'N':
-				rm.takeInsurance(s, false)
-				rm.maybeResolveInsurance(r)
 			}
 		}
 	case phResults:

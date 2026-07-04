@@ -79,15 +79,6 @@ func creditFor(o outcome, bet int) int {
 	}
 }
 
-// insuranceCredit returns the chips paid back on an insurance side bet of `ins`.
-// Insurance pays 2:1 when the dealer has blackjack (stake + 2×stake), else 0.
-func insuranceCredit(dealerBlackjack bool, ins int) int {
-	if dealerBlackjack {
-		return ins * 3
-	}
-	return 0
-}
-
 // perfectPairsOutcome classifies a player's first two cards for the Perfect
 // Pairs side bet and returns the result kind and its payout multiplier (the X
 // in X:1), or ("", 0) when the cards are not a pair. A perfect pair is the same
