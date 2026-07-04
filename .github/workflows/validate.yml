@@ -18,9 +18,39 @@ env:
   GO_VERSION: "1.26"
   FREEZE_VERSION: "0.2.2"       # charmbracelet/freeze — ANSI shot → SVG preview
 
+# Fork PRs already run with a read-only token; make it explicit so the fan-out
+# below inherits least privilege. No job here holds secrets — smoke-preview.yml
+# (base-repo context) is the only place bucket/comment secrets live.
+permissions:
+  contents: read
+
+# Three jobs by design:
+#   changed     — computes the work list, runs ZERO game code (git diff + a
+#                 static python check), and fans it out as a matrix.
+#   build       — one matrix leg PER GAME, each compiling UNTRUSTED community
+#                 code in its own runner, in parallel (fail-fast: false).
+#   smoke-merge — collects the per-leg preview parts into the single
+#                 `smoke-previews` artifact + merged manifest.json that
+#                 smoke-preview.yml consumes (runs no game code, no secrets).
+#
+# Why a matrix instead of one serial job: the wall-clock was dominated by the
+# per-game `while read` loop — a single heavy game (a ~5-6 min TinyGo build)
+# blocked every other game behind it. Fanning out makes wall-clock O(slowest
+# single game) instead of O(sum of all games); a 14-game mass update (kit
+# autobump, art release) drops from ~16 min to roughly the slowest game's leg.
 jobs:
-  submissions:
+  # Compute the changed game dirs BEFORE any game code runs, then hand the list
+  # to the build matrix. Keeping this in its own job preserves the property the
+  # single-job version had: the work list is decided by trusted code only (git
+  # diff + the maintainer-permission gate + a static validator), so a malicious
+  # build script can never influence WHICH dirs get built or the maintainer gate.
+  changed:
     runs-on: ubuntu-latest
+    outputs:
+      # Newline list (for humans/logs) and a compact JSON array (for the matrix).
+      # An empty array => the build job has no legs and is skipped.
+      dirs: ${{ steps.changed.outputs.dirs }}
+      matrix: ${{ steps.changed.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
@@ -37,6 +67,12 @@ jobs:
           dirs=$(git diff --name-only "$base"...HEAD -- 'games/**' | awk -F/ 'NF>=3 {print $1"/"$2"/"$3}' | sort -u \
                  | while read -r d; do [ -d "$d" ] && printf '%s\n' "$d"; done)
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          # Compact JSON array for `strategy.matrix` (fromJSON). Each non-empty
+          # line becomes one element; an empty list emits [] so the build job is
+          # skipped (guarded on `!= '[]'`). The dir strings are DATA the matrix
+          # passes to each leg via env — never spliced into a run script.
+          matrix=$(printf '%s' "$dirs" | jq -R -c 'select(length>0)' | jq -s -c '.')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           # Files outside games/ are maintainer-only plumbing. The maintainer
           # test is the author's REPO PERMISSION (admin/maintain/write), not
           # author_association — association reports MEMBER/OWNER only when the
@@ -63,7 +99,11 @@ jobs:
       # This workflow only validates the directory contract and that the game
       # builds and passes conformance.
 
-      - name: validate game directory (module, LICENSE, no artifacts)
+      # Static directory contract (module marker, LICENSE, no build artifacts).
+      # Trusted maintainer python that only reads files and shells out to `git`
+      # — it runs NO game code, so it stays here in the pre-fan-out job where a
+      # bad dir fails fast before N runners spin up.
+      - name: validate game directories (module, LICENSE, no artifacts)
         if: steps.changed.outputs.dirs != ''
         env:
           # Fork-controlled (derived from PR file paths). Pass via env so it is
@@ -76,24 +116,53 @@ jobs:
             python3 .github/scripts/validate_game_dir.py "$d"
           done <<< "$DIRS"
 
+  build:
+    needs: changed
+    if: ${{ needs.changed.outputs.matrix != '[]' }}
+    runs-on: ubuntu-latest
+    # One leg PER GAME, all in parallel. fail-fast: false so ONE game failing to
+    # build (or failing conformance) does not cancel its siblings — every other
+    # game still gets validated and its preview produced, and the PR check still
+    # goes red on the failed leg.
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changed.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A leg builds ONE game dir at HEAD — no history diff needed here (the
+          # changed job did that). persist-credentials:false because this job
+          # compiles UNTRUSTED community code (a Rust build.rs / proc-macro runs
+          # arbitrary code during `cargo build`): no token on disk.
+          persist-credentials: false
+
       - uses: actions/setup-go@v6
-        if: steps.changed.outputs.dirs != ''
-        with: { go-version: "${{ env.GO_VERSION }}" }
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          # No build/module cache in this job. It compiles untrusted community
+          # code, and actions/cache restored in a later run would import a cache
+          # a prior untrusted build could have poisoned. The specific hazard: the
+          # Go build cache also feeds compilation of the TRUSTED conformance CLI
+          # (`go run kit/cmd/shellcade-kit@<ver>`), so a poisoned entry could
+          # subvert the very checker that gates the wasm and hand a malicious
+          # game a false "pass". The matrix's parallelism already delivers the
+          # win; a cold ~30-40s kit-CLI compile per leg is not worth that risk.
+          cache: false
       - uses: acifani/setup-tinygo@v3
-        if: steps.changed.outputs.dirs != ''
         with: { tinygo-version: "${{ env.TINYGO_VERSION }}" }
 
       # Rust games (Cargo.toml module marker) build with the runner's stable
       # rustup toolchain; only the wasm target needs adding (publish.yml pins
       # the same way).
       - name: rust wasm32-wasip1 target (for Cargo games)
-        if: steps.changed.outputs.dirs != ''
         run: rustup target add wasm32-wasip1
 
       # Pin binaryen to an exact release (TinyGo shells out to wasm-opt) and
-      # verify it against the release's published .sha256 before use.
+      # verify it against the release's published .sha256 before use. This is a
+      # checksum-verified download of a trusted upstream release, not a cache of
+      # build output — safe to re-fetch per leg.
       - name: binaryen
-        if: steps.changed.outputs.dirs != ''
         run: |
           base="https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}"
           tarball="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
@@ -107,7 +176,6 @@ jobs:
       # release's checksums.txt; it renders the smoke shots into the preview
       # images the smoke-preview workflow publishes.
       - name: freeze
-        if: steps.changed.outputs.dirs != ''
         run: |
           base="https://github.com/charmbracelet/freeze/releases/download/v${FREEZE_VERSION}"
           tarball="freeze_${FREEZE_VERSION}_Linux_x86_64.tar.gz"
@@ -117,11 +185,12 @@ jobs:
           tar xzf "$tarball" "freeze_${FREEZE_VERSION}_Linux_x86_64/freeze"
           echo "$PWD/freeze_${FREEZE_VERSION}_Linux_x86_64" >> "$GITHUB_PATH"
 
-      - name: build + conformance per game
-        if: steps.changed.outputs.dirs != ''
+      - name: build + conformance + smoke (one game)
         env:
-          # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
-          DIRS: ${{ steps.changed.outputs.dirs }}
+          # This leg's game dir — fork-controlled matrix DATA. Assigned to an env
+          # var (never ${{ }} spliced into the script body) exactly as the old
+          # DIRS was, so a crafted path can't inject shell (authorize.yml rule).
+          DIR: ${{ matrix.dir }}
         run: |
           # Run the conformance CLI from the kit MODULE at the version each game
           # PINS, so the verifier is always the version the artifact was built
@@ -151,118 +220,139 @@ jobs:
             fi
             ( cd "$gdir" && go run "github.com/shellcade/kit/v2/cmd/shellcade-kit@${ver}" "$@" )
           }
-          while read -r d; do
-            [ -z "$d" ] && continue
-            echo "=== $d ==="
-            # Module marker decides the toolchain — mirrors publish.yml:
-            # go.mod => TinyGo (dev profile), Cargo.toml => cargo/wasm32-wasip1.
-            if [ -f "$d/go.mod" ]; then
-              # Native tests run BEFORE the wasm build: games may carry gameplay
-              # tests and BUDGET GATES (wake wall-time, steady-state allocations,
-              # death alloc budgets — the player-count contract under the
-              # production profile). A failing gate fails validation.
-              # Production profile is -gc=conservative since 2026-06-11: the old
-              # leaking GC made every allocation permanent, so long-lived rooms
-              # OOM-trapped at the host's 32 MiB cap (~52 min of play).
-              # Conservative GC re-verified against TinyGo 0.41.1 (200k-callback
-              # soak, flat memory).
-              ( cd "$d" && go mod tidy && go test ./... )
-              ( cd "$d" && tinygo build -opt=1 -no-debug -gc=conservative -o game.wasm -target wasip1 -buildmode=c-shared . )
-              # Conformance-check the dev artifact. For Go the CLI accepts the
-              # source dir directly (`check .` from inside $d).
-              kit "$d" check --require-leaderboard .
-            elif [ -f "$d/Cargo.toml" ]; then
-              crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
-              ( cd "$d" && cargo build --release --target wasm32-wasip1 )
-              cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
-              # Rust: the CLI operates on the built wasm (relative to $d).
-              kit "$d" check --require-leaderboard game.wasm
-            else
-              echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
-            fi
 
-            # Release-profile gate (TinyGo-only): publish.yml ships an -opt=2
-            # wasm-opt'd binary — a DIFFERENT artifact than the -opt=1 dev
-            # build smoked below. A release-profile-only miscompile must fail
-            # HERE, pre-merge, where the author can act on it; publish.yml
-            # re-checks the same profile post-merge as defense in depth. Rust
-            # games already build --release above, so they need no second pass.
-            if [ -f "$d/go.mod" ]; then
-              ( cd "$d" && tinygo build -opt=2 -no-debug -gc=conservative \
-                  -o game-release.wasm -target wasip1 -buildmode=c-shared . )
-              kit "$d" check --require-leaderboard game-release.wasm
-              rm -f "$d/game-release.wasm"
-            fi
+          d="$DIR"
+          echo "=== $d ==="
+          # Module marker decides the toolchain — mirrors publish.yml:
+          # go.mod => TinyGo (dev profile), Cargo.toml => cargo/wasm32-wasip1.
+          if [ -f "$d/go.mod" ]; then
+            # Native tests run BEFORE the wasm build: games may carry gameplay
+            # tests and BUDGET GATES (wake wall-time, steady-state allocations,
+            # death alloc budgets — the player-count contract under the
+            # production profile). A failing gate fails validation.
+            # Production profile is -gc=conservative since 2026-06-11: the old
+            # leaking GC made every allocation permanent, so long-lived rooms
+            # OOM-trapped at the host's 32 MiB cap (~52 min of play).
+            # Conservative GC re-verified against TinyGo 0.41.1 (200k-callback
+            # soak, flat memory).
+            ( cd "$d" && go mod tidy && go test ./... )
+            ( cd "$d" && tinygo build -opt=1 -no-debug -gc=conservative -o game.wasm -target wasip1 -buildmode=c-shared . )
+            # Conformance-check the dev artifact. For Go the CLI accepts the
+            # source dir directly (`check .` from inside $d).
+            kit "$d" check --require-leaderboard .
+          elif [ -f "$d/Cargo.toml" ]; then
+            crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
+            ( cd "$d" && cargo build --release --target wasm32-wasip1 )
+            cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
+            # Rust: the CLI operates on the built wasm (relative to $d).
+            kit "$d" check --require-leaderboard game.wasm
+          else
+            echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
+          fi
 
-            # The artifact IS the metadata: assert it agrees with the path.
-            meta=$(kit "$d" meta game.wasm)
-            echo "$meta"
-            name=$(echo "$d" | cut -d/ -f3)
-            slug=$(echo "$meta" | jq -r .slug)
-            minp=$(echo "$meta" | jq -r .minPlayers)
-            maxp=$(echo "$meta" | jq -r .maxPlayers)
-            if [ "$slug" != "$name" ]; then
-              echo "::error::$d: artifact meta slug '$slug' must equal the directory name '$name'"; exit 1
-            fi
-            if [ "$minp" -lt 1 ] || [ "$maxp" -gt 1024 ] || [ "$minp" -gt "$maxp" ]; then
-              echo "::error::$d: player bounds $minp-$maxp outside the platform's 1..1024"; exit 1
-            fi
-          done <<< "$DIRS"
+          # Release-profile gate (TinyGo-only): publish.yml ships an -opt=2
+          # wasm-opt'd binary — a DIFFERENT artifact than the -opt=1 dev
+          # build smoked below. A release-profile-only miscompile must fail
+          # HERE, pre-merge, where the author can act on it; publish.yml
+          # re-checks the same profile post-merge as defense in depth. Rust
+          # games already build --release above, so they need no second pass.
+          if [ -f "$d/go.mod" ]; then
+            ( cd "$d" && tinygo build -opt=2 -no-debug -gc=conservative \
+                -o game-release.wasm -target wasip1 -buildmode=c-shared . )
+            kit "$d" check --require-leaderboard game-release.wasm
+            rm -f "$d/game-release.wasm"
+          fi
 
-      # Smoke: run each changed game's smoke.yaml against the artifact just
-      # built (the script is validated and executed by shellcade-kit; a missing
-      # or broken script fails the PR), render every shot to SVG with the
-      # pinned freeze, and bundle the lot for the preview workflow. This job
-      # runs WITHOUT secrets (fork-safe); smoke-preview.yml (base-repo
-      # context) publishes the images and posts the sticky comment.
-      - name: smoke screens per game
-        if: steps.changed.outputs.dirs != ''
-        env:
-          # Fork-controlled — env, never ${{ }} splicing (see authorize.yml).
-          DIRS: ${{ steps.changed.outputs.dirs }}
-        run: |
-          # Same from-module CLI as the conformance step: run the kit version
-          # each game pins (Go via go.mod, Rust via the Cargo.toml git tag) as
-          # `go run <pkg>@<version>` from inside the game dir. See that step for
-          # why the @version form (not a bare `go run <pkg>`) is required.
-          kit() {
-            local gdir="$1"; shift
-            local ver
-            if [ -f "$gdir/go.mod" ]; then
-              ver=$( cd "$gdir" && go mod edit -json | jq -r '.Require[]? | select(.Path == "github.com/shellcade/kit/v2") | .Version' )
-            else
-              ver=$(sed -n 's/^shellcade-kit *= *{.*tag *= *"\(v[0-9][^"]*\)".*/\1/p' "$gdir/Cargo.toml" | head -1)
-            fi
-            if [ -z "$ver" ]; then
-              echo "::error::$gdir: could not determine the pinned kit version (go.mod require / Cargo.toml git tag)"; exit 1
-            fi
-            ( cd "$gdir" && go run "github.com/shellcade/kit/v2/cmd/shellcade-kit@${ver}" "$@" )
-          }
+          # The artifact IS the metadata: assert it agrees with the path.
+          meta=$(kit "$d" meta game.wasm)
+          echo "$meta"
+          name=$(echo "$d" | cut -d/ -f3)
+          slug=$(echo "$meta" | jq -r .slug)
+          minp=$(echo "$meta" | jq -r .minPlayers)
+          maxp=$(echo "$meta" | jq -r .maxPlayers)
+          if [ "$slug" != "$name" ]; then
+            echo "::error::$d: artifact meta slug '$slug' must equal the directory name '$name'"; exit 1
+          fi
+          if [ "$minp" -lt 1 ] || [ "$maxp" -gt 1024 ] || [ "$minp" -gt "$maxp" ]; then
+            echo "::error::$d: player bounds $minp-$maxp outside the platform's 1..1024"; exit 1
+          fi
+
+          # Smoke: run this game's smoke.yaml against the artifact just built
+          # (the script is validated and executed by shellcade-kit; a missing or
+          # broken script fails the PR), render every shot to SVG with the
+          # pinned freeze, and write a PER-LEG manifest part. The smoke-merge job
+          # (base-repo-safe, no secrets) stitches the parts into the single
+          # manifest smoke-preview.yml (base-repo context) consumes and publishes.
+          owner=$(echo "$d" | cut -d/ -f2); game=$(echo "$d" | cut -d/ -f3)
+          sub="${owner}-${game}"
           mkdir -p previews
-          games_json='[]'
-          while read -r d; do
-            [ -z "$d" ] && continue
-            owner=$(echo "$d" | cut -d/ -f2); game=$(echo "$d" | cut -d/ -f3)
-            # Absolute out dir: the kit helper runs from inside $d, so a relative
-            # --out would land under the game dir instead of previews/.
-            out="$PWD/previews/${owner}-${game}"
-            echo "=== smoke $d ==="
-            kit "$d" smoke game.wasm --out "$out"
-            shots='[]'
-            for ansi in "$out"/*.ansi; do
-              freeze --language ansi -o "${ansi%.ansi}.svg" < "$ansi"
-              shots=$(echo "$shots" | jq -c --arg s "$(basename "${ansi%.ansi}.svg")" '. + [$s]')
-            done
-            games_json=$(echo "$games_json" | jq -c --arg dir "$d" --arg sub "${owner}-${game}" --argjson shots "$shots" '. + [{dir: $dir, sub: $sub, shots: $shots}]')
-          done <<< "$DIRS"
-          jq -n --argjson games "$games_json" \
-            --arg pr "${{ github.event.pull_request.number }}" \
-            --arg sha "${{ github.event.pull_request.head.sha }}" \
-            '{pr: ($pr|tonumber), sha: $sha, games: $games}' > previews/manifest.json
-          cat previews/manifest.json
+          # Absolute out dir: the kit helper runs from inside $d, so a relative
+          # --out would land under the game dir instead of previews/.
+          out="$PWD/previews/${sub}"
+          echo "=== smoke $d ==="
+          kit "$d" smoke game.wasm --out "$out"
+          shots='[]'
+          for ansi in "$out"/*.ansi; do
+            freeze --language ansi -o "${ansi%.ansi}.svg" < "$ansi"
+            shots=$(echo "$shots" | jq -c --arg s "$(basename "${ansi%.ansi}.svg")" '. + [$s]')
+          done
+          # One part file per leg (unique filename => no collision when the
+          # merge job overlays every leg's previews/ into one tree). smoke-merge
+          # combines the `game` objects into manifest.json's `games` array; pr +
+          # sha are identical across legs, so it takes them from any part.
+          jq -n --arg pr "${{ github.event.pull_request.number }}" \
+                --arg sha "${{ github.event.pull_request.head.sha }}" \
+                --arg dir "$d" --arg sub "$sub" --argjson shots "$shots" \
+            '{pr: ($pr|tonumber), sha: $sha, game: {dir: $dir, sub: $sub, shots: $shots}}' \
+            > "previews/manifest-${sub}.json"
+          cat "previews/manifest-${sub}.json"
 
-      - name: upload smoke previews
-        if: steps.changed.outputs.dirs != ''
+      # Per-leg artifact — names must be unique across the matrix (same-name
+      # uploads from two legs collide). smoke-merge globs `smoke-previews-*`.
+      # The sanitized dir keeps the name filesystem-safe (no slashes).
+      - name: upload smoke preview part
+        env:
+          DIR: ${{ matrix.dir }}
+        run: echo "SAFE=${DIR//\//-}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smoke-previews-${{ env.SAFE }}
+          path: previews/
+          retention-days: 14
+
+  # Stitch the per-leg preview parts into the SINGLE `smoke-previews` artifact +
+  # merged manifest.json that smoke-preview.yml downloads. Runs no game code and
+  # no secrets (fork-safe), so it does not weaken the base-repo/secret boundary;
+  # keeping the artifact CONTRACT identical means smoke-preview.yml is unchanged.
+  # !cancelled(): produce previews for whatever legs succeeded even if a sibling
+  # game failed to build.
+  smoke-merge:
+    needs: [changed, build]
+    if: ${{ !cancelled() && needs.changed.outputs.matrix != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: collect preview parts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: smoke-previews-*
+          merge-multiple: true   # overlay every leg's previews/ into one tree
+          path: previews
+      - name: merge manifests
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          parts=(previews/manifest-*.json)
+          if [ ${#parts[@]} -eq 0 ]; then
+            echo "no preview parts (every build leg failed) — nothing to publish"
+            exit 0
+          fi
+          # pr + sha are identical across parts; fold each part's `game` object
+          # into the `games` array smoke-preview.yml iterates.
+          jq -s '{pr: .[0].pr, sha: .[0].sha, games: [.[].game]}' "${parts[@]}" \
+            > previews/manifest.json
+          rm -f "${parts[@]}"
+          cat previews/manifest.json
+      - name: upload merged smoke previews
         uses: actions/upload-artifact@v7
         with:
           name: smoke-previews

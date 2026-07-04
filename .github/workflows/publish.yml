@@ -16,33 +16,46 @@ env:
   BINARYEN_VERSION: "version_123"
   GO_VERSION: "1.26"
 
-# Two-job split by design (mirrors validate.yml/smoke-preview.yml): the build
-# job compiles community game code — a Rust crate's build.rs or proc-macro
-# executes ARBITRARY CODE on the runner during `cargo build` — so it runs with
-# NO secrets, no token (persist-credentials: false), and read-only permissions.
-# Job-level isolation, not step-level: a malicious build script can leave a
-# background process that reads later steps' environments on the same runner.
-# The release job holds GITHUB_TOKEN + SHELLCADE_ADMIN_SECRET and runs ZERO
-# game code: it only downloads the built artifacts, cuts releases, and
-# notifies the arcade.
+# Three-job split by design (mirrors validate.yml/smoke-preview.yml):
+#   changed — computes the work list, runs ZERO game code, holds no secrets.
+#   build   — one matrix leg PER GAME, each compiling community game code
+#             (a Rust crate's build.rs or proc-macro executes ARBITRARY CODE on
+#             the runner during `cargo build`) — so it runs with NO secrets, no
+#             token (persist-credentials: false), and read-only permissions.
+#             Job-level isolation, not step-level: a malicious build script can
+#             leave a background process that reads later steps' environments on
+#             the same runner — and now every game is on its OWN runner, so a
+#             malicious leg cannot even observe a sibling game's build.
+#   release — holds GITHUB_TOKEN + SHELLCADE_ADMIN_SECRET and runs ZERO game
+#             code: it only downloads the built artifacts, cuts releases, and
+#             notifies the arcade.
+#
+# Why a matrix: the old single build job ran a serial per-game `while read`
+# loop, so one heavy game (a ~5-6 min TinyGo build) blocked every other game's
+# release behind it. Fanning out makes wall-clock O(slowest single game); a
+# kit-autobump touching all ~14 games drops from ~16 min to roughly one game's
+# leg. fail-fast: false so one game failing to build never cancels its siblings
+# — the good games still upload and the release job still ships them.
 permissions: {}
 
 jobs:
-  build:
+  # Decide WHICH dirs to build BEFORE any game code runs. This is the property
+  # the old inline "changed game dirs" step guaranteed, now hoisted into its own
+  # job: the work list (and the release job's DIRS) is computed by trusted code
+  # only, so a malicious build script cannot influence it — unlike the uploaded
+  # artifact contents (build outputs the arcade re-verifies server-side anyway).
+  changed:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      # Captured by the "changed game dirs" step, which runs BEFORE any game
-      # code executes — so this output cannot be influenced by a malicious
-      # build script, unlike the uploaded artifact contents (which are build
-      # outputs the arcade re-verifies server-side anyway).
-      dirs: ${{ steps.changed.outputs.dirs }}
+      dirs: ${{ steps.changed.outputs.dirs }}     # newline list, for the release loop
+      matrix: ${{ steps.changed.outputs.matrix }} # compact JSON array, for the build matrix
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0             # full history for the changed-dirs diff
-          persist-credentials: false # this job compiles untrusted code — no token on disk
+          persist-credentials: false # no game code runs here, but keep the token off disk
 
       - name: changed game dirs
         id: changed
@@ -63,24 +76,58 @@ jobs:
                    | while read -r d; do [ -d "$d" ] && printf '%s\n' "$d"; done)
           fi
           { echo "dirs<<EOF"; echo "$dirs"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          # Compact JSON array for `strategy.matrix` (fromJSON). Empty => [] so
+          # the build job is skipped. These dir strings are DATA the matrix hands
+          # each leg via env — never spliced into a run script.
+          matrix=$(printf '%s' "$dirs" | jq -R -c 'select(length>0)' | jq -s -c '.')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changed
+    if: ${{ needs.changed.outputs.matrix != '[]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # One leg PER GAME, in parallel. fail-fast: false so a single game failing
+    # to build or failing conformance does not cancel the others — each good
+    # game still uploads its artifact and the release job ships it; the failed
+    # leg is the red signal.
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changed.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A leg builds ONE game dir at HEAD; no history diff needed here (the
+          # changed job did that). persist-credentials: false — this job compiles
+          # untrusted community code, so no token on disk.
+          persist-credentials: false
 
       - uses: actions/setup-go@v6
-        if: steps.changed.outputs.dirs != ''
-        with: { go-version: "${{ env.GO_VERSION }}" }
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          # No build/module cache in this untrusted-code job. actions/cache
+          # restored on a later run would import a cache a prior untrusted build
+          # could have poisoned, and the Go build cache also feeds compilation of
+          # the TRUSTED conformance CLI (`go run kit/cmd/shellcade-kit@<ver>`) —
+          # a poisoned entry could subvert the checker gating the RELEASE wasm
+          # and hand a malicious game a false "pass" that then ships. The matrix
+          # already delivers the speedup; a cold kit-CLI compile per leg is the
+          # price of not caching poisonable build output.
+          cache: false
       - uses: acifani/setup-tinygo@v3
-        if: steps.changed.outputs.dirs != ''
         with: { tinygo-version: "${{ env.TINYGO_VERSION }}" }
 
       # Rust games (Cargo.toml module marker) build with the runner's stable
       # rustup toolchain; only the wasm target needs adding.
       - name: rust wasm32-wasip1 target (for Cargo games)
-        if: steps.changed.outputs.dirs != ''
         run: rustup target add wasm32-wasip1
 
       # Pin binaryen to an exact release and verify before use (wasm-opt powers
-      # the -opt=2 release build).
+      # the -opt=2 release build). Checksum-verified upstream download, not a
+      # cache of build output — safe to re-fetch per leg.
       - name: binaryen
-        if: steps.changed.outputs.dirs != ''
         run: |
           base="https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}"
           tarball="binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz"
@@ -90,13 +137,13 @@ jobs:
           tar xzf "$tarball"
           echo "$PWD/binaryen-${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
 
-      - name: build, check, and stage per game
-        if: steps.changed.outputs.dirs != ''
+      - name: build, check, and stage one game
         env:
-          # Derived from pushed file paths. Pass via env so it is shell DATA,
-          # never spliced into the script as ${{ }} (authorize.yml documents
-          # this rule).
-          DIRS: ${{ steps.changed.outputs.dirs }}
+          # This leg's game dir — fork/push-controlled matrix DATA. Assigned to
+          # an env var (never ${{ }} spliced into the script body) exactly as the
+          # old DIRS was, so a crafted path can't inject shell (authorize.yml
+          # documents this rule).
+          DIR: ${{ matrix.dir }}
         run: |
           set -euo pipefail
           # Run the conformance CLI from the kit MODULE at the version each game
@@ -123,67 +170,73 @@ jobs:
             fi
             ( cd "$gdir" && go run "github.com/shellcade/kit/v2/cmd/shellcade-kit@${ver}" "$@" )
           }
+
+          d="$DIR"
           mkdir -p dist
-          while read -r d; do
-            [ -z "$d" ] && continue
-            echo "=== $d ==="
-            # Module marker decides the toolchain — mirrors validate_game_dir.py:
-            # go.mod => TinyGo, Cargo.toml => cargo/wasm32-wasip1.
-            if [ ! -f "$d/go.mod" ] && [ ! -f "$d/Cargo.toml" ]; then
-              echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
-            fi
+          echo "=== $d ==="
+          # Module marker decides the toolchain — mirrors validate_game_dir.py:
+          # go.mod => TinyGo, Cargo.toml => cargo/wasm32-wasip1.
+          if [ ! -f "$d/go.mod" ] && [ ! -f "$d/Cargo.toml" ]; then
+            echo "::error::$d has no module marker (go.mod or Cargo.toml)"; exit 1
+          fi
 
-            owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
-            game=$(echo "$d" | cut -d/ -f3)     # bare game name (== artifact meta slug)
-            echo "owner=$owner game=$game"
+          owner=$(echo "$d" | cut -d/ -f2)    # shellcade username
+          game=$(echo "$d" | cut -d/ -f3)     # bare game name (== artifact meta slug)
+          echo "owner=$owner game=$game"
 
-            # Release-profile build, per module marker.
-            if [ -f "$d/go.mod" ]; then
-              ( cd "$d" && go mod tidy && tinygo build -opt=2 -no-debug -gc=conservative \
-                  -o game.wasm -target wasip1 -buildmode=c-shared . )
-            else
-              # Rust: the crate's own [profile.release] carries the size/lto
-              # settings; the artifact lands under target/ named after the
-              # crate (hyphens become underscores).
-              crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
-              ( cd "$d" && cargo build --release --target wasm32-wasip1 )
-              cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
-            fi
+          # Release-profile build, per module marker.
+          if [ -f "$d/go.mod" ]; then
+            ( cd "$d" && go mod tidy && tinygo build -opt=2 -no-debug -gc=conservative \
+                -o game.wasm -target wasip1 -buildmode=c-shared . )
+          else
+            # Rust: the crate's own [profile.release] carries the size/lto
+            # settings; the artifact lands under target/ named after the
+            # crate (hyphens become underscores).
+            crate=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$d/Cargo.toml" | head -1)
+            ( cd "$d" && cargo build --release --target wasm32-wasip1 )
+            cp "$d/target/wasm32-wasip1/release/${crate//-/_}.wasm" "$d/game.wasm"
+          fi
 
-            # Conformance-gate the artifact that actually ships: validate.yml
-            # checks the -opt=1 dev build, so a release-profile-only miscompile
-            # would otherwise reach the arcade unchecked. Check the built
-            # release wasm (not the dir) so this gates the exact bytes staged.
-            kit "$d" check --require-leaderboard game.wasm
+          # Conformance-gate the artifact that actually ships: validate.yml
+          # checks the -opt=1 dev build, so a release-profile-only miscompile
+          # would otherwise reach the arcade unchecked. Check the built
+          # release wasm (not the dir) so this gates the exact bytes staged.
+          kit "$d" check --require-leaderboard game.wasm
 
-            digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
-            echo "digest: sha256:$digest"
+          digest=$(sha256sum "$d/game.wasm" | cut -d' ' -f1)
+          echo "digest: sha256:$digest"
 
-            mkdir -p "dist/${owner}-${game}"
-            cp "$d/game.wasm" "dist/${owner}-${game}/game.wasm"
+          mkdir -p "dist/${owner}-${game}"
+          cp "$d/game.wasm" "dist/${owner}-${game}/game.wasm"
 
-            # Preview pack (optional): a game may ship a preview/ authoring dir
-            # (preview.yaml + text frames). Pack it into a screen-pack asset the
-            # SAME way we stage the wasm — via the kit() helper, so it is
-            # produced by the exact kit version the game pins. A game with no
-            # preview/ dir behaves exactly as before. Pack input/output are
-            # relative to the game dir (kit() cd's into it), then we cp into
-            # dist next to the wasm. If the dir exists but packing fails — bad
-            # art, OR the game's pinned kit predates `preview pack` — FAIL LOUD
-            # rather than silently ship a game without its art.
-            if [ -d "$d/preview" ]; then
-              kit "$d" preview pack preview -o preview.scp || {
-                echo "::error::$d has a preview/ dir but 'shellcade-kit preview pack' failed (bad art, or the game's pinned kit predates the subcommand) — refusing to ship without art"; exit 1
-              }
-              cp "$d/preview.scp" "dist/${owner}-${game}/preview.scp"
-            fi
-          done <<< "$DIRS"
+          # Preview pack (optional): a game may ship a preview/ authoring dir
+          # (preview.yaml + text frames). Pack it into a screen-pack asset the
+          # SAME way we stage the wasm — via the kit() helper, so it is
+          # produced by the exact kit version the game pins. A game with no
+          # preview/ dir behaves exactly as before. Pack input/output are
+          # relative to the game dir (kit() cd's into it), then we cp into
+          # dist next to the wasm. If the dir exists but packing fails — bad
+          # art, OR the game's pinned kit predates `preview pack` — FAIL LOUD
+          # rather than silently ship a game without its art.
+          if [ -d "$d/preview" ]; then
+            kit "$d" preview pack preview -o preview.scp || {
+              echo "::error::$d has a preview/ dir but 'shellcade-kit preview pack' failed (bad art, or the game's pinned kit predates the subcommand) — refusing to ship without art"; exit 1
+            }
+            cp "$d/preview.scp" "dist/${owner}-${game}/preview.scp"
+          fi
 
-      - name: upload release artifacts
-        if: steps.changed.outputs.dirs != ''
+      # Per-leg artifact — names must be unique across the matrix (same-name
+      # uploads collide). The release job globs `release-wasm-*` and merges them
+      # back into one dist/ tree, so the <owner>-<game> subdir layout it iterates
+      # is preserved. Sanitized dir keeps the artifact name slash-free.
+      - name: artifact name
+        env:
+          DIR: ${{ matrix.dir }}
+        run: echo "SAFE=${DIR//\//-}" >> "$GITHUB_ENV"
+      - name: upload release artifact
         uses: actions/upload-artifact@v7
         with:
-          name: release-wasm
+          name: release-wasm-${{ env.SAFE }}
           path: dist/
           retention-days: 7
 
@@ -192,8 +245,14 @@ jobs:
     # and notifies the arcade. The wasm digest is recomputed here from the
     # downloaded artifact, so the digest pinned in the release notes always
     # describes the bytes actually attached.
-    needs: build
-    if: needs.build.outputs.dirs != ''
+    #
+    # needs BOTH the changed job (for DIRS, computed before any game code ran)
+    # and the build matrix (for the artifacts). !cancelled() rather than plain
+    # success(): with fail-fast: false a single game's build leg may have failed,
+    # and we still want to publish every game that DID build — a game with no
+    # artifact is skipped below (the failed build leg is already the red signal).
+    needs: [changed, build]
+    if: ${{ !cancelled() && needs.changed.outputs.dirs != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write       # cut releases
@@ -207,7 +266,8 @@ jobs:
       - name: download release artifacts
         uses: actions/download-artifact@v8
         with:
-          name: release-wasm
+          pattern: release-wasm-*  # one per build-matrix leg
+          merge-multiple: true     # overlay every leg's dist/ into one tree
           path: dist
 
       - name: release and notify per game
@@ -221,11 +281,11 @@ jobs:
           # (digest + conformance) — this call carries no trust, only the tag.
           PUBLISH_ENDPOINT: "https://shellcade.com/admin/game:publish"
           ADMIN_SECRET: ${{ secrets.SHELLCADE_ADMIN_SECRET }}
-          # Derived from pushed file paths, captured in the build job BEFORE
+          # Derived from pushed file paths, captured in the changed job BEFORE
           # any game code ran. Pass via env so it is shell DATA, never spliced
           # into the script as ${{ }} (authorize.yml documents this rule) —
           # this step holds contents:write and ADMIN_SECRET.
-          DIRS: ${{ needs.build.outputs.dirs }}
+          DIRS: ${{ needs.changed.outputs.dirs }}
         run: |
           set -euo pipefail
           refused=0
@@ -251,7 +311,11 @@ jobs:
 
             wasm="dist/${owner}-${game}/game.wasm"
             if [ ! -f "$wasm" ]; then
-              echo "::error::build artifact missing for $d (expected $wasm)"; exit 1
+              # With fail-fast: false a game's build leg can fail, leaving no
+              # artifact. That leg is already red (the run reflects the failure);
+              # skip it here so the games that DID build still publish, instead
+              # of aborting the whole release.
+              echo "::warning::no build artifact for $d — its build leg failed; skipping (see the build matrix)"; continue
             fi
             digest=$(sha256sum "$wasm" | cut -d' ' -f1)
             echo "digest: sha256:$digest"
@@ -368,8 +432,7 @@ jobs:
               echo "SHELLCADE_ADMIN_SECRET not set — skipping arcade auto-publish"
               continue
             fi
-            body=$(jq -nc --arg tag "$tag" --arg user "$mapped" \
-                     '{tag:$tag, githubUser:$user}')
+            body=$(jq -nc --arg tag "$tag" --arg user "$mapped" '{tag:$tag, githubUser:$user}')
             # Capture body + HTTP status separately so transport/HTTP errors
             # are distinguishable from a clean verified:false decision
             # (authorize.yml pattern).
@@ -395,6 +458,8 @@ jobs:
                 reason=$(printf '%s' "$payload" | jq -r '.reason // "no reason returned"')
                 echo "::error::arcade refused ${owner}/${game} ${tag}: ${reason}"
                 {
+                  # backticks are literal in this printf format, not command subst
+                  # shellcheck disable=SC2016
                   printf '### `%s/%s` — tag `%s`\n\n' "$owner" "$game" "$tag"
                   printf '%s\n\n' "$reason"
                 } >> refusals.md
