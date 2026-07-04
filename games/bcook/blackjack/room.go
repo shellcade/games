@@ -1309,6 +1309,10 @@ func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 				if s.focus != "" {
 					rm.cycleBackBehind(s)
 				}
+			case 'r', 'R': // broke-relief re-buy when you can't cover the min bet
+				if s.bal < betTiers[0] {
+					rm.buyback(s) // on success s.bal is topped up; the bet controls light back up next render
+				}
 			}
 		}
 	case phInsurance:

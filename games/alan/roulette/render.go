@@ -747,18 +747,24 @@ func (rm *room) drawSidebar(f *kit.Frame, pl *player) {
 		return
 	}
 	if rm.phase == phBetting {
-		b := masterBets[pl.sel.betIndex()]
-		// Straight/split labels are bare numbers, so name the family; every other
-		// label already reads as its bet ("Str 1-3", "Cnr 1-5", "Top line", "RED").
-		desc := b.label
-		switch b.kind {
-		case kStraight:
-			desc = "STRAIGHT " + b.label
-		case kSplit:
-			desc = "SPLIT " + b.label
+		if rm.broke(pl) {
+			// Below the table minimum: no chip is affordable, so point the seat at
+			// the re-buy instead of an armed bet it cannot place.
+			f.Text(panelRow, 2, "BROKE - press B to re-buy credits", stLose)
+		} else {
+			b := masterBets[pl.sel.betIndex()]
+			// Straight/split labels are bare numbers, so name the family; every other
+			// label already reads as its bet ("Str 1-3", "Cnr 1-5", "Top line", "RED").
+			desc := b.label
+			switch b.kind {
+			case kStraight:
+				desc = "STRAIGHT " + b.label
+			case kSplit:
+				desc = "SPLIT " + b.label
+			}
+			f.Text(panelRow, 2, "> "+desc+"   pays "+strconv.Itoa(b.kind.payout())+":1", stArmed)
+			f.TextRight(panelRow, kit.Cols-2, "chip "+strconv.Itoa(stakeTiers[pl.stakeIdx]), stHead)
 		}
-		f.Text(panelRow, 2, "> "+desc+"   pays "+strconv.Itoa(b.kind.payout())+":1", stArmed)
-		f.TextRight(panelRow, kit.Cols-2, "chip "+strconv.Itoa(stakeTiers[pl.stakeIdx]), stHead)
 	} else if rm.phase == phResults {
 		won, staked := rm.roundNet(pl)
 		if s := roundSummary(won, staked); s != "" {
@@ -809,7 +815,11 @@ func (rm *room) drawHelp(f *kit.Frame, pl *player) {
 	var help string
 	switch rm.phase {
 	case phBetting:
-		help = "arrows move  enter place  +/- chip  bksp undo  c clear  r ready"
+		if rm.broke(pl) {
+			help = "b re-buy credits"
+		} else {
+			help = "arrows move  enter place  +/- chip  bksp undo  c clear  r ready"
+		}
 	case phSpinning:
 		help = "" // the spinner panel owns this row mid-spin (its result + net land here)
 	case phResults:

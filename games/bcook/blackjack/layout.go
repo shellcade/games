@@ -385,7 +385,14 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 			centerWithChar(f, actionRow, "BACKING ", kit.CharacterCell(t.p.Character), post, stPrompt)
 			return
 		}
-		if !s.placed {
+		if !s.placed && s.bal < betTiers[0] {
+			// Broke: can't cover the minimum stake, so the bet controls are dead.
+			// Offer the platform broke-relief re-buy explicitly (the auto-rebuy
+			// fires post-hand, but a seat that lands here broke — a fresh low
+			// balance, or an auto-rebuy that was momentarily unavailable — would
+			// otherwise be stuck with no affordance). ASCII-only.
+			msg, st = "BROKE - press R to re-buy credits", stPrompt
+		} else if !s.placed {
 			// Prominent, highlighted call to bet for a viewer who hasn't yet.
 			// ASCII-only so it reads identically on non-UTF-8 sessions.
 			msg, st = "BET: Up/Down stake  P pairs  Left/Right back a seat  SPACE bet", stPrompt

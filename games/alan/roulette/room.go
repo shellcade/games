@@ -463,6 +463,29 @@ func (rm *room) clearBets(pl *player) { rm.refundAll(pl) }
 
 func (rm *room) refundAll(pl *player) { pl.bets = nil }
 
+// broke reports whether a seat is below the table minimum with a live economy:
+// it can afford no chip (the lowest tier is minBet), so the betting screen must
+// offer it the platform Buyback directly. Without that a seat that arrives (or is
+// left) below minBet can place no bet, so it never reaches the Settle where the
+// only other broke-relief lives — it would be stuck.
+func (rm *room) broke(pl *player) bool {
+	return pl != nil && rm.svc.Credits != nil && !rm.econOff && pl.bal < minBet
+}
+
+// rebuy tops a broke seat up from the platform Buyback during the open betting
+// window. It mirrors the post-Settle broke-relief (settle): a solvent or
+// limit-reached seat gets ErrInsufficientCredits, which we surface by simply
+// leaving the balance as-is — no retry.
+func (rm *room) rebuy(pl *player) {
+	if !rm.broke(pl) {
+		return
+	}
+	if nb, err := rm.svc.Credits.Buyback(pl.p); err == nil {
+		pl.bal = nb
+		rm.clampStake(pl) // keep the armed chip valid against the new balance
+	}
+}
+
 // --- spinning & settlement -------------------------------------------------
 
 func (rm *room) startSpin(r kit.Room) {
@@ -593,6 +616,11 @@ func (rm *room) handleBetInput(r kit.Room, pl *player, in kit.Input) {
 			rm.clearBets(pl)
 		case 'r', 'R':
 			rm.toggleReady(r, pl)
+		case 'b', 'B':
+			// Broke-relief while the window is open: a seat below the table minimum
+			// can place no chip, so 'b' tops it up from the platform Buyback (the
+			// same relief that runs post-Settle). A no-op for a solvent seat.
+			rm.rebuy(pl)
 		}
 	}
 }
