@@ -91,6 +91,10 @@ def artifact_reason(path: Path, game_dir: Path) -> Optional[str]:
         return "file under build-output directory"
     if path.suffix == ".wasm":
         return "wasm build artifact"
+    if path.suffix == ".scp":
+        # Packed preview (`shellcade-kit preview pack` output). Authors commit
+        # the preview/ SOURCES (preview.yaml + text frames); CI packs the .scp.
+        return "preview pack build artifact"
     if path.suffix in EXECUTABLE_EXTS:
         return "native build artifact"
     try:
