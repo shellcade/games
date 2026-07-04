@@ -1491,3 +1491,40 @@ func TestManyCardHandStaysInItsSlot(t *testing.T) {
 		}
 	}
 }
+
+// A seat that lands in betting below the minimum stake can re-buy with R rather
+// than being soft-locked (Confirm no-ops while broke, and the auto-rebuy only
+// fires post-hand). Guards the betting-screen broke-relief affordance.
+func TestBrokeSeatRebuysOnRInBetting(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+
+	// Broke: below the min bet (betTiers[0]) and the buyback floor.
+	fund(tr, s, 5)
+	// Confirm cannot place a bet while broke — the seat is stuck without a rebuy.
+	rm.OnInput(tr, a, keyInput(kit.KeyEnter))
+	if s.placed {
+		t.Fatal("broke seat placed a bet it cannot afford")
+	}
+
+	// R triggers the broke-relief re-buy, topping the seat back up.
+	rm.OnInput(tr, a, runeInput('r'))
+	if s.bal != 1000 {
+		t.Fatalf("after re-buy bal = %d, want 1000", s.bal)
+	}
+	if tr.CreditsRebuys[a.AccountID] != 1 {
+		t.Fatalf("re-buy count = %d, want 1", tr.CreditsRebuys[a.AccountID])
+	}
+	// Now solvent: a further R is a no-op (no phantom extra rebuy).
+	rm.OnInput(tr, a, runeInput('r'))
+	if tr.CreditsRebuys[a.AccountID] != 1 {
+		t.Fatalf("solvent R triggered a re-buy: count = %d, want 1", tr.CreditsRebuys[a.AccountID])
+	}
+	// And the seat can now place the minimum bet.
+	rm.OnInput(tr, a, keyInput(kit.KeyEnter))
+	if !s.placed {
+		t.Fatal("re-bought seat still cannot place a bet")
+	}
+}

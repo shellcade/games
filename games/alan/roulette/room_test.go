@@ -282,6 +282,44 @@ func TestRebuyOnBust(t *testing.T) {
 	}
 }
 
+// TestRebuyAtBettingScreen covers the betting-window broke affordance: a seat
+// that is below the table minimum can place no chip, so it would never reach the
+// post-Settle re-buy — pressing 'b' tops it up from the platform Buyback directly.
+func TestRebuyAtBettingScreen(t *testing.T) {
+	r, rm := newGame(t, "p1")
+	pl := rm.players["p1"]
+	// Arrive broke: below the table minimum in both the ledger and the cache, so
+	// no chip is affordable.
+	r.Credits["p1"] = 3
+	pl.bal = 3
+	rm.clampStake(pl)
+	if !rm.broke(pl) {
+		t.Fatal("setup: a seat below the minimum should read as broke")
+	}
+	if int64(stakeTiers[pl.stakeIdx]) <= pl.avail() {
+		t.Fatalf("setup: broke seat can still afford a chip (avail=%d)", pl.avail())
+	}
+	// Press 'b' at the betting screen -> the platform Buyback tops the seat up.
+	rm.OnInput(r, pl.p, kit.Input{Kind: kit.InputRune, Rune: 'b'})
+	if pl.bal != 1000 {
+		t.Errorf("re-buy balance = %d, want 1000", pl.bal)
+	}
+	if r.CreditsRebuys["p1"] != 1 {
+		t.Errorf("expected exactly one Buyback, got %d", r.CreditsRebuys["p1"])
+	}
+	// Now solvent, the seat can place the 5 chip.
+	setCursorNumber(rm, "p1", 7)
+	rm.placeBet(pl)
+	if len(pl.bets) != 1 {
+		t.Errorf("could not bet after re-buy: bets=%d", len(pl.bets))
+	}
+	// A solvent seat pressing 'b' again is a no-op — no extra Buyback.
+	rm.OnInput(r, pl.p, kit.Input{Kind: kit.InputRune, Rune: 'b'})
+	if r.CreditsRebuys["p1"] != 1 {
+		t.Errorf("solvent re-buy should be a no-op, rebuys=%d", r.CreditsRebuys["p1"])
+	}
+}
+
 // TestLeaveRefundsDuringBetting checks an open-window departure drops its chips
 // with no ledger movement (pre-Wager, so there is no escrow to close).
 func TestLeaveRefundsDuringBetting(t *testing.T) {
