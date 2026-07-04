@@ -1,0 +1,13 @@
+frames:
+  - file: 01-hunt.frame
+    ms: 1200
+  - file: 02-fire.frame
+    ms: 300
+  - file: 03-streak.frame
+    ms: 300
+  - file: 04-impact.frame
+    ms: 400
+  - file: 05-boom.frame
+    ms: 550
+  - file: 06-frags.frame
+    ms: 1500

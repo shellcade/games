@@ -1,0 +1,17 @@
+frames:
+  - file: 01-glide.frame
+    ms: 700
+  - file: 02-close.frame
+    ms: 420
+  - file: 03-chomp.frame
+    ms: 950
+  - file: 04-fade.frame
+    ms: 500
+  - file: 05-turn.frame
+    ms: 380
+  - file: 06-slither.frame
+    ms: 380
+  - file: 07-respawn.frame
+    ms: 620
+  - file: 08-orbit.frame
+    ms: 420

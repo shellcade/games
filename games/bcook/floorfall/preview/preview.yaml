@@ -1,0 +1,13 @@
+frames:
+  - file: 01-run.frame
+    ms: 900
+  - file: 02-trail.frame
+    ms: 500
+  - file: 03-edge.frame
+    ms: 700
+  - file: 04-fall.frame
+    ms: 1000
+  - file: 05-out.frame
+    ms: 800
+  - file: 06-win.frame
+    ms: 1600

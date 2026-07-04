@@ -1,0 +1,13 @@
+frames:
+  - file: 01-fresh.frame
+    ms: 950
+  - file: 02-rub.frame
+    ms: 450
+  - file: 03-pair.frame
+    ms: 550
+  - file: 04-match.frame
+    ms: 700
+  - file: 05-win.frame
+    ms: 650
+  - file: 06-flash.frame
+    ms: 1250
