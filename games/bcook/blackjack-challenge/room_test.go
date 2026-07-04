@@ -1267,6 +1267,12 @@ func TestRulesTaglineFlanksTheDealer(t *testing.T) {
 	rm.render(tr)
 	f := tr.LastFrame(a)
 
+	// The title on row 0 is the live render path's (not the economy-off
+	// branch's) — it must carry the full variant name.
+	if top := kittest.String(f, 0); !strings.Contains(top, "♠♥♦♣ BLACKJACK CHALLENGE") {
+		t.Errorf("title on the normal render path is not BLACKJACK CHALLENGE: %q", top)
+	}
+
 	dealerLabelRow := kittest.String(f, dealerRow-1)
 	if !strings.Contains(dealerLabelRow, "blackjack pays 2:1 - ties lose") {
 		t.Errorf("payout rule not on the dealer label row: %q", dealerLabelRow)

@@ -73,7 +73,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	active, _ := rm.firstUnresolved()
 
 	// Title + phase/time above the felt.
-	f.Text(0, 1, "♠♥♦♣ BLACKJACK", stTitle)
+	f.Text(0, 1, "♠♥♦♣ BLACKJACK CHALLENGE", stTitle)
 	phase := rm.phase
 	if secs := rm.remaining(); secs > 0 {
 		phase = fmt.Sprintf("%s · %s", rm.phase, clock(secs))
