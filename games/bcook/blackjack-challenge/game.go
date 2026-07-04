@@ -10,9 +10,9 @@ type Game struct{}
 // Meta returns the static game metadata (mirrors the native blackjack meta).
 func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
-		Slug:             "blackjack",
-		Name:             "Blackjack",
-		ShortDescription: "Take a seat at a shared dealer table: bet, hit, stand, and chase your high score.",
+		Slug:             "blackjack-challenge",
+		Name:             "Blackjack Challenge",
+		ShortDescription: "Face-up dealer, ties lose - but your blackjack never does, paying 2:1 up to 5:1.",
 		MinPlayers:       1,
 		MaxPlayers:       5,
 		Tags:             []string{"cards", "casino"},
@@ -24,13 +24,13 @@ func (Game) Meta() kit.GameMeta {
 		// A casino-kind game (kit v2.16.0): players gamble their account-wide
 		// platform Credits through the room's svc.Credits service — the host
 		// owns every balance. MaxPayoutMultiplier is the settlement ceiling:
-		// the top single-stake outcome is a Perfect Pairs "perfect" pair at
-		// 25:1, which returns stake×(25+1) = 26× on that side stake; the
-		// mandatory main bet only dilutes the per-seat aggregate, so 26 covers
-		// the largest honest payout. CtxFeatCredits is declared alongside so a
+		// the top single-stake outcome is a Star Pairs pair of aces at 30:1,
+		// which returns stake×(30+1) = 31× on that side stake; the mandatory
+		// main bet only dilutes the per-seat aggregate, so 31 covers the
+		// largest honest payout. CtxFeatCredits is declared alongside so a
 		// credits-capable front end negotiates the encoding.
 		Kind:                kit.GameKindCasino,
-		MaxPayoutMultiplier: 26,
+		MaxPayoutMultiplier: 31,
 
 		// Per-member arcade characters (kit v2.9.0): every roster member
 		// arrives with Player.Character populated, rendered as a one-cell
@@ -54,22 +54,18 @@ func (Game) Meta() kit.GameMeta {
 
 		// Touch deck chips (kit v2.10.0): every input beyond the canonical
 		// vocabulary (arrows/Confirm/Back, which the deck always provides) needs
-		// a chip so it is reachable on touch. The turn actions, the insurance
-		// answers, and the betting side-bet keys are all letter commands. Betting
-		// itself drives stake (Up/Down), the backed seat (Left/Right), and place
-		// (Confirm) off the canonical arrows; only P/B need declaring.
+		// a chip so it is reachable on touch. The turn actions and the betting
+		// side-bet keys are all letter commands. Betting itself drives stake
+		// (Up/Down), the backed seat (Left/Right), and place (Confirm) off the
+		// canonical arrows; only P/B need declaring.
 		Controls: []kit.ControlDecl{
 			kit.RuneControl('h', "HIT"),
 			kit.RuneControl('s', "STAND"),
 			kit.RuneControl('d', "DOUBLE"),
-			// P splits a pair on a turn AND loops the Perfect Pairs side bet
-			// during betting — one rune, so the chip carries both meanings.
+			// P splits a pair on a turn AND loops the Star Pairs side bet during
+			// betting — one rune, so the chip carries both meanings.
 			kit.RuneControl('p', "SPLIT/PAIRS"),
-			kit.RuneControl('r', "SURRENDER"),
-			kit.RuneControl('y', "YES"),
-			kit.RuneControl('n', "NO"),
-			// Betting only: B loops the behind bet on the focused seat (Left/Right
-			// pick the seat); P (above) loops that seat's Perfect Pairs.
+			// Betting only: B loops the behind bet on the focused seat.
 			kit.RuneControl('b', "BEHIND"),
 		},
 	}

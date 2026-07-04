@@ -1268,7 +1268,7 @@ func TestRulesTaglineFlanksTheDealer(t *testing.T) {
 	f := tr.LastFrame(a)
 
 	dealerLabelRow := kittest.String(f, dealerRow-1)
-	if !strings.Contains(dealerLabelRow, "blackjack pays 3:2") {
+	if !strings.Contains(dealerLabelRow, "blackjack pays 2:1 - ties lose") {
 		t.Errorf("payout rule not on the dealer label row: %q", dealerLabelRow)
 	}
 	if !strings.Contains(dealerLabelRow, "dealer stands on 17") {

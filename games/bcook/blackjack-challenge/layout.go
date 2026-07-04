@@ -64,7 +64,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	// A casino game with no host economy renders out-of-service rather than
 	// trapping: the table cannot take a bet without the Credits service.
 	if rm.economyOff() {
-		f.Text(0, 1, "♠♥♦♣ BLACKJACK", stTitle)
+		f.Text(0, 1, "♠♥♦♣ BLACKJACK CHALLENGE", stTitle)
 		drawFelt(f, feltTop, feltBottom)
 		center(f, (feltTop+feltBottom)/2, "table closed — credits unavailable", stDim)
 		return
@@ -81,12 +81,12 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	f.TextRight(0, kit.Cols-1, phase, stPhase)
 
 	drawFelt(f, feltTop, feltBottom)
-	center(f, feltTop, " B L A C K J A C K ", stFelt)
+	center(f, feltTop, " B L A C K J A C K   C H A L L E N G E ", stFelt)
 
 	// Dealer, centred near the top of the felt, with the table rules as subtle
 	// signage flanking the DEALER label (left + right) rather than a banner
 	// across the middle of the felt — keeping the centre clear for the cards.
-	f.Text(dealerRow-1, 2, "blackjack pays 3:2", stDim)
+	f.Text(dealerRow-1, 2, "blackjack pays 2:1 - ties lose", stDim)
 	f.TextRight(dealerRow-1, kit.Cols-3, "dealer stands on 17", stDim)
 	center(f, dealerRow-1, "D E A L E R", stTitle)
 	rm.drawDealer(f)

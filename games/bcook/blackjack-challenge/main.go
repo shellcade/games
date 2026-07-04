@@ -1,10 +1,11 @@
-// Blackjack — a no-winner, social multiplayer blackjack table on the 80x24
-// shellcade canvas: one shared auto-dealer, up to five seats, and rounds that
-// loop while anyone is seated. Bet, hit, stand, double, split, surrender, and
-// take insurance; the dealer stands on all 17 (S17) and blackjack pays 3:2.
-// Chips are integers: an odd bet's half-chip on the 3:2 payout and on a
-// surrender return rounds UP to the player; the insurance stake is half the
-// bet rounded down and pays exactly 2:1 on what was staked. Leaving with a
+// Blackjack Challenge — a no-winner, social multiplayer blackjack table on
+// the 80x24 shellcade canvas: one shared auto-dealer, up to five seats, and
+// rounds that loop while anyone is seated. The dealer's up card is face-up
+// and stands on all 17 (S17); a tie hand loses instead of pushing, and a
+// player blackjack is ranked, paying 2:1 up to 5:1 depending on its suits.
+// Bet, hit, stand, double, and split; the round also auto-wins/auto-loses a
+// hand outright without a turn where the outcome is already decided, and a
+// Star Pairs side bet pays out on the first two cards dealt. Leaving with a
 // live hand forfeits its stake. Stakes are the platform's account-wide Credits
 // (kit v2.16.0 casino ABI): every bet Wagers onto the seat's single open stake
 // and the round Settles that stake exactly once with the gross payout; the host

@@ -32,10 +32,10 @@ const (
 
 	// maxPayoutMult mirrors Meta().MaxPayoutMultiplier: the host clamps every
 	// Settle to the seat's open stake × this multiplier, so the game clamps its
-	// own displayed/settled gross to the same ceiling before Settle. 26 covers a
-	// Perfect Pairs "perfect" pair (25:1 -> stake×26); the mandatory main bet
-	// only dilutes the per-seat aggregate, so it is never reached in practice.
-	maxPayoutMult = 26
+	// own displayed/settled gross to the same ceiling before Settle. 31 covers a
+	// Star Pairs pair of aces (30:1 -> stake×31); the mandatory main bet only
+	// dilutes the per-seat aggregate, so it is never reached in practice.
+	maxPayoutMult = 31
 )
 
 // betTiers are the selectable stakes, lowest first. The ×2.5/×2/×2 climb repeats
