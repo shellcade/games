@@ -1,9 +1,22 @@
 package main
 
+import "math/rand"
+
 // The Blackjack Challenge rules layer: every payout table, comparison, and
 // rule gate of the variant lives here (spec: docs/superpowers/specs/
-// 2026-07-04-blackjack-challenge-design.md). The dealer mechanics
-// (dealerPlay) migrate here from round.go when round.go is deleted (Task 7).
+// 2026-07-04-blackjack-challenge-design.md).
+
+// dealerPlay draws for the dealer until the hand totals 17 or more, standing on
+// all 17 including soft 17 (S17). Callers skip this entirely when no player hand
+// is live. The rng feeds a possible mid-round discard recycle in draw.
+func dealerPlay(d hand, s *shoe, rng *rand.Rand) hand {
+	for {
+		if total, _ := d.value(); total >= 17 {
+			return d
+		}
+		d = append(d, s.draw(rng))
+	}
+}
 
 // starPairsOutcome classifies a seat's first two cards for the Star Pairs
 // side bet, returning the result kind and its payout multiplier (the X in
@@ -82,4 +95,15 @@ func grossMult(h *phand, d hand, dBJ bool) int {
 	default:
 		return 0
 	}
+}
+
+// pairsCreditFor is the chips returned to a player on a Star Pairs side bet of
+// `bet` at multiplier `mult` (the X in X:1). The stake was deducted when the bet
+// was placed, so a winning pair returns stake + mult×stake and a loss (mult 0)
+// returns nothing.
+func pairsCreditFor(mult, bet int) int {
+	if mult <= 0 {
+		return 0
+	}
+	return bet * (mult + 1)
 }

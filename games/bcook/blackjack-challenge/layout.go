@@ -23,7 +23,7 @@ const (
 	seatCardRow = 11 // seat card group occupies seatCardRow..seatCardRow+2
 	seatValRow  = 14
 	seatChipRow = 15
-	seatPairRow = 16 // Perfect Pairs side-bet line (stake while betting, result once dealt)
+	seatPairRow = 16 // Star Pairs side-bet line (stake while betting, result once dealt)
 	seatBackRow = 17 // backers line: who is backing this seat, with their tiles
 	actionRow   = 18
 	slotW       = 15
@@ -257,21 +257,24 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 	}
 }
 
-// pairsMult maps a Perfect Pairs result kind to its payout multiplier (X:1),
-// for the result label; 0 for no pair.
+// pairsMult maps a Star Pairs result kind to its payout multiplier (X:1), for
+// the result label; 0 for no pair. Mirrors starPairsOutcome's table (rules.go).
 func pairsMult(kind string) int {
 	switch kind {
+	case "aces":
+		return 30
 	case "perfect":
-		return 25
+		return 20
 	case "colored":
-		return 12
+		return 8
 	case "mixed":
-		return 6
+		return 5
+	default:
+		return 0
 	}
-	return 0
 }
 
-// drawPairsLine renders the seat's Perfect Pairs side-bet line. While betting it
+// drawPairsLine renders the seat's Star Pairs side-bet line. While betting it
 // sits directly beneath that seat's main bet (seatCardRow+2), so each seat's
 // bet+pairs read as one contiguous block and whose side bet is whose is never
 // ambiguous; it shows only once placed, or for the seat's owner, matching how
@@ -292,7 +295,7 @@ func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
 	if s.pairsBet <= 0 {
 		return
 	}
-	// Hold the Perfect Pairs verdict until BOTH of the seat's first two cards are
+	// Hold the Star Pairs verdict until BOTH of the seat's first two cards are
 	// face up. The result is fixed at the deal, but revealing "pairs lost" (or a
 	// win) while the second card is still sliding/flipping in would spoil it — the
 	// side bet reads off exactly those two cards, so wait for them to land.

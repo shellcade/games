@@ -191,7 +191,26 @@ func TestBackBetBudgetClamped(t *testing.T) {
 	}
 }
 
-func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
+func TestAffordTier(t *testing.T) {
+	tiers := []int{0, 10, 25, 50, 100}
+	cases := []struct {
+		want, budget, out int
+	}{
+		{100, 1000, 100}, // wanted tier fits the budget
+		{100, 30, 25},    // capped to the highest tier within budget
+		{50, 5, 0},       // nothing but "off" fits
+		{25, 25, 25},     // exact fit
+		{100, 0, 0},      // no budget -> off
+		{100, -5, 0},     // negative budget -> off (never panics)
+	}
+	for _, c := range cases {
+		if got := affordTier(tiers, c.want, c.budget); got != c.out {
+			t.Errorf("affordTier(want=%d, budget=%d) = %d, want %d", c.want, c.budget, got, c.out)
+		}
+	}
+}
+
+func TestDealResolvesStarPairsSideBet(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.what = pendNone
@@ -214,11 +233,11 @@ func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
 	if s.pairsKind != "mixed" {
 		t.Fatalf("pairsKind = %q, want mixed", s.pairsKind)
 	}
-	if s.pairsWin != 70 { // mixed 6:1 on 10 -> 10 + 60
-		t.Fatalf("pairsWin = %d, want 70", s.pairsWin)
+	if s.pairsWin != 60 { // mixed 5:1 on 10 -> 10 + 50
+		t.Fatalf("pairsWin = %d, want 60", s.pairsWin)
 	}
 	// The deal Wagers the main bet (50) + the pairs stake (10) onto the seat's
-	// open stake: bankroll 1000 -> 940, roundStake 60. The mixed pair's 70 gross
+	// open stake: bankroll 1000 -> 940, roundStake 60. The mixed pair's 60 gross
 	// folds into grossThisRound (paid only at the single settle), NOT the balance.
 	if s.bal != 940 {
 		t.Fatalf("bal = %d, want 940 (bet + pairs Wagered at deal)", s.bal)
@@ -226,8 +245,8 @@ func TestDealResolvesPerfectPairsSideBet(t *testing.T) {
 	if s.roundStake != 60 {
 		t.Fatalf("roundStake = %d, want 60 (main 50 + pairs 10)", s.roundStake)
 	}
-	if s.grossThisRound != 70 {
-		t.Fatalf("grossThisRound = %d, want 70 (mixed pair folded into the open stake)", s.grossThisRound)
+	if s.grossThisRound != 60 {
+		t.Fatalf("grossThisRound = %d, want 60 (mixed pair folded into the open stake)", s.grossThisRound)
 	}
 }
 
@@ -254,16 +273,16 @@ func TestDealResolvesBackPairs(t *testing.T) {
 	rm.deal(tr)
 
 	bb := sa.backs[b.AccountID]
-	if bb.pairsKind != "mixed" || bb.pairsWin != 70 {
-		t.Fatalf("back-pairs on b = kind %q win %d, want mixed/70", bb.pairsKind, bb.pairsWin)
+	if bb.pairsKind != "mixed" || bb.pairsWin != 60 {
+		t.Fatalf("back-pairs on b = kind %q win %d, want mixed/60", bb.pairsKind, bb.pairsWin)
 	}
-	// a Wagered main 25 + back-pairs 10 (bal 1000 -> 965, roundStake 35); the 70
+	// a Wagered main 25 + back-pairs 10 (bal 1000 -> 965, roundStake 35); the 60
 	// back-pairs gross folds into a's open stake, paid at settle not now.
 	if sa.bal != 965 {
 		t.Fatalf("a bal = %d, want 965 (main 25 + back-pairs 10 Wagered)", sa.bal)
 	}
-	if sa.grossThisRound != 70 {
-		t.Fatalf("a grossThisRound = %d, want 70 (back-pairs win folded in)", sa.grossThisRound)
+	if sa.grossThisRound != 60 {
+		t.Fatalf("a grossThisRound = %d, want 60 (back-pairs win folded in)", sa.grossThisRound)
 	}
 }
 
@@ -354,14 +373,14 @@ func TestSettleFoldsPairsResultIntoNet(t *testing.T) {
 	s.bet = 50
 	s.pairsBet = 10
 	staked(tr, s, 940, 60)                                                      // main 50 + pairs 10 escrowed
-	s.pairsWin = 70                                                             // a mixed pair already resolved at deal...
-	s.grossThisRound = 70                                                       // ...and folded into the open stake's gross
+	s.pairsWin = 60                                                             // a mixed pair already resolved at deal...
+	s.grossThisRound = 60                                                       // ...and folded into the open stake's gross
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}} // 19
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}                          // 19 vs 19 -> hand LOSES the tie
 	rm.settle(tr)
-	// Hand loses the tie (gross 0) atop the pairs gross 70 = 70 on a 60 stake: net +10.
-	if s.result != "WIN +10" {
-		t.Fatalf("result = %q, want WIN +10 (pairs win folded into the round net)", s.result)
+	// Hand loses the tie (gross 0) atop the pairs gross 60 = 60 on a 60 stake: net 0.
+	if s.result != "EVEN" {
+		t.Fatalf("result = %q, want EVEN (pairs win folded into the round net)", s.result)
 	}
 }
 
@@ -940,24 +959,24 @@ func TestBalanceSeedsAndPostsPeak(t *testing.T) {
 	}
 }
 
-// TestTopPrizeDoesNotClamp asserts the declared MaxPayoutMultiplier (26) covers
-// the game's largest single-stake outcome: a Perfect Pairs "perfect" pair pays
-// 25:1, grossing stake×(25+1) = stake×26 — exactly the ceiling, so it settles in
-// full and is never clamped.
+// TestTopPrizeDoesNotClamp asserts the declared MaxPayoutMultiplier (31) covers
+// the game's largest single-stake outcome: a Star Pairs "aces" pair pays 30:1,
+// grossing stake×(30+1) = stake×31 — exactly the ceiling, so it settles in full
+// and is never clamped.
 func TestTopPrizeDoesNotClamp(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
-	// A lone 100 Perfect Pairs stake hitting a "perfect" pair: gross 2600.
+	// A lone 100 Star Pairs stake hitting an "aces" pair: gross 3100.
 	staked(tr, s, 0, 100)
-	s.grossThisRound = 100 * (25 + 1) // 2600, the top pairs payout
+	s.grossThisRound = 100 * (30 + 1) // 3100, the top pairs payout
 	net := rm.settleOpenStake(s)
-	if net != 2500 {
-		t.Fatalf("net = %d, want 2500 (top pairs prize settles unclamped)", net)
+	if net != 3000 {
+		t.Fatalf("net = %d, want 3000 (top pairs prize settles unclamped)", net)
 	}
-	if got := tr.Credits[a.AccountID]; got != 2600 {
-		t.Fatalf("settled balance = %d, want 2600 (full 26x top prize paid)", got)
+	if got := tr.Credits[a.AccountID]; got != 3100 {
+		t.Fatalf("settled balance = %d, want 3100 (full 31x top prize paid)", got)
 	}
 }
 
@@ -1304,7 +1323,7 @@ func TestFocusedTargetShowsBackDetail(t *testing.T) {
 	}
 }
 
-// TestBettingShowsPairsSideBet asserts a seat's selected Perfect Pairs side
+// TestBettingShowsPairsSideBet asserts a seat's selected Star Pairs side
 // stake is shown during betting directly beneath that seat's main bet — so the
 // two lines form one contiguous per-seat block and it's unambiguous whose side
 // bet is whose at a multi-seat table.
@@ -1332,7 +1351,7 @@ func TestBettingShowsPairsSideBet(t *testing.T) {
 	}
 }
 
-// TestPairsLineCarriesCharacterTile asserts the Perfect Pairs side-bet line is
+// TestPairsLineCarriesCharacterTile asserts the Star Pairs side-bet line is
 // prefixed with the placing player's arcade character tile, so whose side bet is
 // whose reads from the face beside it, not just the column.
 func TestPairsLineCarriesCharacterTile(t *testing.T) {
@@ -1357,9 +1376,9 @@ func TestPairsLineCarriesCharacterTile(t *testing.T) {
 	}
 }
 
-// TestResultsShowsPerfectPairsWin asserts a winning Perfect Pairs side bet is
+// TestResultsShowsStarPairsWin asserts a winning Star Pairs side bet is
 // surfaced on the seat with its category and multiplier during results.
-func TestResultsShowsPerfectPairsWin(t *testing.T) {
+func TestResultsShowsStarPairsWin(t *testing.T) {
 	a := mkPlayer("alice")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
@@ -1369,15 +1388,15 @@ func TestResultsShowsPerfectPairsWin(t *testing.T) {
 	staked(tr, s, 1000, 75) // main 50 + pairs 25 escrowed
 	s.pairsBet = 25
 	s.pairsKind = "colored"
-	s.pairsWin = 325
-	s.grossThisRound = 325 // the colored pair already folded into the open stake
+	s.pairsWin = 225
+	s.grossThisRound = 225 // the colored pair already folded into the open stake
 	s.hands = []*phand{{cards: hand{{8, suitHeart}, {8, suitDiamond}}, bet: 50}}
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
 	rm.settle(tr) // -> results phase
 	rm.render(tr)
 
 	row := kittest.String(tr.LastFrame(a), seatPairRow)
-	if !strings.Contains(row, "COLORED 12:1") {
+	if !strings.Contains(row, "COLORED 8:1") {
 		t.Fatalf("results row %d does not show the pairs win: %q", seatPairRow, row)
 	}
 }
@@ -1482,7 +1501,7 @@ func TestReadyUpWaitsOnOtherPlayers(t *testing.T) {
 }
 
 // TestPairsVerdictHeldUntilCardsLand is the regression guard for the reported
-// bug: the Perfect Pairs result must not appear while the seat's second card is
+// bug: the Star Pairs result must not appear while the seat's second card is
 // still animating in. The outcome is fixed at the deal, but revealing it early
 // spoils the reveal — so "pairs lost" (or a win) waits for both first cards to
 // land face up.

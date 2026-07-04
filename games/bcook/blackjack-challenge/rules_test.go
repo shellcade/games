@@ -1,6 +1,43 @@
 package main
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
+
+func TestDealerStandsOnSoft17(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	d := dealerPlay(hand{{rankAce, suitSpade}, {6, suitHeart}}, newShoe(rng), rng) // soft 17
+	if len(d) != 2 {
+		t.Fatalf("dealer drew on soft 17 (S17 should stand): %v", d)
+	}
+}
+
+func TestDealerDrawsTo17(t *testing.T) {
+	rng := rand.New(rand.NewSource(2))
+	d := dealerPlay(hand{{10, suitSpade}, {6, suitHeart}}, newShoe(rng), rng) // hard 16
+	if total := d.total(); total < 17 && !d.isBust() {
+		t.Fatalf("dealer stopped at %d, must reach 17+ or bust", total)
+	}
+}
+
+func TestPairsCreditFor(t *testing.T) {
+	cases := []struct {
+		mult int
+		bet  int
+		want int
+	}{
+		{0, 10, 0},     // no pair: side stake lost
+		{6, 10, 70},    // mixed 6:1: stake 10 + 60
+		{12, 25, 325},  // colored 12:1: stake 25 + 300
+		{25, 50, 1300}, // perfect 25:1: stake 50 + 1250
+	}
+	for _, c := range cases {
+		if got := pairsCreditFor(c.mult, c.bet); got != c.want {
+			t.Errorf("pairsCreditFor(%d, %d) = %d, want %d", c.mult, c.bet, got, c.want)
+		}
+	}
+}
 
 func TestStarPairsOutcome(t *testing.T) {
 	cases := []struct {
@@ -42,10 +79,10 @@ func TestBlackjackMult(t *testing.T) {
 		dBJ  bool
 		want int
 	}{
-		{rankKing, 0, false, 2},          // dealer no blackjack: 2:1
-		{rankKing, rankQueen, true, 5},   // player ten outranks: 5:1
-		{rankJack, rankJack, true, 4},    // same rank: 4:1
-		{10, rankJack, true, 3},          // outranked: 3:1
+		{rankKing, 0, false, 2},        // dealer no blackjack: 2:1
+		{rankKing, rankQueen, true, 5}, // player ten outranks: 5:1
+		{rankJack, rankJack, true, 4},  // same rank: 4:1
+		{10, rankJack, true, 3},        // outranked: 3:1
 	}
 	for _, c := range cases {
 		if got := blackjackMult(c.p, c.d, c.dBJ); got != c.want {

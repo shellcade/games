@@ -41,7 +41,7 @@ const (
 // minimum up to a 10k high roller.
 var betTiers = []int{10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
 
-// pairsTiers are the Perfect Pairs / behind side-bet stakes, lowest first; index
+// pairsTiers are the Star Pairs / behind side-bet stakes, lowest first; index
 // 0 is "off" (no side bet). Adjusted on the Left/Right axis during betting, and
 // mirrors betTiers' upper reaches so side action can scale with the main bet.
 var pairsTiers = []int{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
@@ -56,13 +56,13 @@ type phand struct {
 }
 
 // backBet is one seat's wager ON ANOTHER seat: a "behind" bet that rides the
-// backed player's first hand vs the dealer, and/or a Perfect Pairs bet on the
+// backed player's first hand vs the dealer, and/or a Star Pairs bet on the
 // backed player's first two cards. Stakes are chosen during betting; the result
 // fields are filled at settlement (their-pairs at the deal, behind at settle).
 type backBet struct {
 	behind    int    // behind-bet stake (0 = none)
-	pairs     int    // their-Perfect-Pairs stake (0 = none)
-	pairsKind string // resolved at deal: "" | "mixed" | "colored" | "perfect"
+	pairs     int    // their-Star-Pairs stake (0 = none)
+	pairsKind string // resolved at deal: "" | "mixed" | "colored" | "perfect" | "aces"
 	pairsWin  int    // their-pairs chips credited at deal (0 = lost/none)
 	behindWin int    // behind chips credited at settle (0 = lost)
 }
@@ -88,8 +88,8 @@ type seat struct {
 	roundStake     int64
 	bet            int // currently selected/placed stake
 	placed         bool
-	pairsBet       int                 // Perfect Pairs side stake (0 = off), carried between rounds like bet
-	pairsKind      string              // this round's pairs result: "" | "mixed" | "colored" | "perfect"
+	pairsBet       int                 // Star Pairs side stake (0 = off), carried between rounds like bet
+	pairsKind      string              // this round's pairs result: "" | "mixed" | "colored" | "perfect" | "aces"
 	pairsWin       int                 // chips credited on the pairs side bet this round (0 = lost/none)
 	focus          string              // betting UI: "" edits own bet, else the account id whose backs are being edited
 	backs          map[string]*backBet // wagers on other seats, keyed by target account id (iterate via rm.order)
@@ -468,7 +468,7 @@ func tierIndex(bet int) int {
 	return 0
 }
 
-// cycleOwnPairs advances the seat's own Perfect Pairs stake one tier, wrapping
+// cycleOwnPairs advances the seat's own Star Pairs stake one tier, wrapping
 // back to 0 past the top (and resetting to 0 if the next tier is unaffordable).
 func (rm *room) cycleOwnPairs(s *seat) {
 	s.pairsBet = loopTier(pairsTiers, s.pairsBet, s.bal-(s.committed()-s.pairsBet))
@@ -534,7 +534,7 @@ func pairsTierIndex(bet int) int {
 }
 
 // committed totals every chip the seat has wagered this betting window: its main
-// bet, its own Perfect Pairs, and every behind/their-pairs stake across backs.
+// bet, its own Star Pairs, and every behind/their-pairs stake across backs.
 func (s *seat) committed() int {
 	total := s.bet + s.pairsBet
 	for _, b := range s.backs {
@@ -651,7 +651,7 @@ func (rm *room) deal(r kit.Room) {
 	rm.enterTurns(r)
 }
 
-// resolvePairs settles a seat's Perfect Pairs side bet against its dealt cards:
+// resolvePairs settles a seat's Star Pairs side bet against its dealt cards:
 // the stake is Wagered onto the seat's open stake and any winning pair folds its
 // gross into grossThisRound immediately — the casino way, where the side bet
 // stands apart from how the hand goes on to play out. A stake the balance can't
@@ -664,7 +664,7 @@ func (rm *room) resolvePairs(s *seat, dealt hand) {
 		s.pairsBet = 0
 		return
 	}
-	kind, mult := perfectPairsOutcome(dealt[0], dealt[1])
+	kind, mult := starPairsOutcome(dealt[0], dealt[1])
 	s.pairsKind = kind
 	s.pairsWin = pairsCreditFor(mult, s.pairsBet)
 	s.grossThisRound += int64(s.pairsWin)
@@ -687,7 +687,7 @@ func sortedBackIDs(s *seat) []string {
 	return ids
 }
 
-// resolveBackPairs settles the their-Perfect-Pairs side of every seat's backs,
+// resolveBackPairs settles the their-Star-Pairs side of every seat's backs,
 // once all hands are dealt: a back on a seat that didn't get dealt in is voided
 // (never charged); otherwise each stake is Wagered onto the backer's open stake
 // and any winning pair on the target's first two cards folds its gross into the
@@ -709,7 +709,7 @@ func (rm *room) resolveBackPairs() {
 			}
 			if b.pairs > 0 {
 				if rm.wager(s, b.pairs) {
-					kind, mult := perfectPairsOutcome(t.hands[0].cards[0], t.hands[0].cards[1])
+					kind, mult := starPairsOutcome(t.hands[0].cards[0], t.hands[0].cards[1])
 					b.pairsKind = kind
 					b.pairsWin = pairsCreditFor(mult, b.pairs)
 					s.grossThisRound += int64(b.pairsWin)
