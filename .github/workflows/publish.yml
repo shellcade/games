@@ -161,6 +161,22 @@ jobs:
 
             mkdir -p "dist/${owner}-${game}"
             cp "$d/game.wasm" "dist/${owner}-${game}/game.wasm"
+
+            # Preview pack (optional): a game may ship a preview/ authoring dir
+            # (preview.yaml + text frames). Pack it into a screen-pack asset the
+            # SAME way we stage the wasm — via the kit() helper, so it is
+            # produced by the exact kit version the game pins. A game with no
+            # preview/ dir behaves exactly as before. Pack input/output are
+            # relative to the game dir (kit() cd's into it), then we cp into
+            # dist next to the wasm. If the dir exists but packing fails — bad
+            # art, OR the game's pinned kit predates `preview pack` — FAIL LOUD
+            # rather than silently ship a game without its art.
+            if [ -d "$d/preview" ]; then
+              kit "$d" preview pack preview -o preview.scp || {
+                echo "::error::$d has a preview/ dir but 'shellcade-kit preview pack' failed (bad art, or the game's pinned kit predates the subcommand) — refusing to ship without art"; exit 1
+              }
+              cp "$d/preview.scp" "dist/${owner}-${game}/preview.scp"
+            fi
           done <<< "$DIRS"
 
       - name: upload release artifacts
@@ -240,6 +256,18 @@ jobs:
             digest=$(sha256sum "$wasm" | cut -d' ' -f1)
             echo "digest: sha256:$digest"
 
+            # A game may ship a packed preview alongside its wasm (staged by the
+            # build job). Its digest joins the wasm digest to form the release
+            # identity below, so an art-only change still cuts a new release.
+            # Absent preview => empty digest (compares equal to older releases
+            # that predate preview packing).
+            preview="dist/${owner}-${game}/preview.scp"
+            preview_digest=""
+            if [ -f "$preview" ]; then
+              preview_digest=$(sha256sum "$preview" | cut -d' ' -f1)
+              echo "preview-digest: sha256:$preview_digest"
+            fi
+
             # Next version integer N from existing <owner>-<game>-vN tags.
             prefix="${owner}-${game}-v"
             last=$(git tag -l "${prefix}*" | sed -E "s/^${prefix}//" \
@@ -248,15 +276,27 @@ jobs:
               # No prior release: this is v1.
               next=1
             else
-              # Idempotency: if the newest release already pins this exact
-              # digest, the content is unchanged — skip the re-run.
+              # Idempotency: the release identity is the PAIR (wasm digest,
+              # preview digest). If BOTH already match the newest release, the
+              # content is unchanged — skip the re-run. An art-only change (same
+              # wasm, new preview) therefore still cuts a new release. A build
+              # with no preview compares its "" against the prior release, so a
+              # release that never had a preview keeps today's semantics, and an
+              # old release predating preview packing (no preview-digest line =>
+              # "") vs a build that now carries one counts as changed.
               prev_tag="${prefix}${last}"
-              prev_digest=$(gh release view "$prev_tag" --json body \
-                            --jq '.body' 2>/dev/null \
-                            | grep -oE 'digest: sha256:[0-9a-f]{64}' \
+              prev_body=$(gh release view "$prev_tag" --json body --jq '.body' 2>/dev/null || true)
+              # The wasm grep is LINE-ANCHORED so it can never match the
+              # "digest:" substring inside a preview-digest line, regardless
+              # of the order the notes carry the two lines in.
+              prev_digest=$(printf '%s' "$prev_body" \
+                            | grep -oE '^digest: sha256:[0-9a-f]{64}' \
                             | sed 's/digest: sha256://' | head -1 || true)
-              if [ "$prev_digest" = "$digest" ]; then
-                echo "$prev_tag already pins sha256:$digest — nothing to publish"
+              prev_preview_digest=$(printf '%s' "$prev_body" \
+                            | grep -oE 'preview-digest: sha256:[0-9a-f]{64}' \
+                            | sed 's/preview-digest: sha256://' | head -1 || true)
+              if [ "$prev_digest" = "$digest" ] && [ "$prev_preview_digest" = "$preview_digest" ]; then
+                echo "$prev_tag already pins sha256:$digest (preview ${preview_digest:-none}) — nothing to publish"
                 continue
               fi
               next=$((last + 1))
@@ -265,6 +305,14 @@ jobs:
             tag="${prefix}${next}"
             asset="${owner}-${game}-v${next}.wasm"
             cp "$wasm" "$asset"
+            assets=("$asset")
+
+            # Attach the preview pack as a second release asset when present.
+            if [ -n "$preview_digest" ]; then
+              preview_asset="${owner}-${game}-v${next}.scp"
+              cp "$preview" "$preview_asset"
+              assets+=("$preview_asset")
+            fi
 
             # Attribution line: include the @mention only when we resolved one.
             if [ -n "$mapped" ]; then
@@ -276,6 +324,13 @@ jobs:
               "$headline" \
               "path: ${d}" \
               "digest: sha256:${digest}")
+
+            # Pin the preview digest on its own line right after the wasm digest
+            # (leaves the wasm digest line format untouched). This is what the
+            # idempotency check above reads back to make art a release identity.
+            if [ -n "$preview_digest" ]; then
+              notes=$(printf '%s\n%s\n' "$notes" "preview-digest: sha256:${preview_digest}")
+            fi
 
             # Optional human release notes: the top section of the game's
             # CHANGELOG.md (first heading to the next same-level heading) is
@@ -289,10 +344,11 @@ jobs:
             fi
 
             # Idempotent create-or-append: tag may race or pre-exist on re-run.
+            # ${assets[@]} is the wasm plus the preview pack when it exists.
             if gh release view "$tag" >/dev/null 2>&1; then
-              gh release upload "$tag" "$asset" --clobber
+              gh release upload "$tag" "${assets[@]}" --clobber
             else
-              gh release create "$tag" "$asset" \
+              gh release create "$tag" "${assets[@]}" \
                 --title "${owner}/${game} v${next}" \
                 --notes "$notes" \
                 --target "${{ github.sha }}"
