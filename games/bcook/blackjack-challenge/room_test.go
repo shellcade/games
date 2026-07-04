@@ -472,7 +472,7 @@ func TestPublishesContextPerPhase(t *testing.T) {
 	if tr.InputCtx != kit.CtxNav {
 		t.Errorf("betting InputCtx = %v, want CtxNav", tr.InputCtx)
 	}
-	// Player turns bind h/s/d/p/r as domain commands.
+	// Player turns bind h/s/d/p as domain commands.
 	rm, tr2, _, _ := turnsSetup(t, hand{{10, suitSpade}, {5, suitHeart}}, hand{{10, suitClub}, {6, suitDiamond}})
 	rm.beginTurn(tr2)
 	if tr2.InputCtx != kit.CtxCommand {
@@ -1221,24 +1221,26 @@ func TestDealerTotalTicksUpAsCardsLand(t *testing.T) {
 
 // TestResultLabelDoesNotLeakChips guards the results chip line: the settlement
 // summary is drawn instead of the stack, so a result narrower than the stack
-// (e.g. "PUSH" over "$1000") leaves no stray digit peeking out beside it.
+// (e.g. "EVEN" over "$1000") leaves no stray digit peeking out beside it. This
+// table has no push (ties lose), but a net of exactly zero is still reachable
+// (resultText's "EVEN" case) and is the narrow-label example here.
 func TestResultLabelDoesNotLeakChips(t *testing.T) {
 	a := mkPlayer("a")
 	rm, tr := newGame(t, a)
 	rm.OnJoin(tr, a)
 	s := rm.seats[a.AccountID]
 	s.placed = true
-	s.bal = 1000 // "$1000" is wider than "PUSH"
+	s.bal = 1000 // "$1000" is wider than "EVEN"
 	s.hands = []*phand{{cards: hand{{10, suitSpade}, {9, suitHeart}}, bet: 50}}
-	s.result = "PUSH"
+	s.result = "EVEN"
 	rm.dealer = hand{{10, suitClub}, {9, suitDiamond}}
 	rm.phase = phResults
 	rm.render(tr)
 
 	row := []rune(kittest.String(tr.LastFrame(a), seatChipRow))
 	slot := (kit.Cols - slotW) / 2 // single seat: the group is one centred slot
-	if got := strings.TrimSpace(string(row[slot : slot+slotW])); got != "PUSH" {
-		t.Fatalf("chip-row slot = %q, want exactly %q (no chips bleeding through)", got, "PUSH")
+	if got := strings.TrimSpace(string(row[slot : slot+slotW])); got != "EVEN" {
+		t.Fatalf("chip-row slot = %q, want exactly %q (no chips bleeding through)", got, "EVEN")
 	}
 }
 

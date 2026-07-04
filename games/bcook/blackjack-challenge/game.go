@@ -2,12 +2,13 @@ package main
 
 import kit "github.com/shellcade/kit/v2"
 
-// Game is the blackjack registry entry: static metadata plus the per-room
-// factory. The catalog slug is composed by the platform from the directory path
-// (games/bcook/blackjack -> "bcook/blackjack"); Meta carries the bare name.
+// Game is the blackjack-challenge registry entry: static metadata plus the
+// per-room factory. The catalog slug is composed by the platform from the
+// directory path (games/bcook/blackjack-challenge -> "bcook/blackjack-challenge");
+// Meta carries the bare name.
 type Game struct{}
 
-// Meta returns the static game metadata (mirrors the native blackjack meta).
+// Meta returns the static game metadata for this Challenge-rules table.
 func (Game) Meta() kit.GameMeta {
 	return kit.GameMeta{
 		Slug:             "blackjack-challenge",

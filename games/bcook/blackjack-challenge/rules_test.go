@@ -28,9 +28,10 @@ func TestPairsCreditFor(t *testing.T) {
 		want int
 	}{
 		{0, 10, 0},     // no pair: side stake lost
-		{6, 10, 70},    // mixed 6:1: stake 10 + 60
-		{12, 25, 325},  // colored 12:1: stake 25 + 300
-		{25, 50, 1300}, // perfect 25:1: stake 50 + 1250
+		{5, 10, 60},    // mixed 5:1: stake 10 + 50
+		{8, 25, 225},   // colored 8:1: stake 25 + 200
+		{20, 50, 1050}, // perfect 20:1: stake 50 + 1000
+		{30, 10, 310},  // aces 30:1: stake 10 + 300
 	}
 	for _, c := range cases {
 		if got := pairsCreditFor(c.mult, c.bet); got != c.want {

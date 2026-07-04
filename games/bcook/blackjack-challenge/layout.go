@@ -248,7 +248,7 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 	}
 	centerSlot(f, seatValRow, slot, valStr, valSt)
 	// The chip line carries the settlement summary during results, drawn instead
-	// of the stack (not over it) — a shorter result like "PUSH" centred over the
+	// of the stack (not over it) — a shorter result like "EVEN" centred over the
 	// wider "$1000" would otherwise leave a stray digit peeking out beside it.
 	if rm.phase == phResults && s.result != "" {
 		centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
@@ -279,7 +279,7 @@ func pairsMult(kind string) int {
 // bet+pairs read as one contiguous block and whose side bet is whose is never
 // ambiguous; it shows only once placed, or for the seat's owner, matching how
 // the main bet stays private until placed. Once the cards are dealt it moves to
-// seatPairRow below the seat's hand, showing the win label (e.g. "COLORED 12:1")
+// seatPairRow below the seat's hand, showing the win label (e.g. "COLORED 8:1")
 // or a quiet "pairs lost".
 func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
 	ch := kit.CharacterCell(s.p.Character) // the placing player's face, beside their side bet

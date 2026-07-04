@@ -848,7 +848,7 @@ func (rm *room) beginTurn(r kit.Room) {
 		return
 	}
 	rm.deadline = r.Now().Add(turnDur)
-	r.SetInputContext(kit.CtxCommand) // h/s/d/p/r are domain commands
+	r.SetInputContext(kit.CtxCommand) // h/s/d/p are domain commands
 	rm.arm(pendTurn, rm.deadline)
 }
 
