@@ -48,13 +48,11 @@ var pairsTiers = []int{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
 
 // phand is one hand a seat plays (a seat holds more than one after a split).
 type phand struct {
-	cards       hand
-	bet         int
-	resolved    bool // stood / busted / blackjack / doubled / auto-won
-	doubled     bool
-	autoWon     bool // Player 21 or Five Card Trick: instant even-money win
-	surrendered bool
-	fromSplit   bool // a split hand: a two-card 21 is a plain 21, not a blackjack
+	cards    hand
+	bet      int
+	resolved bool // stood / busted / blackjack / doubled / auto-won
+	doubled  bool
+	autoWon  bool // Player 21 or Five Card Trick: instant even-money win
 }
 
 // backBet is one seat's wager ON ANOTHER seat: a "behind" bet that rides the
@@ -1020,7 +1018,10 @@ func (rm *room) settleAt(r kit.Room, at time.Time) {
 	rm.arm(pendSettle, at)
 }
 
-// anyLive reports whether any player hand can still beat the dealer.
+// anyLive reports whether any hand's payout still depends on the dealer's
+// draw-out: busts are already lost and auto-wins already fixed at even
+// money, but every other hand — a blackjack's ranked odds included — needs
+// the dealer's final hand.
 func (rm *room) anyLive() bool {
 	for _, id := range rm.order {
 		s := rm.seats[id]
@@ -1028,7 +1029,7 @@ func (rm *room) anyLive() bool {
 			continue
 		}
 		for _, h := range s.hands {
-			if !h.surrendered && !h.cards.isBust() {
+			if !h.cards.isBust() && !h.autoWon {
 				return true
 			}
 		}
@@ -1043,18 +1044,22 @@ func (rm *room) settle(r kit.Room) {
 		if s == nil || !s.placed {
 			continue // skip seats that never opened a stake this round
 		}
-		// Fold every resolved credit into the seat's single open-stake gross.
+		// Fold every hand's gross into the seat's single open-stake gross, and
+		// track the stake dealer-blackjack losses would collect: the house only
+		// keeps the seat's ORIGINAL bet when its blackjack lands after doubles
+		// and splits — the excess is refunded (the Challenge clawback). Busted
+		// hands lost before the dealer's hand existed and stay lost.
+		lostToBJ := 0
 		for _, h := range s.hands {
-			if h.surrendered {
-				s.grossThisRound += int64(halfUp(h.bet)) // half the stake returned
-				continue
+			m := grossMult(h, rm.dealer, dbj)
+			if dbj && m == 0 && !h.cards.isBust() {
+				lostToBJ += h.bet
 			}
-			pbj := h.cards.isBlackjack() && !h.fromSplit
-			o := settleHandEx(h.cards, pbj, rm.dealer, dbj)
-			s.grossThisRound += int64(creditFor(o, h.bet))
+			s.grossThisRound += int64(m * h.bet)
 		}
-		// The Perfect Pairs side-bet wins already folded into gross at the deal;
-		// settle the behind bets now.
+		if lostToBJ > s.bet {
+			s.grossThisRound += int64(lostToBJ - s.bet)
+		}
 		rm.settleBacks(s, dbj)
 		// Close the seat's open stake with ONE Settle of the accumulated gross
 		// (clamped to the payout ceiling), then feed the board on a new peak.
@@ -1077,10 +1082,11 @@ func (rm *room) settle(r kit.Room) {
 }
 
 // settleBacks settles seat s's behind bets, folding each behind win into the
-// seat's open-stake gross. Their-pairs already folded in at the deal; each behind
-// bet is judged now against the target's first hand vs the dealer — even money on
-// a win, 3:2 on a natural blackjack, push returned — refunded if the target has
-// left (their hand can't be judged) or lost if that hand surrendered.
+// seat's open-stake gross. Each behind stake rides the target's FIRST hand at
+// the table odds — even money, an auto-win's even money, or the ranked
+// blackjack payout — and is refunded if the target has left. A behind stake
+// is its own original bet, so a dealer blackjack collects it in full (the
+// clawback shields only stakes ADDED to a hand by doubling and splitting).
 func (rm *room) settleBacks(s *seat, dealerBJ bool) {
 	for _, tid := range sortedBackIDs(s) {
 		b := s.backs[tid]
@@ -1088,15 +1094,10 @@ func (rm *room) settleBacks(s *seat, dealerBJ bool) {
 			continue
 		}
 		t := rm.seats[tid]
-		switch {
-		case t == nil || len(t.hands) == 0:
-			b.behindWin = b.behind // target left: refund the behind stake (push)
-		case t.hands[0].surrendered:
-			b.behindWin = 0 // backed a hand that bailed out
-		default:
-			h0 := t.hands[0]
-			o := settleHandEx(h0.cards, h0.cards.isBlackjack() && !h0.fromSplit, rm.dealer, dealerBJ)
-			b.behindWin = creditFor(o, b.behind)
+		if t == nil || len(t.hands) == 0 {
+			b.behindWin = b.behind // target left: refund the behind stake
+		} else {
+			b.behindWin = grossMult(t.hands[0], rm.dealer, dealerBJ) * b.behind
 		}
 		s.grossThisRound += int64(b.behindWin)
 	}
@@ -1228,6 +1229,6 @@ func resultText(net int) string {
 	case net < 0:
 		return "LOSE " + strconv.Itoa(net)
 	default:
-		return "PUSH"
+		return "EVEN"
 	}
 }
