@@ -52,8 +52,9 @@ var pairsTiers = []int{0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
 type phand struct {
 	cards       hand
 	bet         int
-	resolved    bool // stood / busted / blackjack / doubled / surrendered
+	resolved    bool // stood / busted / blackjack / doubled / auto-won
 	doubled     bool
+	autoWon     bool // Player 21 or Five Card Trick: instant even-money win
 	surrendered bool
 	fromSplit   bool // a split hand: a two-card 21 is a plain 21, not a blackjack
 }
