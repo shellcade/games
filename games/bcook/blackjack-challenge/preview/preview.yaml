@@ -1,0 +1,9 @@
+frames:
+  - file: 01-deal.frame
+    ms: 1100
+  - file: 02-split.frame
+    ms: 700
+  - file: 03-drawout.frame
+    ms: 1000
+  - file: 04-payout.frame
+    ms: 1400
