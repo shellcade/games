@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -1209,6 +1210,13 @@ func (rm *room) settle(r kit.Room) {
 		// (clamped to the payout ceiling), then feed the board on a new peak.
 		net := rm.settleOpenStake(s)
 		s.result = resultText(net)
+		// A surrendered round says so: "SURR -13" explains the odd half-stake
+		// number where "LOSE -13" would read like a played-out defeat. Only a
+		// lone hand can surrender, so the seat-level summary is unambiguous
+		// (side bets still fold into the net, signed either way).
+		if len(s.hands) == 1 && s.hands[0].surrendered {
+			s.result = fmt.Sprintf("SURR %+d", net)
+		}
 		if s.bal > s.highScore {
 			s.highScore = s.bal
 		}

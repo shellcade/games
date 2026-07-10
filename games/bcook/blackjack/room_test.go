@@ -1602,3 +1602,91 @@ func TestDealCountsHandsAndClearsNote(t *testing.T) {
 		t.Fatalf("dealerNote survived the deal: %q", rm.dealerNote)
 	}
 }
+
+// TestSurrenderReadsOnTheFelt asserts a surrendered hand is unmistakable: the
+// value row reads SURR (dim, not a live total) through the round, and the
+// settlement summary says SURR with the half-stake net rather than a played-out
+// LOSE.
+func TestSurrenderReadsOnTheFelt(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	staked(tr, s, 1000, 50)
+	s.hands = []*phand{{cards: hand{{10, suitHeart}, {6, suitSpade}}, bet: 50, surrendered: true, resolved: true}}
+	rm.dealer = hand{{10, suitClub}, {7, suitDiamond}}
+	rm.phase = phTurns
+	rm.render(tr)
+	if row := kittest.String(tr.LastFrame(a), seatValRow); !strings.Contains(row, "SURR") {
+		t.Fatalf("surrendered hand's value row does not read SURR: %q", row)
+	}
+	rm.settle(tr)
+	// Half of 50 rounds up to the player: 25 back, net -25.
+	if s.result != "SURR -25" {
+		t.Fatalf("surrendered result = %q, want SURR -25", s.result)
+	}
+	rm.render(tr)
+	if row := kittest.String(tr.LastFrame(a), seatChipRow); !strings.Contains(row, "SURR -25") {
+		t.Fatalf("results row does not carry the SURR summary: %q", row)
+	}
+}
+
+// TestInsuranceReadsOnTheFelt asserts the insurance state is visible per seat:
+// an open offer reads "ins?" on the value row, a bought stake reads "INS" and
+// stays visible after the offer window resolves into turns.
+func TestInsuranceReadsOnTheFelt(t *testing.T) {
+	a, b := mkPlayer("alice"), mkPlayer("bob")
+	rm, tr := newGame(t, a, b)
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
+	for _, s := range []*seat{sa, sb} {
+		s.placed = true
+		fund(tr, s, 1000)
+		s.hands = []*phand{{cards: hand{{10, suitHeart}, {9, suitSpade}}, bet: 50}}
+	}
+	rm.dealer = hand{{rankAce, suitClub}, {7, suitDiamond}} // ace up: insurance offered
+	rm.dealerHole = true
+	rm.enterInsurance(tr)
+	rm.render(tr)
+	// Both seats undecided: each value row carries the open-offer marker.
+	if row := kittest.String(tr.LastFrame(a), seatValRow); strings.Count(row, "ins?") != 2 {
+		t.Fatalf("undecided seats should both read ins?: %q", row)
+	}
+	// Alice buys, bob declines: only the bought stake reads INS.
+	rm.OnInput(tr, a, runeInput('y'))
+	rm.OnInput(tr, b, runeInput('n')) // all answered -> resolves into turns
+	if rm.phase != phTurns {
+		t.Fatalf("phase = %q after all answered, want %q", rm.phase, phTurns)
+	}
+	rm.render(tr)
+	row := kittest.String(tr.LastFrame(a), seatValRow)
+	if strings.Count(row, "INS") != 1 || strings.Contains(row, "ins?") {
+		t.Fatalf("bought insurance should read INS on exactly one seat: %q", row)
+	}
+}
+
+// TestInsuranceTagSurvivesSplit asserts a seat that insured and then split
+// keeps its INS marker: the compact split layout re-homes the tag on the freed
+// value row.
+func TestInsuranceTagSurvivesSplit(t *testing.T) {
+	a := mkPlayer("alice")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	s.placed = true
+	fund(tr, s, 1000)
+	s.insurance = 25
+	s.hands = []*phand{
+		{cards: hand{{8, suitHeart}, {3, suitSpade}}, bet: 50, fromSplit: true},
+		{cards: hand{{8, suitClub}, {10, suitDiamond}}, bet: 50, fromSplit: true},
+	}
+	rm.dealer = hand{{rankAce, suitClub}, {7, suitDiamond}}
+	rm.dealerHole = true
+	rm.phase = phTurns
+	rm.render(tr)
+	if row := kittest.String(tr.LastFrame(a), seatValRow); !strings.Contains(row, "INS") {
+		t.Fatalf("split seat lost its INS marker: %q", row)
+	}
+}
