@@ -1207,10 +1207,11 @@ func TestBettingShowsPairsSideBet(t *testing.T) {
 	}
 }
 
-// TestPairsLineCarriesCharacterTile asserts the Perfect Pairs side-bet line is
-// prefixed with the placing player's arcade character tile, so whose side bet is
-// whose reads from the face beside it, not just the column.
-func TestPairsLineCarriesCharacterTile(t *testing.T) {
+// TestPairsLineCarriesNoCharacterTile asserts the Perfect Pairs side-bet line is
+// bare text: it sits directly under its seat's own name row (which already
+// carries the tile), so a face there restates the obvious. Tiles remain on
+// the backers line, where they identify OTHER players.
+func TestPairsLineCarriesNoCharacterTile(t *testing.T) {
 	a := mkPlayer("alice")
 	a.Character = kit.Character{Glyph: "λ", InkR: 0x39, InkG: 0xFF, InkB: 0x14, Fallback: 'L'}
 	rm, tr := newGame(t, a)
@@ -1221,14 +1222,45 @@ func TestPairsLineCarriesCharacterTile(t *testing.T) {
 
 	row := kittest.String(f, seatCardRow+2)
 	idx := colIndex(row, "+pairs 25")
-	if idx < 2 {
-		t.Fatalf("pairs line not found (or no room for a tile) on row %d: %q", seatCardRow+2, row)
+	if idx < 0 {
+		t.Fatalf("pairs line not found on row %d: %q", seatCardRow+2, row)
 	}
-	if got, want := f.Cells[seatCardRow+2][idx-2], kit.CharacterCell(a.Character); got != want {
-		t.Errorf("cell before the pairs bet = %+v, want the character tile %+v", got, want)
+	if got := f.Cells[seatCardRow+2][idx-2]; got == kit.CharacterCell(a.Character) {
+		t.Errorf("pairs line still carries the character tile: %+v", got)
 	}
-	if sp := f.Cells[seatCardRow+2][idx-1].Rune; sp != ' ' && sp != 0 {
-		t.Errorf("no space between the character tile and the pairs bet (got %q)", sp)
+}
+
+// TestPairsLossIsSelfOnly asserts a lost side bet is the owner's quiet news:
+// the "pairs lost" note renders on the viewer's own seat only, while a win
+// broadcasts to every viewer.
+func TestPairsLossIsSelfOnly(t *testing.T) {
+	a, b := mkPlayer("alice"), mkPlayer("bob")
+	rm, tr := newGame(t, a, b)
+	rm.what = pendNone
+	rm.OnJoin(tr, a)
+	rm.OnJoin(tr, b)
+	sa, sb := rm.seats[a.AccountID], rm.seats[b.AccountID]
+	// Alice lost her pairs (no pair dealt); bob won his (a paid kind is set).
+	sa.placed, sa.pairsBet, sa.pairsKind = true, 25, ""
+	sa.hands = []*phand{{cards: hand{{9, suitHeart}, {5, suitSpade}}, bet: 50}}
+	sb.placed, sb.pairsBet, sb.pairsKind = true, 25, "mixed"
+	sb.hands = []*phand{{cards: hand{{8, suitHeart}, {8, suitSpade}}, bet: 50}}
+	rm.dealer = hand{{10, suitClub}, {7, suitDiamond}}
+	rm.phase = phTurns
+	rm.render(tr)
+
+	// Alice sees her own loss and bob's win.
+	rowA := kittest.String(tr.LastFrame(a), seatPairRow)
+	if !strings.Contains(rowA, "pairs lost") || !strings.Contains(rowA, "MIXED") {
+		t.Fatalf("owner's view should carry its loss and the win: %q", rowA)
+	}
+	// Bob sees his win but NOT alice's loss.
+	rowB := kittest.String(tr.LastFrame(b), seatPairRow)
+	if strings.Contains(rowB, "pairs lost") {
+		t.Fatalf("another viewer should not see alice's pairs loss: %q", rowB)
+	}
+	if !strings.Contains(rowB, "MIXED") {
+		t.Fatalf("wins should broadcast to every viewer: %q", rowB)
 	}
 }
 
