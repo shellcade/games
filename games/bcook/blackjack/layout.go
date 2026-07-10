@@ -235,8 +235,12 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 		// Split aces take exactly one card each and stand — so both hands lock the
 		// moment they're split and the turn passes on. Name the rule beneath them,
 		// so a locked "can't hit, turn moved on" reads as intended, not broken.
+		// Otherwise the freed value row keeps a riding insurance stake visible
+		// for a seat that insured before splitting.
 		if splitAces(s) {
 			centerSlot(f, seatValRow, slot, "aces: 1 card", stDim)
+		} else if tag := rm.insTag(s); tag != "" {
+			centerSlot(f, seatValRow, slot, strings.TrimSpace(tag), stDim)
 		}
 		if rm.phase == phResults && s.result != "" {
 			centerSlot(f, seatChipRow, slot, s.result, resultStyle(s.result))
@@ -258,12 +262,20 @@ func (rm *room) drawSeat(f *kit.Frame, slot int, s *seat, v kit.Player, own, act
 		}
 		drawCardsAnim(f, seatCardRow, col, h.cards, -1, rm.seatResolver(s.p, hi, h))
 		col += w + 1
+		// A surrendered hand reads SURR where its total would sit — the fold
+		// (half the stake back) must be unmistakable on the felt, not a hand
+		// that quietly stopped playing.
+		if h.surrendered {
+			vals = append(vals, "SURR")
+			continue
+		}
 		vals = append(vals, valueLabel(h.cards, h.fromSplit)+dblTag(h))
 	}
 	// During results the value line doubles as the ready indicator: a readied
 	// seat shows READY where its hand total was, so who's holding up the table
-	// reads at a glance.
-	valStr, valSt := strings.Join(vals, " "), valueStyle(s)
+	// reads at a glance. The insurance tag (ins? / INS) rides the value line
+	// so a bought stake stays visible through the round.
+	valStr, valSt := strings.Join(vals, " ")+rm.insTag(s), valueStyle(s)
 	if rm.phase == phResults && s.ready {
 		valStr, valSt = "READY", stWin
 	}
@@ -298,15 +310,17 @@ func pairsMult(kind string) int {
 // ambiguous; it shows only once placed, or for the seat's owner, matching how
 // the main bet stays private until placed. Once the cards are dealt it moves to
 // seatPairRow below the seat's hand, showing the win label (e.g. "COLORED 12:1")
-// or a quiet "pairs lost".
+// or, on the viewer's own seat only, a quiet "pairs lost". The line carries no
+// character tile: it sits directly under the seat's own name row, so a face
+// there restates the obvious (backs on OTHER seats keep tiles — see
+// drawBackersLine, where the face is the information).
 func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
-	ch := kit.CharacterCell(s.p.Character) // the placing player's face, beside their side bet
 	if rm.phase == phBetting {
 		if s.pairsBet > 0 && (s.placed || own) {
 			// Match the seat's bet line (stDim) rather than the bright own-seat
 			// cyan — the side stake reads as part of the same quiet bet block,
 			// not a highlight competing with the active-seat and prompt colours.
-			centerSlotChar(f, seatCardRow+2, slot, ch, fmt.Sprintf("+pairs %d", s.pairsBet), stDim)
+			centerSlot(f, seatCardRow+2, slot, fmt.Sprintf("+pairs %d", s.pairsBet), stDim)
 		}
 		return
 	}
@@ -321,10 +335,14 @@ func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
 		return
 	}
 	if s.pairsKind != "" {
-		centerSlotChar(f, seatPairRow, slot, ch, fmt.Sprintf("%s %d:1", strings.ToUpper(s.pairsKind), pairsMult(s.pairsKind)), stWin)
+		centerSlot(f, seatPairRow, slot, fmt.Sprintf("%s %d:1", strings.ToUpper(s.pairsKind), pairsMult(s.pairsKind)), stWin)
 		return
 	}
-	centerSlotChar(f, seatPairRow, slot, ch, "pairs lost", stDim)
+	// A lost side bet is the seat owner's quiet news, not a table event: only
+	// the viewer's own seat says "pairs lost" (wins above broadcast to all).
+	if own {
+		centerSlot(f, seatPairRow, slot, "pairs lost", stDim)
+	}
 }
 
 // drawBackersLine renders, on a seat's dedicated backers row, a token per player
@@ -858,21 +876,6 @@ func centerSlot(f *kit.Frame, row, slot int, s string, st kit.Style) {
 	f.Text(row, slot+(slotW-n)/2, s, st)
 }
 
-// centerSlotChar centres "<character tile> <text>" within a slotW-wide column:
-// the styled character cell (width 1) plus a space precede the text, tying the
-// line to a specific player by face. The text is clamped so the tile + text
-// never overflow the slot.
-func centerSlotChar(f *kit.Frame, row, slot int, ch kit.Cell, text string, st kit.Style) {
-	tr := []rune(text)
-	if len(tr) > slotW-2 {
-		tr = tr[:slotW-2]
-	}
-	w := 2 + len(tr)
-	col := slot + (slotW-w)/2
-	f.Set(row, col, ch)
-	f.Text(row, col+2, string(tr), st)
-}
-
 func (rm *room) remaining() int {
 	if rm.deadline.IsZero() || rm.lastNow.IsZero() {
 		return 0
@@ -926,6 +929,20 @@ func dblTag(h *phand) string {
 	return ""
 }
 
+// insTag marks the seat's insurance state on its value row: " ins?" while the
+// offer is open on this seat, " INS" once the stake is riding (kept through
+// turns and results, so who insured stays readable), and nothing for a
+// declined offer.
+func (rm *room) insTag(s *seat) string {
+	switch {
+	case s.insurance > 0:
+		return " INS"
+	case rm.phase == phInsurance && s.placed && !s.insuranceDecided:
+		return " ins?"
+	}
+	return ""
+}
+
 // valueLabel formats a hand's total for the felt. Only a NATURAL two-card 21
 // (not one formed by splitting) reads as "BJ"; a split two-card 21 — the kind a
 // split ace hitting a ten makes — reads as a plain "21", since it is a plain 21
@@ -948,6 +965,9 @@ func valueLabel(h hand, fromSplit bool) string {
 
 func valueStyle(s *seat) kit.Style {
 	for _, h := range s.hands {
+		if h.surrendered {
+			return stDim // a folded hand reads quiet, not like a live total
+		}
 		if h.cards.isBust() {
 			return stLose
 		}
@@ -965,6 +985,6 @@ func resultStyle(result string) kit.Style {
 	case strings.HasPrefix(result, "LOSE"), strings.HasPrefix(result, "BUST"):
 		return stLose
 	default:
-		return stDim
+		return stDim // PUSH, and the quiet SURR fold (half the stake back)
 	}
 }

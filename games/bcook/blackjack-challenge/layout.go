@@ -293,13 +293,12 @@ func pairsMult(kind string) int {
 // seatPairRow below the seat's hand, showing the win label (e.g. "COLORED 8:1")
 // or a quiet "pairs lost".
 func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
-	ch := kit.CharacterCell(s.p.Character) // the placing player's face, beside their side bet
 	if rm.phase == phBetting {
 		if s.pairsBet > 0 && (s.placed || own) {
 			// Match the seat's bet line (stDim) rather than the bright own-seat
 			// cyan — the side stake reads as part of the same quiet bet block,
 			// not a highlight competing with the active-seat and prompt colours.
-			centerSlotChar(f, seatCardRow+2, slot, ch, fmt.Sprintf("+pairs %d", s.pairsBet), stDim)
+			centerSlot(f, seatCardRow+2, slot, fmt.Sprintf("+pairs %d", s.pairsBet), stDim)
 		}
 		return
 	}
@@ -314,10 +313,14 @@ func (rm *room) drawPairsLine(f *kit.Frame, slot int, s *seat, own bool) {
 		return
 	}
 	if s.pairsKind != "" {
-		centerSlotChar(f, seatPairRow, slot, ch, fmt.Sprintf("%s %d:1", strings.ToUpper(s.pairsKind), pairsMult(s.pairsKind)), stWin)
+		centerSlot(f, seatPairRow, slot, fmt.Sprintf("%s %d:1", strings.ToUpper(s.pairsKind), pairsMult(s.pairsKind)), stWin)
 		return
 	}
-	centerSlotChar(f, seatPairRow, slot, ch, "pairs lost", stDim)
+	// A lost side bet is the seat owner's quiet news, not a table event: only
+	// the viewer's own seat says "pairs lost" (wins above broadcast to all).
+	if own {
+		centerSlot(f, seatPairRow, slot, "pairs lost", stDim)
+	}
 }
 
 // drawBackersLine renders, on a seat's dedicated backers row, a token per player
@@ -805,21 +808,6 @@ func centerSlot(f *kit.Frame, row, slot int, s string, st kit.Style) {
 		n = slotW
 	}
 	f.Text(row, slot+(slotW-n)/2, s, st)
-}
-
-// centerSlotChar centres "<character tile> <text>" within a slotW-wide column:
-// the styled character cell (width 1) plus a space precede the text, tying the
-// line to a specific player by face. The text is clamped so the tile + text
-// never overflow the slot.
-func centerSlotChar(f *kit.Frame, row, slot int, ch kit.Cell, text string, st kit.Style) {
-	tr := []rune(text)
-	if len(tr) > slotW-2 {
-		tr = tr[:slotW-2]
-	}
-	w := 2 + len(tr)
-	col := slot + (slotW-w)/2
-	f.Set(row, col, ch)
-	f.Text(row, col+2, string(tr), st)
 }
 
 func (rm *room) remaining() int {
