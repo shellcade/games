@@ -37,6 +37,15 @@ steps:
   # back-pairs on seat 1 pay too; seat 0 (a pair of tens) is first on turn.
   - shot: dealt
 
+  # Seat 0 flips its hint card on (?): the book play for the hand as it stands
+  # reads under the dealer's cards - the pair of tens plays as its total
+  # ("hint: STAND - hard 20 vs 6"). Toggled back off after the shot so the
+  # frames that follow are unchanged.
+  - seat: 0
+  - rune: "?"
+  - shot: hint
+  - rune: "?"
+
   # Seat 0 splits its pair -> two hands stacked, the hand on turn marked.
   - seat: 0
   - rune: "p"
