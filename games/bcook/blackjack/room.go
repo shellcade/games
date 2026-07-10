@@ -132,6 +132,14 @@ type room struct {
 	dealerHole bool // hole card concealed
 	joinSeq    int
 
+	// The rotating dealer (dealer.go): dealerIdx names who is working the
+	// table, handsThisShoe counts the rounds dealt from the current shoe (the
+	// rotation cap for a shoe the cut card is slow to end), and dealerNote
+	// carries the changeover announcement through the next betting window.
+	dealerIdx     int
+	handsThisShoe int
+	dealerNote    string
+
 	// deadline is the current phase deadline (rendered as the countdown) and
 	// what is the active pending one-shot. pendAt is the instant `what` fires;
 	// for most phases it equals deadline, but pendSettle/pendBettingClose-grace
@@ -165,6 +173,10 @@ func (rm *room) economyOff() bool { return rm.svc.Credits == nil }
 
 func (rm *room) OnStart(r kit.Room) {
 	rm.sh = newShoe(r.Rand())
+	// The opening dealer comes off the room seed, NOT r.Rand(): drawing from
+	// the RNG here would shift the card stream and change every seeded deal
+	// (the smoke script's choreography rides on exact cards from its seed).
+	rm.dealerIdx = int(((rm.cfg.Seed % int64(len(dealerNames))) + int64(len(dealerNames))) % int64(len(dealerNames)))
 	if rm.economyOff() {
 		rm.render(r) // out-of-service: no economy, no betting
 		return
@@ -380,6 +392,11 @@ func (rm *room) enterBetting(r kit.Room) {
 	rm.dealerHole = false
 	rm.bettingClosing = false
 	rm.clearSchedule()
+	// A spent shoe retires with its dealer: the cut card (or the handsPerDealer
+	// cap on a slow shoe) swaps in the next dealer, who brings a fresh shuffle.
+	if rm.needsNewDealer() {
+		rm.rotateDealer(r)
+	}
 	for _, s := range rm.seats {
 		s.hands = nil
 		s.placed = false
@@ -632,8 +649,12 @@ func loopTier(tiers []int, cur, budget int) int {
 
 func (rm *room) deal(r kit.Room) {
 	if rm.sh.needsReshuffle() {
+		// Defensive: the changeover at enterBetting (rotateDealer) reshuffles
+		// before any spent shoe reaches a deal, so this never fires in play.
 		rm.sh.shuffle(r.Rand())
 	}
+	rm.dealerNote = "" // the incoming dealer's first deal retires the announcement
+	rm.handsThisShoe++ // one more round on this dealer's shoe (rotation cap)
 	rm.sh.beginRound() // everything dealt before this point is recyclable discards
 	rng := r.Rand()
 	rm.dealer = hand{rm.sh.draw(rng), rm.sh.draw(rng)} // [up, hole]

@@ -1453,8 +1453,8 @@ func TestRulesTaglineFlanksTheDealer(t *testing.T) {
 	if !strings.Contains(dealerLabelRow, "dealer stands on 17") {
 		t.Errorf("dealer rule not on the dealer label row: %q", dealerLabelRow)
 	}
-	if !strings.Contains(dealerLabelRow, "D E A L E R") {
-		t.Errorf("DEALER label should remain centred between the rules: %q", dealerLabelRow)
+	if !strings.Contains(dealerLabelRow, rm.dealerName()) {
+		t.Errorf("dealer nameplate should sit centred between the rules: %q", dealerLabelRow)
 	}
 	// The old mid-felt tagline (row 9) must be clear now.
 	if mid := kittest.String(f, 9); strings.Contains(mid, "blackjack pays") {
@@ -1661,5 +1661,79 @@ func TestPairsMult(t *testing.T) {
 		if got := pairsMult(c.kind); got != c.want {
 			t.Errorf("pairsMult(%q) = %d, want %d", c.kind, got, c.want)
 		}
+	}
+}
+
+// TestDealerRotatesWithSpentShoe asserts the dealer changeover rides the shoe:
+// a shoe past its cut card retires the dealer at the next betting window — the
+// roster advances, a fresh shuffle resets the shoe, the hand count restarts,
+// and the changeover is announced on the felt.
+func TestDealerRotatesWithSpentShoe(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	was := rm.dealerIdx
+	rm.sh.pos = rm.sh.cut // cut card reached: the shoe is spent
+	rm.handsThisShoe = 7
+	rm.enterBetting(tr)
+	if rm.dealerIdx != (was+1)%len(dealerNames) {
+		t.Fatalf("dealerIdx = %d, want roster advance from %d", rm.dealerIdx, was)
+	}
+	if rm.sh.pos != 0 {
+		t.Fatalf("shoe pos = %d, want 0 (incoming dealer brings a fresh shuffle)", rm.sh.pos)
+	}
+	if rm.handsThisShoe != 0 {
+		t.Fatalf("handsThisShoe = %d, want 0 after the changeover", rm.handsThisShoe)
+	}
+	want := dealerNames[was] + " steps away - " + rm.dealerName() + " takes the shoe"
+	if rm.dealerNote != want {
+		t.Fatalf("dealerNote = %q, want %q", rm.dealerNote, want)
+	}
+	// The announcement renders where the dealer's cards will land.
+	rm.render(tr)
+	if row := kittest.String(tr.LastFrame(a), dealerRow+1); !strings.Contains(row, want) {
+		t.Fatalf("changeover note not on the felt: %q", row)
+	}
+	// A fresh-shoe reopen (nobody bet) must NOT rotate again.
+	rm.enterBetting(tr)
+	if rm.dealerIdx != (was+1)%len(dealerNames) {
+		t.Fatalf("reopen rotated the dealer again: idx %d", rm.dealerIdx)
+	}
+}
+
+// TestDealerRotatesAtHandCap asserts a slow-burning shoe still retires its
+// dealer: handsPerDealer rounds dealt swaps the dealer (and the shoe with
+// them) even though the cut card is nowhere near.
+func TestDealerRotatesAtHandCap(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	was := rm.dealerIdx
+	rm.handsThisShoe = handsPerDealer // dealt a full shift; shoe nowhere near the cut
+	rm.enterBetting(tr)
+	if rm.dealerIdx != (was+1)%len(dealerNames) {
+		t.Fatalf("hand cap did not rotate the dealer: idx %d, was %d", rm.dealerIdx, was)
+	}
+	if rm.handsThisShoe != 0 || rm.sh.pos != 0 {
+		t.Fatalf("changeover must reset the count and shoe: hands %d, pos %d", rm.handsThisShoe, rm.sh.pos)
+	}
+}
+
+// TestDealCountsHandsAndClearsNote asserts each deal ticks the rotation
+// counter and retires the changeover announcement.
+func TestDealCountsHandsAndClearsNote(t *testing.T) {
+	a := mkPlayer("a")
+	rm, tr := newGame(t, a)
+	rm.OnJoin(tr, a)
+	s := rm.seats[a.AccountID]
+	fund(tr, s, 1000)
+	s.placed = true
+	rm.dealerNote = "Vega steps away - Nova takes the shoe"
+	rm.deal(tr)
+	if rm.handsThisShoe != 1 {
+		t.Fatalf("handsThisShoe = %d after one deal, want 1", rm.handsThisShoe)
+	}
+	if rm.dealerNote != "" {
+		t.Fatalf("dealerNote survived the deal: %q", rm.dealerNote)
 	}
 }

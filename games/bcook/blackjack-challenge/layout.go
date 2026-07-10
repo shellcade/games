@@ -88,7 +88,9 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	// across the middle of the felt — keeping the centre clear for the cards.
 	f.Text(dealerRow-1, 2, "blackjack pays 2:1 - ties lose", stDim)
 	f.TextRight(dealerRow-1, kit.Cols-3, "dealer stands on 17", stDim)
-	center(f, dealerRow-1, "D E A L E R", stTitle)
+	// The centred label is the working dealer's nameplate (dealer.go): the crew
+	// rotates with the shoe, so the name up top says whose shoe this is.
+	center(f, dealerRow-1, rm.dealerName(), stTitle)
 	rm.drawDealer(f)
 
 	// Seats along the rail, centred as a group.
@@ -117,7 +119,14 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 
 func (rm *room) drawDealer(f *kit.Frame) {
 	if len(rm.dealer) == 0 {
-		center(f, dealerRow+1, "(waiting for bets)", stDim)
+		// A dealer changeover just happened: announce it where the cards will
+		// land, brightly, for this betting window (the next deal clears it).
+		// Otherwise the wait line names the dealer, anchoring the nameplate.
+		if rm.dealerNote != "" {
+			center(f, dealerRow+1, rm.dealerNote, stPhase)
+		} else {
+			center(f, dealerRow+1, "(dealer "+rm.dealerName()+" waits for bets)", stDim)
+		}
 		return
 	}
 	// Size and centre the row to the cards actually on the table (the one dealt
@@ -412,9 +421,10 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 			return
 		default:
 			// No hand left on turn: every player has resolved and the dealer is
-			// drawing out from its one face-up card. Name the moment so the slow
-			// draw-out reads as the dealer acting rather than a frozen table.
-			msg, st = "dealer plays...", stDim
+			// drawing out from its one face-up card. Name the moment (and the
+			// dealer, by name) so the slow draw-out reads as the dealer acting
+			// rather than a frozen table.
+			msg, st = rm.dealerName()+" plays...", stDim
 		}
 	case phResults:
 		switch n := rm.unreadyCount(); {
