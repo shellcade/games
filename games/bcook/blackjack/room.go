@@ -103,6 +103,7 @@ type seat struct {
 	joinOrder        int
 	result           string // settlement summary for the results phase
 	ready            bool   // readied up during results to skip the wait
+	hint             bool   // hint card toggled on (?): show the book play on turn
 }
 
 // pending names the deferred one-shot the room is waiting on, replacing the
@@ -1290,6 +1291,14 @@ func (rm *room) unreadyCount() int {
 func (rm *room) OnInput(r kit.Room, p kit.Player, in kit.Input) {
 	s := rm.seats[p.AccountID]
 	if s == nil {
+		return
+	}
+	// ? toggles the seat's hint card in ANY phase (personal render-only state,
+	// so it works even while a deal animation is in flight). / rides along for
+	// keyboards where ? needs shift.
+	if in.Kind == kit.InputRune && (in.Rune == '?' || in.Rune == '/') {
+		s.hint = !s.hint
+		rm.render(r)
 		return
 	}
 	switch rm.phase {

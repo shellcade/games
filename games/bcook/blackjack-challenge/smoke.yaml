@@ -44,6 +44,14 @@ steps:
   # turn with [P]split offered on the pair.
   - shot: dealt
 
+  # Seat 0 flips its hint card on (?): the book play for the hand as it stands
+  # reads under the dealer's card ("hint: SPLIT - pair of 8s vs 4"). Toggled
+  # back off after the shot so the frames that follow are unchanged.
+  - seat: 0
+  - rune: "?"
+  - shot: hint
+  - rune: "?"
+
   # Seat 0 splits its eights -> two hands stacked, each drawing a second card
   # (split is by POINT VALUE on this table, so K+10 would split too); the hand
   # on turn is marked.

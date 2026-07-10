@@ -15,6 +15,7 @@ const (
 	feltBottom   = 19
 	dealerRow    = 4 // dealer card group occupies dealerRow..dealerRow+2
 	dealerValRow = 7 // dealer total / verdict, centred just below the cards
+	hintRow      = 8 // the viewer's hint card (?): the book play for the hand on turn
 
 	// The seat block sits one row higher than the dealer-only layout used to
 	// allow: relocating the rules tagline (it now flanks the dealer) freed rows
@@ -110,6 +111,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	}
 
 	rm.drawActionBar(f, v, active)
+	rm.drawHint(f, v, active)
 
 	f.Text(kit.Rows-1, 1, "Esc leave", stDim)
 	if s := rm.seats[v.AccountID]; s != nil {
@@ -469,6 +471,35 @@ func (rm *room) drawActionBar(f *kit.Frame, v kit.Player, active *seat) {
 	}
 }
 
+// drawHint renders the viewer's hint card (toggled with ?): the book play for
+// their hand on turn, centred on the free row under the dealer verdict, in the
+// viewer's own colour — hints are per-seat state, so only the player who
+// turned them on sees them. It waits out the card animations (the hand isn't
+// readable until the cards have landed) and also covers the insurance
+// decision, where the book's answer never varies.
+func (rm *room) drawHint(f *kit.Frame, v kit.Player, active *seat) {
+	s := rm.seats[v.AccountID]
+	if s == nil || !s.hint {
+		return
+	}
+	switch rm.phase {
+	case phTurns:
+		if active == nil || active.p.AccountID != v.AccountID || rm.dealingActive() || len(rm.dealer) == 0 {
+			return
+		}
+		_, h := rm.firstUnresolved()
+		if h == nil {
+			return
+		}
+		act, why := recommend(s, h, rm.dealer[0])
+		center(f, hintRow, "hint: "+act+" - "+why, stOwn)
+	case phInsurance:
+		if s.placed && !s.insuranceDecided {
+			center(f, hintRow, "hint: NO - insurance loses money in the long run", stOwn)
+		}
+	}
+}
+
 // unplacedCount is how many seated players have not yet placed a bet.
 func (rm *room) unplacedCount() int {
 	n := 0
@@ -511,6 +542,7 @@ func legalActions(s *seat, h *phand) string {
 	if first && len(s.hands) == 1 {
 		parts = append(parts, "[R]surrender")
 	}
+	parts = append(parts, "[?]hint")
 	return strings.Join(parts, "  ")
 }
 
