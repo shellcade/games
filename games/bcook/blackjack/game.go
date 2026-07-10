@@ -71,6 +71,8 @@ func (Game) Meta() kit.GameMeta {
 			// Betting only: B loops the behind bet on the focused seat (Left/Right
 			// pick the seat); P (above) loops that seat's Perfect Pairs.
 			kit.RuneControl('b', "BEHIND"),
+			// ? toggles the hint card (the book play for the hand on turn).
+			kit.RuneControl('?', "HINT"),
 		},
 	}
 }

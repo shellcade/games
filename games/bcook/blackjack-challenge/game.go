@@ -68,6 +68,8 @@ func (Game) Meta() kit.GameMeta {
 			kit.RuneControl('p', "SPLIT/PAIRS"),
 			// Betting only: B loops the behind bet on the focused seat.
 			kit.RuneControl('b', "BEHIND"),
+			// ? toggles the hint card (the book play for the hand on turn).
+			kit.RuneControl('?', "HINT"),
 		},
 	}
 }
