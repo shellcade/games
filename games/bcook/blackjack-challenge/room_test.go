@@ -1453,7 +1453,7 @@ func TestRulesTaglineFlanksTheDealer(t *testing.T) {
 	if !strings.Contains(dealerLabelRow, "dealer stands on 17") {
 		t.Errorf("dealer rule not on the dealer label row: %q", dealerLabelRow)
 	}
-	if !strings.Contains(dealerLabelRow, spacedCaps(rm.dealerName())) {
+	if !strings.Contains(dealerLabelRow, rm.dealerName()) {
 		t.Errorf("dealer nameplate should sit centred between the rules: %q", dealerLabelRow)
 	}
 	// The old mid-felt tagline (row 9) must be clear now.

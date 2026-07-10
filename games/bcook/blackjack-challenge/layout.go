@@ -90,7 +90,7 @@ func (rm *room) compose(f *kit.Frame, v kit.Player) {
 	f.TextRight(dealerRow-1, kit.Cols-3, "dealer stands on 17", stDim)
 	// The centred label is the working dealer's nameplate (dealer.go): the crew
 	// rotates with the shoe, so the name up top says whose shoe this is.
-	center(f, dealerRow-1, spacedCaps(rm.dealerName()), stTitle)
+	center(f, dealerRow-1, rm.dealerName(), stTitle)
 	rm.drawDealer(f)
 
 	// Seats along the rail, centred as a group.
@@ -757,20 +757,6 @@ func drawFelt(f *kit.Frame, top, bot int) {
 
 func center(f *kit.Frame, row int, s string, st kit.Style) {
 	f.Text(row, (kit.Cols-len([]rune(s)))/2, s, st)
-}
-
-// spacedCaps letter-spaces s in caps ("Vega" -> "V E G A"): the felt signage
-// style the fixed D E A L E R label used before the crew carried names.
-func spacedCaps(s string) string {
-	rs := []rune(strings.ToUpper(s))
-	out := make([]rune, 0, len(rs)*2)
-	for i, r := range rs {
-		if i > 0 {
-			out = append(out, ' ')
-		}
-		out = append(out, r)
-	}
-	return string(out)
 }
 
 // centerWithChar centres "<pre><character tile> <post>" on a row: the styled
