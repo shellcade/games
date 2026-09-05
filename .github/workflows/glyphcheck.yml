@@ -25,7 +25,7 @@ on:
 # Pinned like the repo's other workflows: actions/checkout@v6, setup-go@v6,
 # GO_VERSION matched to validate.yml/vulncheck.yml.
 env:
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.27.1"
 
 permissions:
   contents: read

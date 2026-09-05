@@ -27,7 +27,7 @@ jobs:
         with:
           token: ${{ secrets.KIT_RELEASE_TOKEN }}
       - uses: actions/setup-go@v7
-        with: { go-version: "1.26" }
+        with: { go-version: "1.27.1" }
 
       - name: resolve version
         id: v

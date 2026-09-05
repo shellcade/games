@@ -4,4 +4,4 @@
 // convergence with the kit's `shellcade-kit check`.
 module github.com/shellcade/games/tools/glyphcheck
 
-go 1.24
+go 1.27.1
