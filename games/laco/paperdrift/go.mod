@@ -1,6 +1,6 @@
 module laco/paperdrift
 
-go 1.25.11
+go 1.27.1
 
 require github.com/shellcade/kit/v2 v2.17.1
 

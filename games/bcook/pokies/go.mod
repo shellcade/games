@@ -1,6 +1,6 @@
 module github.com/bcook/pokies
 
-go 1.25.11
+go 1.27.1
 
 require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2

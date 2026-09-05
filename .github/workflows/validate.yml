@@ -13,9 +13,9 @@ on:
 # was built against — no separate binary pin to keep in lockstep, and no
 # lockstep guard.
 env:
-  TINYGO_VERSION: "0.41.1"
+  TINYGO_VERSION: "0.42.0"
   BINARYEN_VERSION: "version_123"
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.27.1"
   FREEZE_VERSION: "0.2.2"       # charmbracelet/freeze — ANSI shot → SVG preview
 
 # Fork PRs already run with a read-only token; make it explicit so the fan-out
@@ -233,7 +233,7 @@ jobs:
             # Production profile is -gc=conservative since 2026-06-11: the old
             # leaking GC made every allocation permanent, so long-lived rooms
             # OOM-trapped at the host's 32 MiB cap (~52 min of play).
-            # Conservative GC re-verified against TinyGo 0.41.1 (200k-callback
+            # Conservative GC re-verified against TinyGo 0.42.0 (200k-callback
             # soak, flat memory).
             ( cd "$d" && go mod tidy && go test ./... )
             ( cd "$d" && tinygo build -opt=1 -no-debug -gc=conservative -o game.wasm -target wasip1 -buildmode=c-shared . )

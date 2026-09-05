@@ -12,9 +12,9 @@ on:
 # Cargo.toml git tag for Rust), so the release artifact is verified by the same
 # version it was built against.
 env:
-  TINYGO_VERSION: "0.41.1"
+  TINYGO_VERSION: "0.42.0"
   BINARYEN_VERSION: "version_123"
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.27.1"
 
 # Three-job split by design (mirrors validate.yml/smoke-preview.yml):
 #   changed — computes the work list, runs ZERO game code, holds no secrets.
