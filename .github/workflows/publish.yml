@@ -12,9 +12,10 @@ on:
 # Cargo.toml git tag for Rust), so the release artifact is verified by the same
 # version it was built against.
 env:
+  # TinyGo 0.44 faults on the SDK parity input callback; retain verified 0.42.
   TINYGO_VERSION: "0.42.0"
-  BINARYEN_VERSION: "version_123"
-  GO_VERSION: "1.27.1"
+  BINARYEN_VERSION: "version_133"
+  GO_VERSION: "1.27.3"
 
 # Three-job split by design (mirrors validate.yml/smoke-preview.yml):
 #   changed — computes the work list, runs ZERO game code, holds no secrets.
@@ -52,7 +53,7 @@ jobs:
       dirs: ${{ steps.changed.outputs.dirs }}     # newline list, for the release loop
       matrix: ${{ steps.changed.outputs.matrix }} # compact JSON array, for the build matrix
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0             # full history for the changed-dirs diff
           persist-credentials: false # no game code runs here, but keep the token off disk
@@ -97,14 +98,14 @@ jobs:
       matrix:
         dir: ${{ fromJSON(needs.changed.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # A leg builds ONE game dir at HEAD; no history diff needed here (the
           # changed job did that). persist-credentials: false — this job compiles
           # untrusted community code, so no token on disk.
           persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "${{ env.GO_VERSION }}"
           # No build/module cache in this untrusted-code job. actions/cache
@@ -116,7 +117,7 @@ jobs:
           # already delivers the speedup; a cold kit-CLI compile per leg is the
           # price of not caching poisonable build output.
           cache: false
-      - uses: acifani/setup-tinygo@v3
+      - uses: acifani/setup-tinygo@f51bf108c9895381060398804ce6cf6f62692106 # v3.0.1
         with: { tinygo-version: "${{ env.TINYGO_VERSION }}" }
 
       # Rust games (Cargo.toml module marker) build with the runner's stable
@@ -234,7 +235,7 @@ jobs:
           DIR: ${{ matrix.dir }}
         run: echo "SAFE=${DIR//\//-}" >> "$GITHUB_ENV"
       - name: upload release artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-wasm-${{ env.SAFE }}
           path: dist/
@@ -258,13 +259,13 @@ jobs:
       contents: write       # cut releases
       pull-requests: write  # upsert the verified:false comment on the merged PR
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0             # all tags for N derivation + CHANGELOG notes
           persist-credentials: false # gh uses GH_TOKEN from env; git stays read-only
 
       - name: download release artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-wasm-*  # one per build-matrix leg
           merge-multiple: true     # overlay every leg's dist/ into one tree

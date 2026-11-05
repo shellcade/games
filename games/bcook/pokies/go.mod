@@ -1,6 +1,6 @@
 module github.com/bcook/pokies
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
@@ -9,8 +9,8 @@ require (
 
 require (
 	github.com/extism/go-pdk v1.1.3 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/term v0.44.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
